@@ -1,5 +1,5 @@
 """TOML configuration loading and validation."""
-# pylint: disable=too-many-arguments
+# pylint: disable=too-many-arguments,too-many-lines
 
 from __future__ import annotations
 
@@ -279,6 +279,28 @@ def _parse_ignores(data: dict[str, object], path: Path) -> tuple[IgnoredImport, 
     return tuple(parsed)
 
 
+def _validate_group_references(
+    group: ModuleGroup, declared_names: set[str], path: Path
+) -> None:
+    _validate_dotted_strings(group.prefixes, path, context=f"group {group.name}")
+    unknown_allowed = sorted(set(group.allowed) - declared_names)
+    if unknown_allowed:
+        msg = (
+            f"{path}: group {group.name} allows undeclared groups: "
+            f"{', '.join(unknown_allowed)}"
+        )
+        raise ConfigError(msg)
+
+
+def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
+    if not ignored_import.reason.strip():
+        msg = (
+            f"{path}: ignore {ignored_import.importer} -> "
+            f"{ignored_import.imported} needs a reason"
+        )
+        raise ConfigError(msg)
+
+
 def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
     group_names = [group.name for group in policy.groups]
     duplicate_names = sorted({
@@ -289,26 +311,14 @@ def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
         raise ConfigError(msg)
     declared_names = set(group_names)
     for group in policy.groups:
-        _validate_dotted_strings(group.prefixes, path, context=f"group {group.name}")
-        unknown_allowed = sorted(set(group.allowed) - declared_names)
-        if unknown_allowed:
-            msg = (
-                f"{path}: group {group.name} allows undeclared groups: "
-                f"{', '.join(unknown_allowed)}"
-            )
-            raise ConfigError(msg)
+        _validate_group_references(group, declared_names, path)
     for ignored_import in policy.ignores:
         _validate_dotted_strings(
             (ignored_import.importer, ignored_import.imported),
             path,
             context="ignore_imports entry",
         )
-        if not ignored_import.reason.strip():
-            msg = (
-                f"{path}: ignore {ignored_import.importer} -> "
-                f"{ignored_import.imported} needs a reason"
-            )
-            raise ConfigError(msg)
+        _validate_ignore_reason(ignored_import, path)
 
 
 def _validate_package_roots(packages: tuple[PackageRoot, ...], path: Path) -> None:
