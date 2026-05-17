@@ -178,6 +178,29 @@ def _read_tool_config(path: Path) -> dict[str, object]:
     return _read_mapping(tool, "hecate", path=path)
 
 
+def _parse_package_from_cli_args(
+    package: str | None, root: Path | None, path: Path
+) -> tuple[PackageRoot, ...] | None:
+    if package is None and root is None:
+        return None
+    if package is None or root is None:
+        msg = f"{path}: --package and --root must be provided together"
+        raise ConfigError(msg)
+    return (PackageRoot(name=package, root=root),)
+
+
+def _parse_package_table_item(item: object, index: int, path: Path) -> PackageRoot:
+    if not isinstance(item, dict):
+        msg = f"{path}: tool.hecate.package[{index}] must be a table"
+        raise ConfigError(msg)
+    package_item = typ.cast("dict[str, object]", item)
+    name = _read_string(package_item, "name", path=path, context=f"package[{index}]")
+    package_root = _read_string(
+        package_item, "root", path=path, context=f"package[{index}]"
+    )
+    return PackageRoot(name=name, root=_resolve_config_path(path, Path(package_root)))
+
+
 def _parse_packages(
     data: dict[str, object],
     path: Path,
@@ -185,11 +208,9 @@ def _parse_packages(
     package: str | None,
     root: Path | None,
 ) -> tuple[PackageRoot, ...]:
-    if package is not None or root is not None:
-        if package is None or root is None:
-            msg = f"{path}: --package and --root must be provided together"
-            raise ConfigError(msg)
-        return (PackageRoot(name=package, root=root),)
+    cli_package = _parse_package_from_cli_args(package, root, path)
+    if cli_package is not None:
+        return cli_package
     configured = data.get("package")
     if configured is None:
         package_names = _read_string_tuple(data, "root_packages", path=path)
@@ -200,25 +221,10 @@ def _parse_packages(
     if not isinstance(configured, list):
         msg = f"{path}: tool.hecate.package must be a list of tables"
         raise ConfigError(msg)
-    packages: list[PackageRoot] = []
-    for index, item in enumerate(configured):
-        if not isinstance(item, dict):
-            msg = f"{path}: tool.hecate.package[{index}] must be a table"
-            raise ConfigError(msg)
-        package_item = typ.cast("dict[str, object]", item)
-        name = _read_string(
-            package_item, "name", path=path, context=f"package[{index}]"
-        )
-        package_root = _read_string(
-            package_item, "root", path=path, context=f"package[{index}]"
-        )
-        packages.append(
-            PackageRoot(
-                name=name,
-                root=_resolve_config_path(path, Path(package_root)),
-            )
-        )
-    return tuple(packages)
+    return tuple(
+        _parse_package_table_item(item, index, path)
+        for index, item in enumerate(configured)
+    )
 
 
 def _parse_groups(data: dict[str, object], path: Path) -> tuple[ModuleGroup, ...]:
