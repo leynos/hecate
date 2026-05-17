@@ -212,27 +212,32 @@ def _parse_packages(
     )
 
 
+def _parse_group_item(
+    item: object,
+    index: int,
+    path: Path,
+) -> ModuleGroup:
+    """Parse and validate one entry from the ``groups`` table list."""
+    if not isinstance(item, dict):
+        msg = f"{path}: tool.hecate.groups[{index}] must be a table"
+        raise ConfigError(msg)
+    group_item = typ.cast("dict[str, object]", item)
+    loc = _Loc(path=path, context=f"groups[{index}]")
+    return ModuleGroup(
+        name=_read_string(group_item, "name", loc),
+        prefixes=_read_string_tuple(group_item, "prefixes", loc),
+        allowed=_read_string_tuple(group_item, "allowed", loc),
+    )
+
+
 def _parse_groups(data: dict[str, object], path: Path) -> tuple[ModuleGroup, ...]:
     groups = data.get("groups")
     if not isinstance(groups, list) or not groups:
         msg = f"{path}: tool.hecate.groups must be a non-empty list of tables"
         raise ConfigError(msg)
-    parsed: list[ModuleGroup] = []
-    for index, group in enumerate(groups):
-        if not isinstance(group, dict):
-            msg = f"{path}: tool.hecate.groups[{index}] must be a table"
-            raise ConfigError(msg)
-        group_item = typ.cast("dict[str, object]", group)
-        context = f"groups[{index}]"
-        loc = _Loc(path=path, context=context)
-        parsed.append(
-            ModuleGroup(
-                name=_read_string(group_item, "name", loc),
-                prefixes=_read_string_tuple(group_item, "prefixes", loc),
-                allowed=_read_string_tuple(group_item, "allowed", loc),
-            )
-        )
-    return tuple(parsed)
+    return tuple(
+        _parse_group_item(item, index, path) for index, item in enumerate(groups)
+    )
 
 
 def _parse_ignores(data: dict[str, object], path: Path) -> tuple[IgnoredImport, ...]:
