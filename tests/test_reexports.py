@@ -1,0 +1,59 @@
+"""Unit tests for static package-barrel re-export expansion."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from hecate.config import PackageRoot
+from hecate.reexports import build_reexport_index
+
+
+def test_explicit_all_uses_last_literal_assignment(tmp_path: Path) -> None:
+    """The final literal ``__all__`` assignment controls exported names."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from .adapter import First, Second\n"
+        "__all__ = ['First']\n"
+        "__all__ = ['Second']\n",
+        encoding="utf-8",
+    )
+    (package_root / "adapter.py").write_text(
+        "class First: ...\nclass Second: ...\n", encoding="utf-8"
+    )
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.expand_import("pkg.Second") == ("pkg.Second", "pkg.adapter.Second")
+    assert index.expand_import("pkg.First") == ("pkg.First",)
+
+
+def test_unresolved_all_falls_back_to_public_symbols(tmp_path: Path) -> None:
+    """Non-literal ``__all__`` falls back to public imported symbols."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from .adapter import Adapter\n__all__ = tuple(['Adapter'])\n",
+        encoding="utf-8",
+    )
+    (package_root / "adapter.py").write_text("class Adapter: ...\n", encoding="utf-8")
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.expand_import("pkg.Adapter") == ("pkg.Adapter", "pkg.adapter.Adapter")
+
+
+def test_star_reexport_expands_static_origin(tmp_path: Path) -> None:
+    """Star re-exports expand when the origin module exposes public names."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from .adapter import *\n", encoding="utf-8"
+    )
+    (package_root / "adapter.py").write_text(
+        "__all__ = ['Adapter']\nclass Adapter: ...\n", encoding="utf-8"
+    )
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.expand_import("pkg.Adapter") == ("pkg.Adapter", "pkg.adapter.Adapter")

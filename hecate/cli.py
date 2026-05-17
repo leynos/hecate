@@ -1,0 +1,68 @@
+"""Cyclopts command-line interface."""
+# pylint: disable=too-many-arguments
+
+from __future__ import annotations
+
+import enum
+import sys
+from pathlib import Path
+
+import cyclopts
+
+from .checker import check_architecture
+from .config import ConfigError, load_config
+from .output import render_json, render_text
+
+
+class OutputFormat(enum.StrEnum):
+    """Supported output formats."""
+
+    TEXT = "text"
+    JSON = "json"
+
+
+app = cyclopts.App(name="hecate", result_action=lambda value: value)
+
+
+@app.command
+def check(
+    *,
+    config: Path | None = None,
+    package: str | None = None,
+    root: Path | None = None,
+    format: OutputFormat = OutputFormat.TEXT,
+    include_external_packages: bool | None = None,
+    show_ignored: bool = False,
+    fail_on_unmatched_ignore: bool = False,
+) -> int:
+    """Check configured Python packages for architecture violations."""
+    try:
+        hecate_config = load_config(
+            config,
+            package=package,
+            root=root,
+            include_external_packages=include_external_packages,
+            show_ignored=show_ignored,
+            fail_on_unmatched_ignore=fail_on_unmatched_ignore,
+        )
+        result = check_architecture(hecate_config)
+    except ConfigError as error:
+        print(f"hecate: {error}", file=sys.stderr)
+        return 2
+    output = (
+        render_json(result, show_ignored=show_ignored)
+        if format is OutputFormat.JSON
+        else render_text(result, show_ignored=show_ignored)
+    )
+    print(output, end="")
+    return 0 if result.ok else 1
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run the Cyclopts application."""
+    try:
+        value = app(argv)
+    except cyclopts.CycloptsError as error:
+        print(error, file=sys.stderr)
+        return 2
+    return int(value or 0)
