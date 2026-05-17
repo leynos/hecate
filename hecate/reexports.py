@@ -144,49 +144,41 @@ def _literal_string_sequence(value: ast.expr) -> tuple[str, ...] | None:
     return tuple(names)
 
 
+def _collect_definition_export(
+    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef, *, module: str
+) -> dict[str, tuple[str, ...]]:
+    if node.name.startswith("_"):
+        return {}
+    return {node.name: (f"{module}.{node.name}",)}
+
+
+def _collect_assignment_exports(
+    node: ast.Assign, *, module: str
+) -> dict[str, tuple[str, ...]]:
+    exports: dict[str, tuple[str, ...]] = {}
+    for target in node.targets:
+        if isinstance(target, ast.Name) and not target.id.startswith("_"):
+            exports[target.id] = (f"{module}.{target.id}",)
+    return exports
+
+
 def _collect_public_exports(
     tree: ast.Module, *, module: str, is_package_init: bool
 ) -> dict[str, tuple[str, ...]]:
     exports: dict[str, tuple[str, ...]] = {}
     for node in tree.body:
-        _handle_class_or_function_node(node, module, exports)
-        _handle_assign_node(node, module, exports)
-        _handle_importfrom_node(node, module, exports, is_package_init=is_package_init)
+        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            exports.update(_collect_definition_export(node, module=module))
+        elif isinstance(node, ast.Assign):
+            exports.update(_collect_assignment_exports(node, module=module))
+        elif isinstance(node, ast.ImportFrom):
+            _merge_exports(
+                exports,
+                _collect_imported_exports(
+                    node, module=module, is_package_init=is_package_init
+                ),
+            )
     return exports
-
-
-def _handle_class_or_function_node(
-    node: ast.stmt, module: str, exports: dict[str, tuple[str, ...]]
-) -> None:
-    if isinstance(
-        node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
-    ) and not node.name.startswith("_"):
-        exports[node.name] = (f"{module}.{node.name}",)
-
-
-def _handle_assign_node(
-    node: ast.stmt, module: str, exports: dict[str, tuple[str, ...]]
-) -> None:
-    if not isinstance(node, ast.Assign):
-        return
-    for target in node.targets:
-        if isinstance(target, ast.Name) and not target.id.startswith("_"):
-            exports[target.id] = (f"{module}.{target.id}",)
-
-
-def _handle_importfrom_node(
-    node: ast.stmt,
-    module: str,
-    exports: dict[str, tuple[str, ...]],
-    *,
-    is_package_init: bool,
-) -> None:
-    if not isinstance(node, ast.ImportFrom):
-        return
-    _merge_exports(
-        exports,
-        _collect_imported_exports(node, module=module, is_package_init=is_package_init),
-    )
 
 
 def _merge_exports(
