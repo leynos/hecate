@@ -7,6 +7,19 @@ import dataclasses as dc
 from .imports import is_module_prefix
 
 
+def module_prefix_contains(prefix: str, module: str) -> bool:
+    """Return whether a dotted prefix contains a module."""
+    assert prefix
+    assert module
+    return is_module_prefix(prefix, module)
+
+
+def group_allowed_by_list(imported_group: str, allowed: tuple[str, ...]) -> bool:
+    """Return whether ``imported_group`` appears in a configured allow-list."""
+    assert imported_group
+    return imported_group in allowed
+
+
 @dc.dataclass(frozen=True, slots=True)
 class ModuleGroup:
     """A named architecture group matched by ordered dotted prefixes."""
@@ -54,9 +67,8 @@ def first_matching_group(
     module: str, groups: tuple[ModuleGroup, ...]
 ) -> ModuleGroup | None:
     """Return the first configured group that contains ``module``."""
-    assert module
     for group in groups:
-        if any(is_module_prefix(prefix, module) for prefix in group.prefixes):
+        if any(module_prefix_contains(prefix, module) for prefix in group.prefixes):
             return group
     return None
 
@@ -65,18 +77,14 @@ def is_group_allowed(
     importer_group: str, imported_group: str, groups: tuple[ModuleGroup, ...]
 ) -> bool:
     """Return whether ``importer_group`` may import ``imported_group``."""
-    assert importer_group
-    assert imported_group
     for group in groups:
         if group.name == importer_group:
-            return imported_group in group.allowed
+            return group_allowed_by_list(imported_group, group.allowed)
     return False
 
 
 def ignore_matches(ignored_import: IgnoredImport, importer: str, imported: str) -> bool:
     """Return whether an ignore entry covers an import edge."""
-    assert importer
-    assert imported
-    return is_module_prefix(ignored_import.importer, importer) and is_module_prefix(
-        ignored_import.imported, imported
-    )
+    return module_prefix_contains(
+        ignored_import.importer, importer
+    ) and module_prefix_contains(ignored_import.imported, imported)

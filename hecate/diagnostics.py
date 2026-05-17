@@ -32,16 +32,29 @@ class ArchitectureViolation:
 
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-safe diagnostic mapping."""
-        assert self.rule_id
-        return {
-            "rule_id": self.rule_id,
-            "importer": self.importer,
-            "imported": self.imported,
-            "importer_group": self.importer_group,
-            "imported_group": self.imported_group,
-            "source_path": str(self.source_path),
-            "line": self.line,
-        }
+        payload = diagnostic_identity_to_dict(
+            self.rule_id, self.importer, self.imported, self.line
+        )
+        payload["importer_group"] = self.importer_group
+        payload["imported_group"] = self.imported_group
+        payload["source_path"] = str(self.source_path)
+        return payload
+
+
+def diagnostic_identity_to_dict(
+    rule_id: str, importer: str, imported: str, line: int
+) -> dict[str, object]:
+    """Return the primitive identity fields as a JSON-safe mapping."""
+    assert rule_id
+    assert importer
+    assert imported
+    assert line >= 0
+    return {
+        "rule_id": rule_id,
+        "importer": importer,
+        "imported": imported,
+        "line": line,
+    }
 
 
 @dc.dataclass(frozen=True, slots=True)

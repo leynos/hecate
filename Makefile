@@ -19,7 +19,7 @@ PYLINT = $(UV_ENV) $(UV) tool run --python $(PYLINT_PYTHON) --from '$(PYLINT_PYP
 
 
 .PHONY: help all clean build build-release lint lint-python fmt check-fmt \
-        markdownlint nixie test typecheck $(TOOLS) $(VENV_TOOLS)
+        markdownlint nixie test typecheck crosshair $(TOOLS) $(VENV_TOOLS)
 
 .DEFAULT_GOAL := all
 
@@ -107,6 +107,9 @@ nixie: ## Validate Mermaid diagrams
 
 test: build $(VENV_TOOLS) ## Run tests
 	$(UV_ENV) $(UV) run pytest -v -n $(PYTEST_XDIST_WORKERS)
+
+crosshair: build ## Run bounded CrossHair contracts
+	$(UV_ENV) $(UV) run crosshair check hecate/policy.py hecate/diagnostics.py --analysis_kind=asserts
 
 
 help: ## Show available targets
