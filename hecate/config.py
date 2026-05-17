@@ -1,5 +1,5 @@
 """TOML configuration loading and validation."""
-# pylint: disable=too-many-arguments,too-many-lines
+# pylint: disable=too-many-lines
 
 from __future__ import annotations
 
@@ -90,7 +90,7 @@ def load_config(
         groups=groups,
         ignores=ignores,
         default_rule_id=_read_string(
-            data, "default_rule_id", default="HEC001", path=config_path
+            data, "default_rule_id", _Loc(path=config_path), default="HEC001"
         ),
         include_external_packages=(
             configured_include_external
@@ -169,7 +169,7 @@ def _parse_root_packages(
     path: Path,
 ) -> tuple[PackageRoot, ...]:
     """Build package roots from the ``root_packages`` string list."""
-    package_names = _read_string_tuple(data, "root_packages", path=path)
+    package_names = _read_string_tuple(data, "root_packages", _Loc(path=path))
     return tuple(
         PackageRoot(name=name, root=_resolve_config_path(path, Path(name)))
         for name in package_names
@@ -182,11 +182,12 @@ def _parse_package_table_item(item: object, index: int, path: Path) -> PackageRo
         msg = f"{path}: tool.hecate.package[{index}] must be a table"
         raise ConfigError(msg)
     package_item = typ.cast("dict[str, object]", item)
-    name = _read_string(package_item, "name", path=path, context=f"package[{index}]")
-    package_root = _read_string(
-        package_item, "root", path=path, context=f"package[{index}]"
+    loc = _Loc(path=path, context=f"package[{index}]")
+    name = _read_string(package_item, "name", loc)
+    package_root_str = _read_string(package_item, "root", loc)
+    return PackageRoot(
+        name=name, root=_resolve_config_path(path, Path(package_root_str))
     )
-    return PackageRoot(name=name, root=_resolve_config_path(path, Path(package_root)))
 
 
 def _parse_packages(
@@ -223,15 +224,12 @@ def _parse_groups(data: dict[str, object], path: Path) -> tuple[ModuleGroup, ...
             raise ConfigError(msg)
         group_item = typ.cast("dict[str, object]", group)
         context = f"groups[{index}]"
+        loc = _Loc(path=path, context=context)
         parsed.append(
             ModuleGroup(
-                name=_read_string(group_item, "name", path=path, context=context),
-                prefixes=_read_string_tuple(
-                    group_item, "prefixes", path=path, context=context
-                ),
-                allowed=_read_string_tuple(
-                    group_item, "allowed", path=path, context=context
-                ),
+                name=_read_string(group_item, "name", loc),
+                prefixes=_read_string_tuple(group_item, "prefixes", loc),
+                allowed=_read_string_tuple(group_item, "allowed", loc),
             )
         )
     return tuple(parsed)
@@ -249,15 +247,12 @@ def _parse_ignores(data: dict[str, object], path: Path) -> tuple[IgnoredImport, 
             raise ConfigError(msg)
         ignore_item = typ.cast("dict[str, object]", item)
         context = f"ignore_imports[{index}]"
+        loc = _Loc(path=path, context=context)
         parsed.append(
             IgnoredImport(
-                importer=_read_string(
-                    ignore_item, "importer", path=path, context=context
-                ),
-                imported=_read_string(
-                    ignore_item, "imported", path=path, context=context
-                ),
-                reason=_read_string(ignore_item, "reason", path=path, context=context),
+                importer=_read_string(ignore_item, "importer", loc),
+                imported=_read_string(ignore_item, "imported", loc),
+                reason=_read_string(ignore_item, "reason", loc),
             )
         )
     return tuple(parsed)
@@ -277,7 +272,9 @@ def _validate_group_references(
     group: ModuleGroup, declared_names: set[str], path: Path
 ) -> None:
     """Validate prefixes and allowed-group references for one group."""
-    _validate_dotted_strings(group.prefixes, path, context=f"group {group.name}")
+    _validate_dotted_strings(
+        group.prefixes, _Loc(path=path, context=f"group {group.name}")
+    )
     unknown_allowed = sorted(set(group.allowed) - declared_names)
     if unknown_allowed:
         msg = (
@@ -291,8 +288,7 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
     """Raise ConfigError when an ignore entry carries no reason."""
     _validate_dotted_strings(
         (ignored_import.importer, ignored_import.imported),
-        path,
-        context="ignore_imports entry",
+        _Loc(path=path, context="ignore_imports entry"),
     )
     if not ignored_import.reason.strip():
         msg = (
@@ -328,12 +324,10 @@ def _resolve_config_path(config_path: Path, configured_path: Path) -> Path:
     return config_path.parent / configured_path
 
 
-def _validate_dotted_strings(
-    values: tuple[str, ...], path: Path, *, context: str
-) -> None:
+def _validate_dotted_strings(values: tuple[str, ...], loc: _Loc) -> None:
     for value in values:
         if _is_invalid_dotted_string(value):
-            msg = f"{path}: {context} contains invalid dotted string {value!r}"
+            msg = f"{loc.path}: {loc.context} contains invalid dotted string {value!r}"
             raise ConfigError(msg)
 
 
@@ -351,17 +345,24 @@ def _read_mapping(
     return typ.cast("dict[str, object]", value)
 
 
+@dc.dataclass(frozen=True, slots=True)
+class _Loc:
+    """Error-reporting location for a configuration read operation."""
+
+    path: Path
+    context: str = "tool.hecate"
+
+
 def _read_string(
     data: dict[str, object],
     key: str,
+    loc: _Loc,
     *,
-    path: Path,
-    context: str = "tool.hecate",
     default: str | None = None,
 ) -> str:
     value = data.get(key, default)
     if not isinstance(value, str) or not value.strip():
-        msg = f"{path}: {context}.{key} must be a non-empty string"
+        msg = f"{loc.path}: {loc.context}.{key} must be a non-empty string"
         raise ConfigError(msg)
     return value
 
@@ -369,13 +370,11 @@ def _read_string(
 def _read_string_tuple(
     data: dict[str, object],
     key: str,
-    *,
-    path: Path,
-    context: str = "tool.hecate",
+    loc: _Loc,
 ) -> tuple[str, ...]:
     value = data.get(key)
     if not _is_non_empty_string_list(value):
-        msg = f"{path}: {context}.{key} must be a non-empty string list"
+        msg = f"{loc.path}: {loc.context}.{key} must be a non-empty string list"
         raise ConfigError(msg)
     return tuple(typ.cast("list[str]", value))
 
