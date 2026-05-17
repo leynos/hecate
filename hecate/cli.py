@@ -49,6 +49,10 @@ def check(
     except ConfigError as error:
         print(f"hecate: {error}", file=sys.stderr)
         return 2
+    if fail_on_unmatched_ignore and result.unmatched_ignores:
+        for unmatched_ignore in result.unmatched_ignores:
+            print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
+        return 2
     output = (
         render_json(result, show_ignored=show_ignored)
         if format is OutputFormat.JSON

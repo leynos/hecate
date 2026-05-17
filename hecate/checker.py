@@ -18,6 +18,7 @@ class ArchitectureCheckResult:
 
     violations: tuple[ArchitectureViolation, ...]
     ignored: tuple[IgnoredImportDiagnostic, ...] = ()
+    unmatched_ignores: tuple[str, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -34,13 +35,16 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         _collect_package_violations(
             package_root,
             policy=config.policy,
+            package_names=tuple(item.name for item in config.packages),
             reexports=reexports,
             violations=violations,
             ignored=ignored,
         )
+    unmatched_ignores = _find_unmatched_ignores(config.policy, ignored)
     return ArchitectureCheckResult(
         violations=tuple(sorted(violations.values(), key=lambda item: item.identity())),
         ignored=tuple(sorted(ignored.values(), key=lambda item: item.render())),
+        unmatched_ignores=unmatched_ignores,
     )
 
 
@@ -48,6 +52,7 @@ def _collect_package_violations(
     package_root: PackageRoot,
     *,
     policy: ArchitecturePolicy,
+    package_names: tuple[str, ...],
     reexports: ReexportIndex,
     violations: dict[tuple[str, str, str, int], ArchitectureViolation],
     ignored: dict[tuple[str, str], IgnoredImportDiagnostic],
@@ -61,6 +66,7 @@ def _collect_package_violations(
                     import_reference,
                     imported=imported,
                     policy=policy,
+                    package_names=package_names,
                     violations=violations,
                     ignored=ignored,
                 )
@@ -71,9 +77,14 @@ def _record_import_edge(
     *,
     imported: str,
     policy: ArchitecturePolicy,
+    package_names: tuple[str, ...],
     violations: dict[tuple[str, str, str, int], ArchitectureViolation],
     ignored: dict[tuple[str, str], IgnoredImportDiagnostic],
 ) -> None:
+    if not policy.include_external_packages and not _is_internal_module(
+        imported, package_names
+    ):
+        return
     importer_group = policy.group_for(import_reference.importer)
     imported_group = policy.group_for(imported)
     if importer_group is None or imported_group is None:
@@ -98,3 +109,26 @@ def _record_import_edge(
         line=import_reference.line,
     )
     violations[violation.identity()] = violation
+
+
+def _is_internal_module(module: str, package_names: tuple[str, ...]) -> bool:
+    return any(
+        module == package or module.startswith(f"{package}.")
+        for package in package_names
+    )
+
+
+def _find_unmatched_ignores(
+    policy: ArchitecturePolicy,
+    ignored: dict[tuple[str, str], IgnoredImportDiagnostic],
+) -> tuple[str, ...]:
+    matched = set(ignored)
+    unmatched = [
+        f"{ignored_import.importer} -> {ignored_import.imported}"
+        for ignored_import in policy.ignores
+        if not any(
+            policy.ignored_import_for(importer, imported) == ignored_import
+            for importer, imported in matched
+        )
+    ]
+    return tuple(sorted(unmatched))

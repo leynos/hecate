@@ -69,3 +69,35 @@ def test_cli_returns_two_for_invalid_config(
 
     assert exit_code == 2
     assert "configuration file does not exist" in capsys.readouterr().err
+
+
+def test_cli_returns_two_for_unmatched_ignore(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    """Fail-on-unmatched-ignore exits with code 2."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text("", encoding="utf-8")
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+
+[[tool.hecate.ignore_imports]]
+importer = "pkg.missing"
+imported = "pkg.other"
+reason = "No longer used."
+""",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["check", "--config", str(config), "--fail-on-unmatched-ignore"])
+
+    assert exit_code == 2
+    assert "unmatched ignore pkg.missing -> pkg.other" in capsys.readouterr().err
