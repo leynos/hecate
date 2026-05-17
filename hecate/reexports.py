@@ -46,15 +46,16 @@ def build_reexport_index(packages: tuple[PackageRoot, ...]) -> ReexportIndex:
             module = compute_module_name(
                 package_root.root, package_root.name, init_path
             )
-            _add_module_reexports(module, module_exports, reexports)
+            _register_module_reexports(module, module_exports, reexports)
     return ReexportIndex(exports=reexports)
 
 
-def _add_module_reexports(
+def _register_module_reexports(
     module: str,
     module_exports: dict[str, _ModuleExports],
     reexports: dict[str, tuple[str, ...]],
 ) -> None:
+    """Populate *reexports* with exports declared in one ``__init__.py`` module."""
     for exported_name, origins in module_exports[module].exports.items():
         if exported_name == "*":
             _add_star_reexports(module, origins, module_exports, reexports)
