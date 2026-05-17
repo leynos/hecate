@@ -57,3 +57,32 @@ def test_star_reexport_expands_static_origin(tmp_path: Path) -> None:
     index = build_reexport_index((PackageRoot("pkg", package_root),))
 
     assert index.expand_import("pkg.Adapter") == ("pkg.Adapter", "pkg.adapter.Adapter")
+
+
+def test_chained_reexport_expands_transitive_origin(tmp_path: Path) -> None:
+    """Package barrels expand through intermediate package barrels."""
+    package_root = tmp_path / "pkg"
+    adapters_root = package_root / "adapters"
+    outbound_root = adapters_root / "outbound"
+    outbound_root.mkdir(parents=True)
+    (package_root / "__init__.py").write_text(
+        "from .adapters import db\n__all__ = ['db']\n",
+        encoding="utf-8",
+    )
+    (adapters_root / "__init__.py").write_text(
+        "from .outbound import db\n__all__ = ['db']\n",
+        encoding="utf-8",
+    )
+    (outbound_root / "__init__.py").write_text(
+        "from . import db\n__all__ = ['db']\n",
+        encoding="utf-8",
+    )
+    (outbound_root / "db.py").write_text("class Database: ...\n", encoding="utf-8")
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.expand_import("pkg.db") == (
+        "pkg.db",
+        "pkg.adapters.db",
+        "pkg.adapters.outbound.db",
+    )

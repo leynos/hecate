@@ -18,8 +18,16 @@ class ReexportIndex:
 
     def expand_import(self, imported: str) -> tuple[str, ...]:
         """Return the import target plus any statically resolved origins."""
+        return tuple(self._expand_import(imported, seen=set()))
+
+    def _expand_import(self, imported: str, *, seen: set[str]) -> tuple[str, ...]:
+        """Recursively expand one import target through package barrels."""
+        if imported in seen:
+            return ()
+        seen.add(imported)
         expanded = [imported]
-        expanded.extend(self.exports.get(imported, ()))
+        for origin in self.exports.get(imported, ()):
+            expanded.extend(self._expand_import(origin, seen=seen))
         return tuple(dict.fromkeys(expanded))
 
 
