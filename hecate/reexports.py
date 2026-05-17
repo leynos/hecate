@@ -295,11 +295,11 @@ def _expand_concrete_origins(
 ) -> tuple[str, ...]:
     expanded: list[str] = []
     for origin in origins:
-        for expanded_origin in _expand_origin(origin, module_exports, seen=seen):
+        for expanded_origin in _expand_origin(origin, module_exports, seen=seen.copy()):
             if expanded_origin.endswith(".*"):
                 expanded.extend(
                     _expand_concrete_origins(
-                        (expanded_origin,), module_exports, seen=seen
+                        (expanded_origin,), module_exports, seen=seen.copy()
                     )
                 )
                 continue
@@ -310,15 +310,15 @@ def _expand_concrete_origins(
 def _expand_origin(
     origin: str, module_exports: dict[str, _ModuleExports], *, seen: set[str]
 ) -> tuple[str, ...]:
-    if origin in seen:
-        return ()
-    seen.add(origin)
     if not origin.endswith(".*"):
         return (origin,)
     module = origin.removesuffix(".*")
+    if module in seen:
+        return ()
+    seen.add(module)
     if module not in module_exports:
         return ()
     expanded: list[str] = []
     for origins in module_exports[module].exports.values():
-        expanded.extend(_expand_origins(origins, module_exports, seen=seen))
+        expanded.extend(_expand_origins(origins, module_exports, seen=seen.copy()))
     return tuple(sorted(dict.fromkeys(expanded)))
