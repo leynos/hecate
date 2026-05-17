@@ -24,8 +24,13 @@ def test_explicit_all_uses_last_literal_assignment(tmp_path: Path) -> None:
 
     index = build_reexport_index((PackageRoot("pkg", package_root),))
 
-    assert index.expand_import("pkg.Second") == ("pkg.Second", "pkg.adapter.Second")
-    assert index.expand_import("pkg.First") == ("pkg.First",)
+    assert index.expand_import("pkg.Second") == (
+        "pkg.Second",
+        "pkg.adapter.Second",
+    ), "expand_import('pkg.Second') returned unexpected explicit __all__ result"
+    assert index.expand_import("pkg.First") == ("pkg.First",), (
+        "expand_import('pkg.First') should not include a stale __all__ export"
+    )
 
 
 def test_unresolved_all_falls_back_to_public_symbols(tmp_path: Path) -> None:
@@ -40,7 +45,10 @@ def test_unresolved_all_falls_back_to_public_symbols(tmp_path: Path) -> None:
 
     index = build_reexport_index((PackageRoot("pkg", package_root),))
 
-    assert index.expand_import("pkg.Adapter") == ("pkg.Adapter", "pkg.adapter.Adapter")
+    assert index.expand_import("pkg.Adapter") == (
+        "pkg.Adapter",
+        "pkg.adapter.Adapter",
+    ), "expand_import('pkg.Adapter') returned unexpected fallback export"
 
 
 def test_star_reexport_expands_static_origin(tmp_path: Path) -> None:
@@ -56,7 +64,10 @@ def test_star_reexport_expands_static_origin(tmp_path: Path) -> None:
 
     index = build_reexport_index((PackageRoot("pkg", package_root),))
 
-    assert index.expand_import("pkg.Adapter") == ("pkg.Adapter", "pkg.adapter.Adapter")
+    assert index.expand_import("pkg.Adapter") == (
+        "pkg.Adapter",
+        "pkg.adapter.Adapter",
+    ), "expand_import('pkg.Adapter') returned unexpected star export"
 
 
 def test_multiple_star_reexports_preserve_all_origins(tmp_path: Path) -> None:
@@ -78,8 +89,14 @@ def test_multiple_star_reexports_preserve_all_origins(tmp_path: Path) -> None:
 
     index = build_reexport_index((PackageRoot("pkg", package_root),))
 
-    assert index.expand_import("pkg.First") == ("pkg.First", "pkg.first.First")
-    assert index.expand_import("pkg.Second") == ("pkg.Second", "pkg.second.Second")
+    assert index.expand_import("pkg.First") == (
+        "pkg.First",
+        "pkg.first.First",
+    ), "expand_import('pkg.First') returned unexpected first star origin"
+    assert index.expand_import("pkg.Second") == (
+        "pkg.Second",
+        "pkg.second.Second",
+    ), "expand_import('pkg.Second') returned unexpected second star origin"
 
 
 def test_star_reexport_flattens_transitive_wildcard_origin(tmp_path: Path) -> None:
@@ -101,7 +118,10 @@ def test_star_reexport_flattens_transitive_wildcard_origin(tmp_path: Path) -> No
 
     index = build_reexport_index((PackageRoot("pkg", package_root),))
 
-    assert index.expand_import("pkg.Thing") == ("pkg.Thing", "pkg.nested.Thing")
+    assert index.expand_import("pkg.Thing") == (
+        "pkg.Thing",
+        "pkg.nested.Thing",
+    ), "expand_import('pkg.Thing') returned unexpected transitive star origin"
 
 
 def test_unresolved_star_reexport_is_not_indexed(tmp_path: Path) -> None:
@@ -115,8 +135,12 @@ def test_unresolved_star_reexport_is_not_indexed(tmp_path: Path) -> None:
 
     index = build_reexport_index((PackageRoot("pkg", package_root),))
 
-    assert "pkg.*" not in index.exports
-    assert index.expand_import("pkg.*") == ("pkg.*",)
+    assert "pkg.*" not in index.exports, (
+        f"expected unresolved wildcard to be absent, got {index.exports!r}"
+    )
+    assert index.expand_import("pkg.*") == ("pkg.*",), (
+        "expand_import('pkg.*') should return only the unresolved wildcard"
+    )
 
 
 def test_chained_reexport_expands_transitive_origin(tmp_path: Path) -> None:
@@ -145,4 +169,4 @@ def test_chained_reexport_expands_transitive_origin(tmp_path: Path) -> None:
         "pkg.db",
         "pkg.adapters.db",
         "pkg.adapters.outbound.db",
-    )
+    ), "expand_import('pkg.db') returned unexpected chained package-barrel origins"

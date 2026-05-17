@@ -151,17 +151,48 @@ def _collect_public_exports(
     exports: dict[str, tuple[str, ...]] = {}
     for node in tree.body:
         if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-            exports.update(_collect_definition_export(node, module=module))
+            _handle_class_or_function(node, exports, module=module)
         elif isinstance(node, ast.Assign):
-            exports.update(_collect_assignment_exports(node, module=module))
+            _handle_assign(node, exports, module=module)
         elif isinstance(node, ast.ImportFrom):
-            _merge_exports(
-                exports,
-                _collect_imported_exports(
-                    node, module=module, is_package_init=is_package_init
-                ),
+            _handle_importfrom(
+                node, exports, module=module, is_package_init=is_package_init
             )
     return exports
+
+
+def _handle_class_or_function(
+    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
+    exports: dict[str, tuple[str, ...]],
+    *,
+    module: str,
+) -> None:
+    """Merge public class or function definition exports."""
+    exports.update(_collect_definition_export(node, module=module))
+
+
+def _handle_assign(
+    node: ast.Assign,
+    exports: dict[str, tuple[str, ...]],
+    *,
+    module: str,
+) -> None:
+    """Merge public assignment exports."""
+    exports.update(_collect_assignment_exports(node, module=module))
+
+
+def _handle_importfrom(
+    node: ast.ImportFrom,
+    exports: dict[str, tuple[str, ...]],
+    *,
+    module: str,
+    is_package_init: bool,
+) -> None:
+    """Merge exports collected from an import-from statement."""
+    _merge_exports(
+        exports,
+        _collect_imported_exports(node, module=module, is_package_init=is_package_init),
+    )
 
 
 def _collect_definition_export(

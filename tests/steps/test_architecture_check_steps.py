@@ -142,6 +142,7 @@ def _result(fixture_ctx: FixtureContext) -> CliRun:
 
 
 def _write_base_package(package_root: Path) -> None:
+    """Write the shared sample package skeleton beneath ``package_root``."""
     for directory in (
         package_root,
         package_root / "domain",
@@ -160,6 +161,7 @@ def _write_base_package(package_root: Path) -> None:
 
 
 def _write_fixture(package_root: Path, fixture: str) -> None:
+    """Write one predefined fixture variant into the sample package root."""
     fixtures = {
         "clean_package": (
             "application/service.py",
@@ -221,6 +223,7 @@ def _write_fixture(package_root: Path, fixture: str) -> None:
 
 
 def _policy_toml(*, allow_everything: bool = False) -> str:
+    """Return the sample policy TOML, optionally allowing every group edge."""
     allowed = (
         '["composition_root", "domain", "application", "inbound_adapter", '
         '"outbound_adapter", "adapter", "infrastructure"]'

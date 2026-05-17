@@ -84,9 +84,8 @@ fixtures the centre of the design, which matches the lessons from BeatCue and
 Episodic.
 
 The design borrows concepts from Import Linter forbidden contracts, layered
-contracts, external-package handling, and ignore entries, while keeping
-Hecate's configuration focused on ordered groups and allowed dependencies.[^1]
-[ ^2]
+contracts, external-package handling, and ignore entries[^1], while keeping
+Hecate's configuration focused on ordered groups and allowed dependencies.[^2]
 
 ______________________________________________________________________
 
