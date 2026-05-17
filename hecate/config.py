@@ -34,6 +34,17 @@ class ConfigError(ValueError):
     """Raised when a TOML configuration cannot be loaded or validated."""
 
 
+@dc.dataclass(frozen=True)
+class ConfigOverrides:
+    """CLI-level overrides applied on top of the TOML configuration."""
+
+    package: str | None = None
+    root: Path | None = None
+    include_external_packages: bool | None = None
+    show_ignored: bool = False
+    fail_on_unmatched_ignore: bool = False
+
+
 def load_policy(path: Path | None = None) -> ArchitecturePolicy:
     """Load the architecture policy from TOML configuration.
 
@@ -63,50 +74,13 @@ def load_policy(path: Path | None = None) -> ArchitecturePolicy:
 
 def load_config(
     path: Path | None = None,
-    *,
-    package: str | None = None,
-    root: Path | None = None,
-    include_external_packages: bool | None = None,
-    show_ignored: bool = False,
-    fail_on_unmatched_ignore: bool = False,
+    overrides: ConfigOverrides | None = None,
 ) -> HecateConfig:
-    """Load and validate Hecate configuration.
-
-    CLI overrides are applied after TOML loading and before policy and package
-    root validation.
-
-    Parameters
-    ----------
-    path : Path | None
-        Explicit TOML configuration file. When omitted, Hecate discovers the
-        nearest ``pyproject.toml``.
-    package : str | None
-        Package name override used with ``root``.
-    root : Path | None
-        Package root override used with ``package``.
-    include_external_packages : bool | None
-        Override for whether classified external package imports are checked.
-    show_ignored : bool
-        Whether ignored-import diagnostics should be shown by callers.
-    fail_on_unmatched_ignore : bool
-        Whether callers should fail when configured ignores are unused.
-
-    Returns
-    -------
-    HecateConfig
-        Complete validated checker configuration.
-
-    Raises
-    ------
-    ConfigError
-        The configuration file is missing, malformed, invalid, or references
-        missing package roots.
-    tomllib.TOMLDecodeError
-        Wrapped in ``ConfigError`` when TOML decoding fails.
-    """
+    """Load, validate, and apply CLI overrides to Hecate configuration."""
+    ov = overrides or ConfigOverrides()
     config_path = discover_config(path)
     data = _read_tool_config(config_path)
-    packages = _parse_packages(data, config_path, package=package, root=root)
+    packages = _parse_packages(data, config_path, package=ov.package, root=ov.root)
     groups = _parse_groups(data, config_path)
     ignores = _parse_ignores(data, config_path)
     configured_include_external = _read_bool(
@@ -120,8 +94,8 @@ def load_config(
         ),
         include_external_packages=(
             configured_include_external
-            if include_external_packages is None
-            else include_external_packages
+            if ov.include_external_packages is None
+            else ov.include_external_packages
         ),
     )
     _validate_policy(policy, config_path)
@@ -130,8 +104,8 @@ def load_config(
         packages=packages,
         policy=policy,
         source_path=config_path,
-        show_ignored=show_ignored,
-        fail_on_unmatched_ignore=fail_on_unmatched_ignore,
+        show_ignored=ov.show_ignored,
+        fail_on_unmatched_ignore=ov.fail_on_unmatched_ignore,
     )
 
 

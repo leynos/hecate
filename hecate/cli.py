@@ -10,7 +10,7 @@ from pathlib import Path
 import cyclopts
 
 from .checker import check_architecture
-from .config import ConfigError, load_config
+from .config import ConfigError, ConfigOverrides, load_config
 from .output import render_json, render_text
 
 
@@ -58,11 +58,13 @@ def check(
     try:
         hecate_config = load_config(
             src.config,
-            package=src.package,
-            root=src.root,
-            include_external_packages=src.include_external_packages,
-            show_ignored=out.show_ignored,
-            fail_on_unmatched_ignore=out.fail_on_unmatched_ignore,
+            ConfigOverrides(
+                package=src.package,
+                root=src.root,
+                include_external_packages=src.include_external_packages,
+                show_ignored=out.show_ignored,
+                fail_on_unmatched_ignore=out.fail_on_unmatched_ignore,
+            ),
         )
         result = check_architecture(hecate_config)
     except ConfigError as error:
