@@ -166,7 +166,8 @@ reason = "No longer used."
     )
 
 
-def _write_stale_ignore_config(tmp_path: Path) -> Path:
+@pytest.fixture
+def stale_ignore_config(tmp_path: Path) -> Path:
     """Create a package where an ignore covers an allowed import edge."""
     package_root = tmp_path / "pkg"
     adapters_root = package_root / "adapters"
@@ -205,12 +206,15 @@ reason = "Previously forbidden."
 
 
 def test_allowed_import_does_not_match_stale_ignore(
-    tmp_path: Path, capsys: CaptureFixture[str]
+    stale_ignore_config: Path, capsys: CaptureFixture[str]
 ) -> None:
     """Fail-on-unmatched-ignore reports ignores that suppress no violation."""
-    config = _write_stale_ignore_config(tmp_path)
-
-    exit_code = main(["check", "--config", str(config), "--fail-on-unmatched-ignore"])
+    exit_code = main([
+        "check",
+        "--config",
+        str(stale_ignore_config),
+        "--fail-on-unmatched-ignore",
+    ])
 
     stderr = capsys.readouterr().err
     assert exit_code == 2, f"expected exit code 2, got {exit_code}"
@@ -220,12 +224,10 @@ def test_allowed_import_does_not_match_stale_ignore(
 
 
 def test_show_ignored_omits_allowed_import_with_stale_ignore(
-    tmp_path: Path, capsys: CaptureFixture[str]
+    stale_ignore_config: Path, capsys: CaptureFixture[str]
 ) -> None:
     """Show-ignored only reports imports that were real suppressions."""
-    config = _write_stale_ignore_config(tmp_path)
-
-    exit_code = main(["check", "--config", str(config), "--show-ignored"])
+    exit_code = main(["check", "--config", str(stale_ignore_config), "--show-ignored"])
 
     output = capsys.readouterr().out
     assert exit_code == 0, f"expected exit code 0, got {exit_code}"
