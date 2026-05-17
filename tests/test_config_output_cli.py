@@ -83,6 +83,37 @@ reason = "Malformed entry should fail."
     )
 
 
+def test_config_validation_rejects_invalid_dotted_identifier_segment(
+    tmp_path: Path,
+) -> None:
+    """Policy validation rejects dotted strings with invalid identifiers."""
+    config = tmp_path / "pyproject.toml"
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg.adapters-db"]
+allowed = ["domain"]
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError) as error:
+        load_config(config)
+
+    assert "group domain" in str(error.value), (
+        f"expected group context in error message: {error.value}"
+    )
+    assert "pkg.adapters-db" in str(error.value), (
+        f"expected invalid dotted string in error message: {error.value}"
+    )
+
+
 def test_text_and_json_output_include_violation_identity(tmp_path: Path) -> None:
     """Diagnostic renderers preserve the same violation identity."""
     violation = ArchitectureViolation(
@@ -129,6 +160,24 @@ def test_cli_returns_two_for_invalid_config(
     assert "configuration file does not exist" in stderr, (
         f"expected missing-file diagnostic in stderr, got {stderr!r}"
     )
+
+
+def test_cli_output_format_option_keeps_format_flag(
+    stale_ignore_config: Path, capsys: CaptureFixture[str]
+) -> None:
+    """The JSON output option remains exposed as ``--format``."""
+    exit_code = main([
+        "check",
+        "--config",
+        str(stale_ignore_config),
+        "--format",
+        "json",
+    ])
+
+    stdout = capsys.readouterr().out
+    payload = json.loads(stdout)
+    assert exit_code == 0, f"expected exit code 0, got {exit_code}"
+    assert payload["ok"] is True, f"expected JSON success payload, got {payload!r}"
 
 
 def test_cli_returns_two_for_unmatched_ignore(

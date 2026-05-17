@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses as dc
 import enum
 import sys
+import typing as typ
 from pathlib import Path
 
 import cyclopts
@@ -25,7 +26,7 @@ app = cyclopts.App(name="hecate", result_action=lambda value: value)
 
 
 @cyclopts.Parameter(name="*")
-@dc.dataclass
+@dc.dataclass(frozen=True, slots=True)
 class _SourceArgs:
     """Source-selection arguments forwarded to ``load_config``."""
 
@@ -36,11 +37,13 @@ class _SourceArgs:
 
 
 @cyclopts.Parameter(name="*")
-@dc.dataclass
+@dc.dataclass(frozen=True, slots=True)
 class _OutputArgs:
     """Output-behaviour arguments for the check command."""
 
-    format: OutputFormat = OutputFormat.TEXT
+    output_format: typ.Annotated[OutputFormat, cyclopts.Parameter(name="--format")] = (
+        OutputFormat.TEXT
+    )
     show_ignored: bool = False
     fail_on_unmatched_ignore: bool = False
 
@@ -52,13 +55,13 @@ _DEFAULT_OUTPUT_ARGS = _OutputArgs()
 def _emit_check_output(
     result: ArchitectureCheckResult,
     *,
-    format: OutputFormat,
+    output_format: OutputFormat,
     show_ignored: bool,
 ) -> None:
     """Render and print the architecture-check result to stdout."""
     output = (
         render_json(result, show_ignored=show_ignored)
-        if format is OutputFormat.JSON
+        if output_format is OutputFormat.JSON
         else render_text(result, show_ignored=show_ignored)
     )
     print(output, end="")
@@ -104,7 +107,9 @@ def check(
         for unmatched_ignore in result.unmatched_ignores:
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
-    _emit_check_output(result, format=out.format, show_ignored=out.show_ignored)
+    _emit_check_output(
+        result, output_format=out.output_format, show_ignored=out.show_ignored
+    )
     return 0 if result.ok else 1
 
 

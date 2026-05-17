@@ -99,6 +99,38 @@ def test_multiple_star_reexports_preserve_all_origins(tmp_path: Path) -> None:
     ), "expand_import('pkg.Second') returned unexpected second star origin"
 
 
+def test_later_named_reexport_shadows_earlier_origin(tmp_path: Path) -> None:
+    """Duplicate named imports follow Python's last-binding semantics."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from .first import Thing\nfrom .second import Thing\n",
+        encoding="utf-8",
+    )
+    (package_root / "first.py").write_text("class Thing: ...\n", encoding="utf-8")
+    (package_root / "second.py").write_text("class Thing: ...\n", encoding="utf-8")
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.expand_import("pkg.Thing") == (
+        "pkg.Thing",
+        "pkg.second.Thing",
+    ), "expand_import('pkg.Thing') should use the final named import origin"
+
+
+def test_annotated_assignment_exports_public_symbol(tmp_path: Path) -> None:
+    """Public annotated assignments are collected as module exports."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text("value: int = 1\n", encoding="utf-8")
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.exports["pkg.value"] == ("pkg.value",), (
+        f"expected annotated assignment export, got {index.exports!r}"
+    )
+
+
 def test_star_reexport_flattens_transitive_wildcard_origin(tmp_path: Path) -> None:
     """Star re-export chains flatten to concrete symbols."""
     package_root = tmp_path / "pkg"
@@ -122,6 +154,28 @@ def test_star_reexport_flattens_transitive_wildcard_origin(tmp_path: Path) -> No
         "pkg.Thing",
         "pkg.nested.Thing",
     ), "expand_import('pkg.Thing') returned unexpected transitive star origin"
+
+
+def test_star_reexport_cycle_is_short_circuited(tmp_path: Path) -> None:
+    """Recursive star re-export cycles do not overflow the call stack."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from .barrel import *\n",
+        encoding="utf-8",
+    )
+    (package_root / "barrel.py").write_text(
+        "from .nested import *\n",
+        encoding="utf-8",
+    )
+    (package_root / "nested.py").write_text(
+        "from .barrel import *\n",
+        encoding="utf-8",
+    )
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert not index.exports, f"expected cyclic star exports to be skipped: {index}"
 
 
 def test_unresolved_star_reexport_is_not_indexed(tmp_path: Path) -> None:

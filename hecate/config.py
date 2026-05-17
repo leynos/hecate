@@ -1,5 +1,4 @@
 """TOML configuration loading and validation."""
-# pylint: disable=too-many-lines
 
 from __future__ import annotations
 
@@ -8,6 +7,15 @@ import tomllib
 import typing as typ
 from pathlib import Path
 
+from .config_helpers import (
+    ConfigError,
+    _Loc,
+    _read_bool,
+    _read_mapping,
+    _read_string,
+    _read_string_tuple,
+    _validate_dotted_strings,
+)
 from .policy import ArchitecturePolicy, IgnoredImport, ModuleGroup
 
 
@@ -28,10 +36,6 @@ class HecateConfig:
     source_path: Path | None = None
     show_ignored: bool = False
     fail_on_unmatched_ignore: bool = False
-
-
-class ConfigError(ValueError):
-    """Raised when a TOML configuration cannot be loaded or validated."""
 
 
 @dc.dataclass(frozen=True)
@@ -327,74 +331,3 @@ def _resolve_config_path(config_path: Path, configured_path: Path) -> Path:
     if configured_path.is_absolute():
         return configured_path
     return config_path.parent / configured_path
-
-
-def _validate_dotted_strings(values: tuple[str, ...], loc: _Loc) -> None:
-    for value in values:
-        if _is_invalid_dotted_string(value):
-            msg = f"{loc.path}: {loc.context} contains invalid dotted string {value!r}"
-            raise ConfigError(msg)
-
-
-def _is_invalid_dotted_string(value: str) -> bool:
-    return not value or value.startswith((".",)) or value.endswith(".") or ".." in value
-
-
-def _read_mapping(
-    data: dict[str, object], key: str, *, path: Path
-) -> dict[str, object]:
-    value = data.get(key)
-    if not isinstance(value, dict):
-        msg = f"{path}: missing table {key}"
-        raise ConfigError(msg)
-    return typ.cast("dict[str, object]", value)
-
-
-@dc.dataclass(frozen=True, slots=True)
-class _Loc:
-    """Error-reporting location for a configuration read operation."""
-
-    path: Path
-    context: str = "tool.hecate"
-
-
-def _read_string(
-    data: dict[str, object],
-    key: str,
-    loc: _Loc,
-    *,
-    default: str | None = None,
-) -> str:
-    value = data.get(key, default)
-    if not isinstance(value, str) or not value.strip():
-        msg = f"{loc.path}: {loc.context}.{key} must be a non-empty string"
-        raise ConfigError(msg)
-    return value
-
-
-def _read_string_tuple(
-    data: dict[str, object],
-    key: str,
-    loc: _Loc,
-) -> tuple[str, ...]:
-    value = data.get(key)
-    if not _is_non_empty_string_list(value):
-        msg = f"{loc.path}: {loc.context}.{key} must be a non-empty string list"
-        raise ConfigError(msg)
-    return tuple(typ.cast("list[str]", value))
-
-
-def _is_non_empty_string_list(value: object) -> bool:
-    return (
-        isinstance(value, list)
-        and bool(value)
-        and all(isinstance(item, str) and item.strip() for item in value)
-    )
-
-
-def _read_bool(data: dict[str, object], key: str, *, default: bool, path: Path) -> bool:
-    value = data.get(key, default)
-    if not isinstance(value, bool):
-        msg = f"{path}: tool.hecate.{key} must be a boolean"
-        raise ConfigError(msg)
-    return value

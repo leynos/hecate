@@ -61,7 +61,7 @@ def _register_module_reexports(
             _add_star_reexports(module, origins, module_exports, reexports)
             continue
         reexports[f"{module}.{exported_name}"] = _expand_origins(
-            origins, module_exports
+            origins, module_exports, seen=set()
         )
 
 
@@ -71,7 +71,9 @@ def _add_star_reexports(
     module_exports: dict[str, _ModuleExports],
     reexports: dict[str, tuple[str, ...]],
 ) -> None:
-    for concrete_origin in _expand_concrete_origins(origins, module_exports):
+    for concrete_origin in _expand_concrete_origins(
+        origins, module_exports, seen=set()
+    ):
         name = concrete_origin.rsplit(".", maxsplit=1)[-1]
         reexports[f"{module}.{name}"] = (concrete_origin,)
 
@@ -154,6 +156,8 @@ def _collect_public_exports(
             _handle_class_or_function(node, exports, module=module)
         elif isinstance(node, ast.Assign):
             _handle_assign(node, exports, module=module)
+        elif isinstance(node, ast.AnnAssign):
+            _handle_annotated_assign(node, exports, module=module)
         elif isinstance(node, ast.ImportFrom):
             _handle_importfrom(
                 node, exports, module=module, is_package_init=is_package_init
@@ -179,6 +183,16 @@ def _handle_assign(
 ) -> None:
     """Merge public assignment exports."""
     exports.update(_collect_assignment_exports(node, module=module))
+
+
+def _handle_annotated_assign(
+    node: ast.AnnAssign,
+    exports: dict[str, tuple[str, ...]],
+    *,
+    module: str,
+) -> None:
+    """Merge public annotated assignment exports."""
+    exports.update(_collect_annotated_assignment_export(node, module=module))
 
 
 def _handle_importfrom(
@@ -219,11 +233,27 @@ def _collect_assignment_exports(
     return exports
 
 
+def _collect_annotated_assignment_export(
+    node: ast.AnnAssign,
+    *,
+    module: str,
+) -> dict[str, tuple[str, ...]]:
+    """Return an export entry for a public annotated assignment."""
+    if node.value is None:
+        return {}
+    if not isinstance(node.target, ast.Name) or node.target.id.startswith("_"):
+        return {}
+    return {node.target.id: (f"{module}.{node.target.id}",)}
+
+
 def _merge_exports(
     exports: dict[str, tuple[str, ...]], additions: dict[str, tuple[str, ...]]
 ) -> None:
     for exported_name, origins in additions.items():
-        exports[exported_name] = (*exports.get(exported_name, ()), *origins)
+        if exported_name == "*":
+            exports[exported_name] = (*exports.get(exported_name, ()), *origins)
+            continue
+        exports[exported_name] = origins
 
 
 def _collect_imported_exports(
@@ -249,20 +279,28 @@ def _collect_imported_exports(
 
 
 def _expand_origins(
-    origins: tuple[str, ...], module_exports: dict[str, _ModuleExports]
+    origins: tuple[str, ...],
+    module_exports: dict[str, _ModuleExports],
+    *,
+    seen: set[str],
 ) -> tuple[str, ...]:
-    return _expand_concrete_origins(origins, module_exports)
+    return _expand_concrete_origins(origins, module_exports, seen=seen)
 
 
 def _expand_concrete_origins(
-    origins: tuple[str, ...], module_exports: dict[str, _ModuleExports]
+    origins: tuple[str, ...],
+    module_exports: dict[str, _ModuleExports],
+    *,
+    seen: set[str],
 ) -> tuple[str, ...]:
     expanded: list[str] = []
     for origin in origins:
-        for expanded_origin in _expand_origin(origin, module_exports):
+        for expanded_origin in _expand_origin(origin, module_exports, seen=seen):
             if expanded_origin.endswith(".*"):
                 expanded.extend(
-                    _expand_concrete_origins((expanded_origin,), module_exports)
+                    _expand_concrete_origins(
+                        (expanded_origin,), module_exports, seen=seen
+                    )
                 )
                 continue
             expanded.append(expanded_origin)
@@ -270,8 +308,11 @@ def _expand_concrete_origins(
 
 
 def _expand_origin(
-    origin: str, module_exports: dict[str, _ModuleExports]
+    origin: str, module_exports: dict[str, _ModuleExports], *, seen: set[str]
 ) -> tuple[str, ...]:
+    if origin in seen:
+        return ()
+    seen.add(origin)
     if not origin.endswith(".*"):
         return (origin,)
     module = origin.removesuffix(".*")
@@ -279,5 +320,5 @@ def _expand_origin(
         return ()
     expanded: list[str] = []
     for origins in module_exports[module].exports.values():
-        expanded.extend(_expand_origins(origins, module_exports))
+        expanded.extend(_expand_origins(origins, module_exports, seen=seen))
     return tuple(sorted(dict.fromkeys(expanded)))
