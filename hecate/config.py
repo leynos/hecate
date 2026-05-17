@@ -181,6 +181,7 @@ def _read_tool_config(path: Path) -> dict[str, object]:
 def _parse_package_from_cli_args(
     package: str | None, root: Path | None, path: Path
 ) -> tuple[PackageRoot, ...] | None:
+    """Return a single-item tuple when CLI overrides are supplied, or None."""
     if package is None and root is None:
         return None
     if package is None or root is None:
@@ -189,7 +190,20 @@ def _parse_package_from_cli_args(
     return (PackageRoot(name=package, root=root),)
 
 
+def _parse_root_packages(
+    data: dict[str, object],
+    path: Path,
+) -> tuple[PackageRoot, ...]:
+    """Build package roots from the ``root_packages`` string list."""
+    package_names = _read_string_tuple(data, "root_packages", path=path)
+    return tuple(
+        PackageRoot(name=name, root=_resolve_config_path(path, Path(name)))
+        for name in package_names
+    )
+
+
 def _parse_package_table_item(item: object, index: int, path: Path) -> PackageRoot:
+    """Parse and validate one entry from the ``package`` table list."""
     if not isinstance(item, dict):
         msg = f"{path}: tool.hecate.package[{index}] must be a table"
         raise ConfigError(msg)
@@ -213,11 +227,7 @@ def _parse_packages(
         return cli_package
     configured = data.get("package")
     if configured is None:
-        package_names = _read_string_tuple(data, "root_packages", path=path)
-        return tuple(
-            PackageRoot(name=name, root=_resolve_config_path(path, Path(name)))
-            for name in package_names
-        )
+        return _parse_root_packages(data, path)
     if not isinstance(configured, list):
         msg = f"{path}: tool.hecate.package must be a list of tables"
         raise ConfigError(msg)
