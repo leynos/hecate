@@ -101,3 +101,67 @@ reason = "No longer used."
 
     assert exit_code == 2
     assert "unmatched ignore pkg.missing -> pkg.other" in capsys.readouterr().err
+
+
+def _write_stale_ignore_config(tmp_path: Path) -> Path:
+    """Create a package where an ignore covers an allowed import edge."""
+    package_root = tmp_path / "pkg"
+    adapters_root = package_root / "adapters"
+    adapters_root.mkdir(parents=True)
+    (package_root / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "domain.py").write_text(
+        "import pkg.adapters.db\n",
+        encoding="utf-8",
+    )
+    (adapters_root / "__init__.py").write_text("", encoding="utf-8")
+    (adapters_root / "db.py").write_text("", encoding="utf-8")
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg.domain"]
+allowed = ["domain", "adapter"]
+
+[[tool.hecate.groups]]
+name = "adapter"
+prefixes = ["pkg.adapters"]
+allowed = ["adapter", "domain"]
+
+[[tool.hecate.ignore_imports]]
+importer = "pkg.domain"
+imported = "pkg.adapters"
+reason = "Previously forbidden."
+""",
+        encoding="utf-8",
+    )
+    return config
+
+
+def test_allowed_import_does_not_match_stale_ignore(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    """Fail-on-unmatched-ignore reports ignores that suppress no violation."""
+    config = _write_stale_ignore_config(tmp_path)
+
+    exit_code = main(["check", "--config", str(config), "--fail-on-unmatched-ignore"])
+
+    assert exit_code == 2
+    assert "unmatched ignore pkg.domain -> pkg.adapters" in capsys.readouterr().err
+
+
+def test_show_ignored_omits_allowed_import_with_stale_ignore(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    """Show-ignored only reports imports that were real suppressions."""
+    config = _write_stale_ignore_config(tmp_path)
+
+    exit_code = main(["check", "--config", str(config), "--show-ignored"])
+
+    output = capsys.readouterr().out
+    assert exit_code == 0
+    assert "hecate: architecture check passed" in output
+    assert "ignored:" not in output

@@ -89,6 +89,8 @@ def _record_import_edge(
     imported_group = policy.group_for(imported)
     if importer_group is None or imported_group is None:
         return
+    if policy.is_allowed(importer_group.name, imported_group.name):
+        return
     ignored_import = policy.ignored_import_for(import_reference.importer, imported)
     if ignored_import is not None:
         ignored[import_reference.importer, imported] = IgnoredImportDiagnostic(
@@ -96,8 +98,6 @@ def _record_import_edge(
             imported=imported,
             reason=ignored_import.reason,
         )
-        return
-    if policy.is_allowed(importer_group.name, imported_group.name):
         return
     violation = ArchitectureViolation(
         rule_id=policy.default_rule_id,
