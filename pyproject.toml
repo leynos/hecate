@@ -9,6 +9,9 @@ dependencies = [
     "cyclopts",
 ]
 
+[project.scripts]
+hecate = "hecate.cli:main"
+
 [dependency-groups]
 dev = [
     "crosshair-tool",
