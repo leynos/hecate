@@ -1,8 +1,8 @@
 """Cyclopts command-line interface."""
-# pylint: disable=too-many-arguments
 
 from __future__ import annotations
 
+import dataclasses as dc
 import enum
 import sys
 from pathlib import Path
@@ -24,81 +24,58 @@ class OutputFormat(enum.StrEnum):
 app = cyclopts.App(name="hecate", result_action=lambda value: value)
 
 
+@cyclopts.Parameter(name="*")
+@dc.dataclass
+class _SourceArgs:
+    """Source-selection arguments forwarded to ``load_config``."""
+
+    config: Path | None = None
+    package: str | None = None
+    root: Path | None = None
+    include_external_packages: bool | None = None
+
+
+@cyclopts.Parameter(name="*")
+@dc.dataclass
+class _OutputArgs:
+    """Output-behaviour arguments for the check command."""
+
+    format: OutputFormat = OutputFormat.TEXT
+    show_ignored: bool = False
+    fail_on_unmatched_ignore: bool = False
+
+
+_DEFAULT_SOURCE_ARGS = _SourceArgs()
+_DEFAULT_OUTPUT_ARGS = _OutputArgs()
+
+
 @app.command
 def check(
-    *,
-    config: Path | None = None,
-    package: str | None = None,
-    root: Path | None = None,
-    format: OutputFormat = OutputFormat.TEXT,
-    include_external_packages: bool | None = None,
-    show_ignored: bool = False,
-    fail_on_unmatched_ignore: bool = False,
+    src: _SourceArgs = _DEFAULT_SOURCE_ARGS,
+    out: _OutputArgs = _DEFAULT_OUTPUT_ARGS,
 ) -> int:
-    """Check configured Python packages for architecture violations.
-
-    Parameters
-    ----------
-    config : Path | None
-        Explicit TOML configuration file. When omitted, Hecate discovers the
-        nearest ``pyproject.toml`` containing ``[tool.hecate]``.
-    package : str | None
-        Package name override used with ``root``.
-    root : Path | None
-        Package root override used with ``package``.
-    format : OutputFormat
-        Diagnostic output format.
-    include_external_packages : bool | None
-        Override for whether classified external package imports are checked.
-    show_ignored : bool
-        Include diagnostics for imports suppressed by ignore entries.
-    fail_on_unmatched_ignore : bool
-        Return a configuration error when an ignore entry suppresses no
-        violation.
-
-    Returns
-    -------
-    int
-        Process exit code for the check result.
-
-    Exit codes
-    ----------
-    0
-        The architecture check passed.
-    1
-        Architecture violations were found.
-    2
-        Configuration, command-line, or input validation failed.
-
-    Raises
-    ------
-    ConfigError
-        Caught internally and returned as exit code 2.
-    Exception
-        Unexpected exceptions from filesystem access, parsing, or rendering are
-        allowed to propagate.
-    """
+    """Check configured Python packages for architecture violations."""
     try:
         hecate_config = load_config(
-            config,
-            package=package,
-            root=root,
-            include_external_packages=include_external_packages,
-            show_ignored=show_ignored,
-            fail_on_unmatched_ignore=fail_on_unmatched_ignore,
+            src.config,
+            package=src.package,
+            root=src.root,
+            include_external_packages=src.include_external_packages,
+            show_ignored=out.show_ignored,
+            fail_on_unmatched_ignore=out.fail_on_unmatched_ignore,
         )
         result = check_architecture(hecate_config)
     except ConfigError as error:
         print(f"hecate: {error}", file=sys.stderr)
         return 2
-    if fail_on_unmatched_ignore and result.unmatched_ignores:
+    if out.fail_on_unmatched_ignore and result.unmatched_ignores:
         for unmatched_ignore in result.unmatched_ignores:
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
     output = (
-        render_json(result, show_ignored=show_ignored)
-        if format is OutputFormat.JSON
-        else render_text(result, show_ignored=show_ignored)
+        render_json(result, show_ignored=out.show_ignored)
+        if out.format is OutputFormat.JSON
+        else render_text(result, show_ignored=out.show_ignored)
     )
     print(output, end="")
     return 0 if result.ok else 1
