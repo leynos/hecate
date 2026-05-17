@@ -145,24 +145,6 @@ def _literal_string_sequence(value: ast.expr) -> tuple[str, ...] | None:
     return tuple(names)
 
 
-def _collect_definition_export(
-    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef, *, module: str
-) -> dict[str, tuple[str, ...]]:
-    if node.name.startswith("_"):
-        return {}
-    return {node.name: (f"{module}.{node.name}",)}
-
-
-def _collect_assignment_exports(
-    node: ast.Assign, *, module: str
-) -> dict[str, tuple[str, ...]]:
-    exports: dict[str, tuple[str, ...]] = {}
-    for target in node.targets:
-        if isinstance(target, ast.Name) and not target.id.startswith("_"):
-            exports[target.id] = (f"{module}.{target.id}",)
-    return exports
-
-
 def _collect_public_exports(
     tree: ast.Module, *, module: str, is_package_init: bool
 ) -> dict[str, tuple[str, ...]]:
@@ -179,6 +161,30 @@ def _collect_public_exports(
                     node, module=module, is_package_init=is_package_init
                 ),
             )
+    return exports
+
+
+def _collect_definition_export(
+    node: ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef,
+    *,
+    module: str,
+) -> dict[str, tuple[str, ...]]:
+    """Return an export dict for a public class or function definition."""
+    if node.name.startswith("_"):
+        return {}
+    return {node.name: (f"{module}.{node.name}",)}
+
+
+def _collect_assignment_exports(
+    node: ast.Assign,
+    *,
+    module: str,
+) -> dict[str, tuple[str, ...]]:
+    """Return export entries for public names on an assignment left-hand side."""
+    exports: dict[str, tuple[str, ...]] = {}
+    for target in node.targets:
+        if isinstance(target, ast.Name) and not target.id.startswith("_"):
+            exports[target.id] = (f"{module}.{target.id}",)
     return exports
 
 
