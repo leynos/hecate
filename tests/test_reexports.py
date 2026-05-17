@@ -82,6 +82,43 @@ def test_multiple_star_reexports_preserve_all_origins(tmp_path: Path) -> None:
     assert index.expand_import("pkg.Second") == ("pkg.Second", "pkg.second.Second")
 
 
+def test_star_reexport_flattens_transitive_wildcard_origin(tmp_path: Path) -> None:
+    """Star re-export chains flatten to concrete symbols."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from .barrel import *\n",
+        encoding="utf-8",
+    )
+    (package_root / "barrel.py").write_text(
+        "from .nested import *\n",
+        encoding="utf-8",
+    )
+    (package_root / "nested.py").write_text(
+        "__all__ = ['Thing']\nclass Thing: ...\n",
+        encoding="utf-8",
+    )
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.expand_import("pkg.Thing") == ("pkg.Thing", "pkg.nested.Thing")
+
+
+def test_unresolved_star_reexport_is_not_indexed(tmp_path: Path) -> None:
+    """Unresolved wildcard origins are dropped instead of indexed as ``*``."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from missing import *\n",
+        encoding="utf-8",
+    )
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert "pkg.*" not in index.exports
+    assert index.expand_import("pkg.*") == ("pkg.*",)
+
+
 def test_chained_reexport_expands_transitive_origin(tmp_path: Path) -> None:
     """Package barrels expand through intermediate package barrels."""
     package_root = tmp_path / "pkg"

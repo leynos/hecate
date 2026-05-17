@@ -70,10 +70,9 @@ def _add_star_reexports(
     module_exports: dict[str, _ModuleExports],
     reexports: dict[str, tuple[str, ...]],
 ) -> None:
-    for origin in origins:
-        for star_origin in _expand_origin(origin, module_exports):
-            name = star_origin.rsplit(".", maxsplit=1)[-1]
-            reexports[f"{module}.{name}"] = (star_origin,)
+    for concrete_origin in _expand_concrete_origins(origins, module_exports):
+        name = concrete_origin.rsplit(".", maxsplit=1)[-1]
+        reexports[f"{module}.{name}"] = (concrete_origin,)
 
 
 def _collect_module_exports(
@@ -150,21 +149,44 @@ def _collect_public_exports(
 ) -> dict[str, tuple[str, ...]]:
     exports: dict[str, tuple[str, ...]] = {}
     for node in tree.body:
-        if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-            if not node.name.startswith("_"):
-                exports[node.name] = (f"{module}.{node.name}",)
-        elif isinstance(node, ast.Assign):
-            for target in node.targets:
-                if isinstance(target, ast.Name) and not target.id.startswith("_"):
-                    exports[target.id] = (f"{module}.{target.id}",)
-        elif isinstance(node, ast.ImportFrom):
-            _merge_exports(
-                exports,
-                _collect_imported_exports(
-                    node, module=module, is_package_init=is_package_init
-                ),
-            )
+        _handle_class_or_function_node(node, module, exports)
+        _handle_assign_node(node, module, exports)
+        _handle_importfrom_node(node, module, exports, is_package_init=is_package_init)
     return exports
+
+
+def _handle_class_or_function_node(
+    node: ast.stmt, module: str, exports: dict[str, tuple[str, ...]]
+) -> None:
+    if isinstance(
+        node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef
+    ) and not node.name.startswith("_"):
+        exports[node.name] = (f"{module}.{node.name}",)
+
+
+def _handle_assign_node(
+    node: ast.stmt, module: str, exports: dict[str, tuple[str, ...]]
+) -> None:
+    if not isinstance(node, ast.Assign):
+        return
+    for target in node.targets:
+        if isinstance(target, ast.Name) and not target.id.startswith("_"):
+            exports[target.id] = (f"{module}.{target.id}",)
+
+
+def _handle_importfrom_node(
+    node: ast.stmt,
+    module: str,
+    exports: dict[str, tuple[str, ...]],
+    *,
+    is_package_init: bool,
+) -> None:
+    if not isinstance(node, ast.ImportFrom):
+        return
+    _merge_exports(
+        exports,
+        _collect_imported_exports(node, module=module, is_package_init=is_package_init),
+    )
 
 
 def _merge_exports(
@@ -199,9 +221,21 @@ def _collect_imported_exports(
 def _expand_origins(
     origins: tuple[str, ...], module_exports: dict[str, _ModuleExports]
 ) -> tuple[str, ...]:
+    return _expand_concrete_origins(origins, module_exports)
+
+
+def _expand_concrete_origins(
+    origins: tuple[str, ...], module_exports: dict[str, _ModuleExports]
+) -> tuple[str, ...]:
     expanded: list[str] = []
     for origin in origins:
-        expanded.extend(_expand_origin(origin, module_exports))
+        for expanded_origin in _expand_origin(origin, module_exports):
+            if expanded_origin.endswith(".*"):
+                expanded.extend(
+                    _expand_concrete_origins((expanded_origin,), module_exports)
+                )
+                continue
+            expanded.append(expanded_origin)
     return tuple(dict.fromkeys(expanded))
 
 
@@ -212,7 +246,7 @@ def _expand_origin(
         return (origin,)
     module = origin.removesuffix(".*")
     if module not in module_exports:
-        return (origin,)
+        return ()
     expanded: list[str] = []
     for origins in module_exports[module].exports.values():
         expanded.extend(_expand_origins(origins, module_exports))
