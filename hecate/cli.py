@@ -9,7 +9,7 @@ from pathlib import Path
 
 import cyclopts
 
-from .checker import check_architecture
+from .checker import ArchitectureCheckResult, check_architecture
 from .config import ConfigError, ConfigOverrides, load_config
 from .output import render_json, render_text
 
@@ -49,12 +49,42 @@ _DEFAULT_SOURCE_ARGS = _SourceArgs()
 _DEFAULT_OUTPUT_ARGS = _OutputArgs()
 
 
+def _emit_check_output(
+    result: ArchitectureCheckResult,
+    *,
+    format: OutputFormat,
+    show_ignored: bool,
+) -> None:
+    """Render and print the architecture-check result to stdout."""
+    output = (
+        render_json(result, show_ignored=show_ignored)
+        if format is OutputFormat.JSON
+        else render_text(result, show_ignored=show_ignored)
+    )
+    print(output, end="")
+
+
 @app.command
 def check(
     src: _SourceArgs = _DEFAULT_SOURCE_ARGS,
     out: _OutputArgs = _DEFAULT_OUTPUT_ARGS,
 ) -> int:
-    """Check configured Python packages for architecture violations."""
+    """Check configured Python packages for architecture violations.
+
+    Returns
+    -------
+    int
+        Process exit code for the check result.
+
+    Exit codes
+    ----------
+    0
+        The architecture check passed.
+    1
+        Architecture violations were found.
+    2
+        Configuration, command-line, or input validation failed.
+    """
     try:
         hecate_config = load_config(
             src.config,
@@ -74,12 +104,7 @@ def check(
         for unmatched_ignore in result.unmatched_ignores:
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
-    output = (
-        render_json(result, show_ignored=out.show_ignored)
-        if out.format is OutputFormat.JSON
-        else render_text(result, show_ignored=out.show_ignored)
-    )
-    print(output, end="")
+    _emit_check_output(result, format=out.format, show_ignored=out.show_ignored)
     return 0 if result.ok else 1
 
 
