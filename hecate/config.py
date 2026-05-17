@@ -279,9 +279,20 @@ def _parse_ignores(data: dict[str, object], path: Path) -> tuple[IgnoredImport, 
     return tuple(parsed)
 
 
+def _check_duplicate_group_names(group_names: list[str], path: Path) -> None:
+    """Raise ConfigError if any group name appears more than once."""
+    duplicate_names = sorted({
+        name for name in group_names if group_names.count(name) > 1
+    })
+    if duplicate_names:
+        msg = f"{path}: duplicate group names: {', '.join(duplicate_names)}"
+        raise ConfigError(msg)
+
+
 def _validate_group_references(
     group: ModuleGroup, declared_names: set[str], path: Path
 ) -> None:
+    """Validate prefixes and allowed-group references for one group."""
     _validate_dotted_strings(group.prefixes, path, context=f"group {group.name}")
     unknown_allowed = sorted(set(group.allowed) - declared_names)
     if unknown_allowed:
@@ -293,6 +304,12 @@ def _validate_group_references(
 
 
 def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
+    """Raise ConfigError when an ignore entry carries no reason."""
+    _validate_dotted_strings(
+        (ignored_import.importer, ignored_import.imported),
+        path,
+        context="ignore_imports entry",
+    )
     if not ignored_import.reason.strip():
         msg = (
             f"{path}: ignore {ignored_import.importer} -> "
@@ -303,21 +320,11 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
 
 def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
     group_names = [group.name for group in policy.groups]
-    duplicate_names = sorted({
-        name for name in group_names if group_names.count(name) > 1
-    })
-    if duplicate_names:
-        msg = f"{path}: duplicate group names: {', '.join(duplicate_names)}"
-        raise ConfigError(msg)
+    _check_duplicate_group_names(group_names, path)
     declared_names = set(group_names)
     for group in policy.groups:
         _validate_group_references(group, declared_names, path)
     for ignored_import in policy.ignores:
-        _validate_dotted_strings(
-            (ignored_import.importer, ignored_import.imported),
-            path,
-            context="ignore_imports entry",
-        )
         _validate_ignore_reason(ignored_import, path)
 
 
