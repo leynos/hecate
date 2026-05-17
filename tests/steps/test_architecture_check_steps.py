@@ -102,7 +102,9 @@ def when_run_hecate_override(
     fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
 ) -> None:
     """Run the checker with an explicit override config."""
-    assert fixture_ctx.override_config is not None
+    assert fixture_ctx.override_config is not None, (
+        f"expected override config path, got {fixture_ctx.override_config!r}"
+    )
     exit_code = main(["check", "--config", str(fixture_ctx.override_config)])
     captured = capsys.readouterr()
     fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
@@ -111,23 +113,31 @@ def when_run_hecate_override(
 @then(parsers.parse('the exit code is "{exit_code:d}"'))
 def then_exit_code(fixture_ctx: FixtureContext, exit_code: int) -> None:
     """Assert the command returned the expected exit code."""
-    assert _result(fixture_ctx).exit_code == exit_code
+    result = _result(fixture_ctx)
+    assert result.exit_code == exit_code, (
+        f"expected exit code {exit_code}, got {result.exit_code}; "
+        f"stdout={result.stdout!r}, stderr={result.stderr!r}"
+    )
 
 
 @then(parsers.parse('the diagnostics contain "{text}"'))
 def then_diagnostics_contain(fixture_ctx: FixtureContext, text: str) -> None:
     """Assert stdout contains expected diagnostic text."""
-    assert text in _result(fixture_ctx).stdout
+    stdout = _result(fixture_ctx).stdout
+    assert text in stdout, f"expected stdout to contain {text!r}, got {stdout!r}"
 
 
 @then(parsers.parse('stderr contains "{text}"'))
 def then_stderr_contains(fixture_ctx: FixtureContext, text: str) -> None:
     """Assert stderr contains expected diagnostic text."""
-    assert text in _result(fixture_ctx).stderr
+    stderr = _result(fixture_ctx).stderr
+    assert text in stderr, f"expected stderr to contain {text!r}, got {stderr!r}"
 
 
 def _result(fixture_ctx: FixtureContext) -> CliRun:
-    assert fixture_ctx.result is not None
+    assert fixture_ctx.result is not None, (
+        f"expected CLI result to be recorded, got {fixture_ctx.result!r}"
+    )
     return fixture_ctx.result
 
 
@@ -203,6 +213,9 @@ def _write_fixture(package_root: Path, fixture: str) -> None:
             "application/service.py",
             "from sample.adapters import db\n",
         )
+    assert fixture in fixtures, (
+        f"Unknown fixture {fixture!r}, valid fixtures: {sorted(fixtures.keys())}"
+    )
     relative_path, contents = fixtures[fixture]
     (package_root / relative_path).write_text(contents, encoding="utf-8")
 

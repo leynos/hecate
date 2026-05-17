@@ -59,6 +59,29 @@ def test_star_reexport_expands_static_origin(tmp_path: Path) -> None:
     assert index.expand_import("pkg.Adapter") == ("pkg.Adapter", "pkg.adapter.Adapter")
 
 
+def test_multiple_star_reexports_preserve_all_origins(tmp_path: Path) -> None:
+    """Multiple star re-exports from one module are all indexed."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    (package_root / "__init__.py").write_text(
+        "from .first import *\nfrom .second import *\n",
+        encoding="utf-8",
+    )
+    (package_root / "first.py").write_text(
+        "__all__ = ['First']\nclass First: ...\n",
+        encoding="utf-8",
+    )
+    (package_root / "second.py").write_text(
+        "__all__ = ['Second']\nclass Second: ...\n",
+        encoding="utf-8",
+    )
+
+    index = build_reexport_index((PackageRoot("pkg", package_root),))
+
+    assert index.expand_import("pkg.First") == ("pkg.First", "pkg.first.First")
+    assert index.expand_import("pkg.Second") == ("pkg.Second", "pkg.second.Second")
+
+
 def test_chained_reexport_expands_transitive_origin(tmp_path: Path) -> None:
     """Package barrels expand through intermediate package barrels."""
     package_root = tmp_path / "pkg"

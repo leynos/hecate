@@ -34,7 +34,7 @@ class ReexportIndex:
 @dc.dataclass(frozen=True, slots=True)
 class _ModuleExports:
     module: str
-    exports: dict[str, str]
+    exports: dict[str, tuple[str, ...]]
 
 
 def build_reexport_index(packages: tuple[PackageRoot, ...]) -> ReexportIndex:
@@ -46,16 +46,34 @@ def build_reexport_index(packages: tuple[PackageRoot, ...]) -> ReexportIndex:
             module = compute_module_name(
                 package_root.root, package_root.name, init_path
             )
-            for exported_name, origin in module_exports[module].exports.items():
-                if exported_name == "*":
-                    for star_origin in _expand_origin(origin, module_exports):
-                        name = star_origin.rsplit(".", maxsplit=1)[-1]
-                        reexports[f"{module}.{name}"] = (star_origin,)
-                    continue
-                reexports[f"{module}.{exported_name}"] = _expand_origin(
-                    origin, module_exports
-                )
+            _add_module_reexports(module, module_exports, reexports)
     return ReexportIndex(exports=reexports)
+
+
+def _add_module_reexports(
+    module: str,
+    module_exports: dict[str, _ModuleExports],
+    reexports: dict[str, tuple[str, ...]],
+) -> None:
+    for exported_name, origins in module_exports[module].exports.items():
+        if exported_name == "*":
+            _add_star_reexports(module, origins, module_exports, reexports)
+            continue
+        reexports[f"{module}.{exported_name}"] = _expand_origins(
+            origins, module_exports
+        )
+
+
+def _add_star_reexports(
+    module: str,
+    origins: tuple[str, ...],
+    module_exports: dict[str, _ModuleExports],
+    reexports: dict[str, tuple[str, ...]],
+) -> None:
+    for origin in origins:
+        for star_origin in _expand_origin(origin, module_exports):
+            name = star_origin.rsplit(".", maxsplit=1)[-1]
+            reexports[f"{module}.{name}"] = (star_origin,)
 
 
 def _collect_module_exports(
@@ -84,7 +102,7 @@ def _exports_for_module(source_path: Path, module: str) -> _ModuleExports:
     return _ModuleExports(
         module=module,
         exports={
-            name: collected.get(name, f"{module}.{name}")
+            name: collected.get(name, (f"{module}.{name}",))
             for name in all_names
             if not name.startswith("_")
         },
@@ -129,28 +147,36 @@ def _literal_string_sequence(value: ast.expr) -> tuple[str, ...] | None:
 
 def _collect_public_exports(
     tree: ast.Module, *, module: str, is_package_init: bool
-) -> dict[str, str]:
-    exports: dict[str, str] = {}
+) -> dict[str, tuple[str, ...]]:
+    exports: dict[str, tuple[str, ...]] = {}
     for node in tree.body:
         if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
             if not node.name.startswith("_"):
-                exports[node.name] = f"{module}.{node.name}"
+                exports[node.name] = (f"{module}.{node.name}",)
         elif isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and not target.id.startswith("_"):
-                    exports[target.id] = f"{module}.{target.id}"
+                    exports[target.id] = (f"{module}.{target.id}",)
         elif isinstance(node, ast.ImportFrom):
-            exports.update(
+            _merge_exports(
+                exports,
                 _collect_imported_exports(
                     node, module=module, is_package_init=is_package_init
-                )
+                ),
             )
     return exports
 
 
+def _merge_exports(
+    exports: dict[str, tuple[str, ...]], additions: dict[str, tuple[str, ...]]
+) -> None:
+    for exported_name, origins in additions.items():
+        exports[exported_name] = (*exports.get(exported_name, ()), *origins)
+
+
 def _collect_imported_exports(
     node: ast.ImportFrom, *, module: str, is_package_init: bool
-) -> dict[str, str]:
+) -> dict[str, tuple[str, ...]]:
     imported_module = resolve_import_from(
         module,
         is_package_init=is_package_init,
@@ -159,15 +185,24 @@ def _collect_imported_exports(
     )
     if imported_module is None:
         return {}
-    exports: dict[str, str] = {}
+    exports: dict[str, tuple[str, ...]] = {}
     for alias in node.names:
         if alias.name == "*":
-            exports["*"] = f"{imported_module}.*"
+            exports["*"] = (*exports.get("*", ()), f"{imported_module}.*")
             continue
         exported_name = alias.asname or alias.name
         if not exported_name.startswith("_"):
-            exports[exported_name] = f"{imported_module}.{alias.name}"
+            exports[exported_name] = (f"{imported_module}.{alias.name}",)
     return exports
+
+
+def _expand_origins(
+    origins: tuple[str, ...], module_exports: dict[str, _ModuleExports]
+) -> tuple[str, ...]:
+    expanded: list[str] = []
+    for origin in origins:
+        expanded.extend(_expand_origin(origin, module_exports))
+    return tuple(dict.fromkeys(expanded))
 
 
 def _expand_origin(
@@ -178,4 +213,7 @@ def _expand_origin(
     module = origin.removesuffix(".*")
     if module not in module_exports:
         return (origin,)
-    return tuple(sorted(module_exports[module].exports.values()))
+    expanded: list[str] = []
+    for origins in module_exports[module].exports.values():
+        expanded.extend(_expand_origins(origins, module_exports))
+    return tuple(sorted(dict.fromkeys(expanded)))

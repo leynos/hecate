@@ -35,7 +35,49 @@ def check(
     show_ignored: bool = False,
     fail_on_unmatched_ignore: bool = False,
 ) -> int:
-    """Check configured Python packages for architecture violations."""
+    """Check configured Python packages for architecture violations.
+
+    Parameters
+    ----------
+    config : Path | None
+        Explicit TOML configuration file. When omitted, Hecate discovers the
+        nearest ``pyproject.toml`` containing ``[tool.hecate]``.
+    package : str | None
+        Package name override used with ``root``.
+    root : Path | None
+        Package root override used with ``package``.
+    format : OutputFormat
+        Diagnostic output format.
+    include_external_packages : bool | None
+        Override for whether classified external package imports are checked.
+    show_ignored : bool
+        Include diagnostics for imports suppressed by ignore entries.
+    fail_on_unmatched_ignore : bool
+        Return a configuration error when an ignore entry suppresses no
+        violation.
+
+    Returns
+    -------
+    int
+        Process exit code for the check result.
+
+    Exit codes
+    ----------
+    0
+        The architecture check passed.
+    1
+        Architecture violations were found.
+    2
+        Configuration, command-line, or input validation failed.
+
+    Raises
+    ------
+    ConfigError
+        Caught internally and returned as exit code 2.
+    Exception
+        Unexpected exceptions from filesystem access, parsing, or rendering are
+        allowed to propagate.
+    """
     try:
         hecate_config = load_config(
             config,
@@ -63,7 +105,33 @@ def check(
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Run the Cyclopts application."""
+    """Run the Cyclopts application.
+
+    Parameters
+    ----------
+    argv : list[str] | None
+        Command-line arguments to parse. When omitted, Cyclopts reads
+        ``sys.argv``.
+
+    Returns
+    -------
+    int
+        Process exit code returned by the selected command.
+
+    Exit codes
+    ----------
+    0
+        The selected command completed successfully.
+    1
+        The selected command found architecture violations.
+    2
+        Cyclopts command-line parsing or configuration handling failed.
+
+    Raises
+    ------
+    Exception
+        Unexpected exceptions from command execution are allowed to propagate.
+    """
     try:
         value = app(argv)
     except cyclopts.CycloptsError as error:

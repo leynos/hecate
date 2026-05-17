@@ -71,6 +71,7 @@ def test_duplicate_imports_do_not_create_duplicate_identities(
     names: list[str],
 ) -> None:
     """Duplicate imported names collapse under violation identity sorting."""
+    names_with_duplicate = [*names, names[0]]
     identities = {
         ArchitectureViolation(
             rule_id="HEC001",
@@ -81,10 +82,10 @@ def test_duplicate_imports_do_not_create_duplicate_identities(
             source_path=Path("pkg/domain/model.py"),
             line=1,
         ).identity()
-        for name in names
+        for name in names_with_duplicate
     }
 
-    assert len(identities) <= len(names)
+    assert len(identities) < len(names_with_duplicate)
 
 
 def test_text_json_diagnostics_preserve_violation_identity(tmp_path: Path) -> None:

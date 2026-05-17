@@ -28,4 +28,4 @@ def test_external_imports_are_skipped_when_disabled(tmp_path: Path) -> None:
 
     result = check_architecture(config)
 
-    assert result.ok
+    assert result.ok, f"expected external import to be skipped, got {result!r}"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import typing as typ
 from pathlib import Path
 
@@ -38,8 +39,48 @@ allowed = ["missing"]
     with pytest.raises(ConfigError) as error:
         load_config(config)
 
-    assert str(config) in str(error.value)
-    assert "undeclared groups" in str(error.value)
+    assert str(config) in str(error.value), (
+        f"expected config {config!r} to appear in error message: {error.value}"
+    )
+    assert "undeclared groups" in str(error.value), (
+        f"expected 'undeclared groups' in error message: {error.value}"
+    )
+
+
+def test_config_validation_rejects_malformed_ignore_import(
+    tmp_path: Path,
+) -> None:
+    """Policy validation rejects malformed ignore dotted strings."""
+    config = tmp_path / "pyproject.toml"
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+
+[[tool.hecate.ignore_imports]]
+importer = "pkg..domain"
+imported = "pkg.other"
+reason = "Malformed entry should fail."
+""",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigError) as error:
+        load_config(config)
+
+    assert "ignore_imports entry" in str(error.value), (
+        f"expected ignore context in error message: {error.value}"
+    )
+    assert "pkg..domain" in str(error.value), (
+        f"expected malformed dotted string in error message: {error.value}"
+    )
 
 
 def test_text_and_json_output_include_violation_identity(tmp_path: Path) -> None:
@@ -55,8 +96,24 @@ def test_text_and_json_output_include_violation_identity(tmp_path: Path) -> None
     )
     result = ArchitectureCheckResult(violations=(violation,))
 
-    assert "pkg.domain.model:1" in render_text(result)
-    assert '"imported": "pkg.adapters.db"' in render_json(result)
+    text_output = render_text(result)
+    json_output = json.loads(render_json(result))
+
+    assert "pkg.domain.model:1" in text_output, (
+        f"expected text output to include violation location, got {text_output!r}"
+    )
+    assert json_output["violations"][0]["rule_id"] == "HEC001", (
+        f"expected JSON rule_id HEC001, got {json_output!r}"
+    )
+    assert json_output["violations"][0]["importer"] == "pkg.domain.model", (
+        f"expected JSON importer pkg.domain.model, got {json_output!r}"
+    )
+    assert json_output["violations"][0]["imported"] == "pkg.adapters.db", (
+        f"expected JSON imported pkg.adapters.db, got {json_output!r}"
+    )
+    assert json_output["violations"][0]["line"] == 1, (
+        f"expected JSON line 1, got {json_output!r}"
+    )
 
 
 def test_cli_returns_two_for_invalid_config(
@@ -67,8 +124,11 @@ def test_cli_returns_two_for_invalid_config(
 
     exit_code = main(["check", "--config", str(config)])
 
-    assert exit_code == 2
-    assert "configuration file does not exist" in capsys.readouterr().err
+    stderr = capsys.readouterr().err
+    assert exit_code == 2, f"expected exit code 2, got {exit_code}"
+    assert "configuration file does not exist" in stderr, (
+        f"expected missing-file diagnostic in stderr, got {stderr!r}"
+    )
 
 
 def test_cli_returns_two_for_unmatched_ignore(
@@ -99,8 +159,11 @@ reason = "No longer used."
 
     exit_code = main(["check", "--config", str(config), "--fail-on-unmatched-ignore"])
 
-    assert exit_code == 2
-    assert "unmatched ignore pkg.missing -> pkg.other" in capsys.readouterr().err
+    stderr = capsys.readouterr().err
+    assert exit_code == 2, f"expected exit code 2, got {exit_code}"
+    assert "unmatched ignore pkg.missing -> pkg.other" in stderr, (
+        f"expected unmatched-ignore diagnostic in stderr, got {stderr!r}"
+    )
 
 
 def _write_stale_ignore_config(tmp_path: Path) -> Path:
@@ -149,8 +212,11 @@ def test_allowed_import_does_not_match_stale_ignore(
 
     exit_code = main(["check", "--config", str(config), "--fail-on-unmatched-ignore"])
 
-    assert exit_code == 2
-    assert "unmatched ignore pkg.domain -> pkg.adapters" in capsys.readouterr().err
+    stderr = capsys.readouterr().err
+    assert exit_code == 2, f"expected exit code 2, got {exit_code}"
+    assert "unmatched ignore pkg.domain -> pkg.adapters" in stderr, (
+        f"expected stale-ignore diagnostic in stderr, got {stderr!r}"
+    )
 
 
 def test_show_ignored_omits_allowed_import_with_stale_ignore(
@@ -162,6 +228,10 @@ def test_show_ignored_omits_allowed_import_with_stale_ignore(
     exit_code = main(["check", "--config", str(config), "--show-ignored"])
 
     output = capsys.readouterr().out
-    assert exit_code == 0
-    assert "hecate: architecture check passed" in output
-    assert "ignored:" not in output
+    assert exit_code == 0, f"expected exit code 0, got {exit_code}"
+    assert "hecate: architecture check passed" in output, (
+        f"expected pass diagnostic in stdout, got {output!r}"
+    )
+    assert "ignored:" not in output, (
+        f"expected no ignored diagnostics for allowed import, got {output!r}"
+    )

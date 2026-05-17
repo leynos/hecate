@@ -35,7 +35,29 @@ class ConfigError(ValueError):
 
 
 def load_policy(path: Path | None = None) -> ArchitecturePolicy:
-    """Load only the architecture policy from TOML configuration."""
+    """Load the architecture policy from TOML configuration.
+
+    This is a convenience wrapper around ``load_config`` for callers that only
+    need the validated policy object.
+
+    Parameters
+    ----------
+    path : Path | None
+        Explicit TOML configuration file. When omitted, Hecate discovers the
+        nearest ``pyproject.toml``.
+
+    Returns
+    -------
+    ArchitecturePolicy
+        Validated architecture policy from the configuration.
+
+    Raises
+    ------
+    ConfigError
+        The configuration file is missing, malformed, or invalid.
+    tomllib.TOMLDecodeError
+        Wrapped in ``ConfigError`` when TOML decoding fails.
+    """
     return load_config(path).policy
 
 
@@ -48,7 +70,40 @@ def load_config(
     show_ignored: bool = False,
     fail_on_unmatched_ignore: bool = False,
 ) -> HecateConfig:
-    """Load, validate, and apply CLI overrides to Hecate configuration."""
+    """Load and validate Hecate configuration.
+
+    CLI overrides are applied after TOML loading and before policy and package
+    root validation.
+
+    Parameters
+    ----------
+    path : Path | None
+        Explicit TOML configuration file. When omitted, Hecate discovers the
+        nearest ``pyproject.toml``.
+    package : str | None
+        Package name override used with ``root``.
+    root : Path | None
+        Package root override used with ``package``.
+    include_external_packages : bool | None
+        Override for whether classified external package imports are checked.
+    show_ignored : bool
+        Whether ignored-import diagnostics should be shown by callers.
+    fail_on_unmatched_ignore : bool
+        Whether callers should fail when configured ignores are unused.
+
+    Returns
+    -------
+    HecateConfig
+        Complete validated checker configuration.
+
+    Raises
+    ------
+    ConfigError
+        The configuration file is missing, malformed, invalid, or references
+        missing package roots.
+    tomllib.TOMLDecodeError
+        Wrapped in ``ConfigError`` when TOML decoding fails.
+    """
     config_path = discover_config(path)
     data = _read_tool_config(config_path)
     packages = _parse_packages(data, config_path, package=package, root=root)
@@ -81,7 +136,24 @@ def load_config(
 
 
 def discover_config(path: Path | None = None) -> Path:
-    """Find the explicit config path or the nearest ``pyproject.toml``."""
+    """Find the explicit config path or nearest ``pyproject.toml``.
+
+    Parameters
+    ----------
+    path : Path | None
+        Explicit TOML configuration file. When provided, it is returned without
+        filesystem discovery.
+
+    Returns
+    -------
+    Path
+        Explicit path or discovered ``pyproject.toml`` path.
+
+    Raises
+    ------
+    ConfigError
+        No ``pyproject.toml`` can be found from the current working directory.
+    """
     if path is not None:
         return path
     current = Path.cwd()
@@ -220,6 +292,11 @@ def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
             )
             raise ConfigError(msg)
     for ignored_import in policy.ignores:
+        _validate_dotted_strings(
+            (ignored_import.importer, ignored_import.imported),
+            path,
+            context="ignore_imports entry",
+        )
         if not ignored_import.reason.strip():
             msg = (
                 f"{path}: ignore {ignored_import.importer} -> "

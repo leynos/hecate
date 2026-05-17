@@ -26,7 +26,7 @@ inference.
 
 - Keep v1 small enough to audit and maintain internally.
 - Avoid runtime import loading and dynamic execution.
-- Keep policy semantics independent from the parsing engine.
+- Keep policy semantics independent of the parsing engine.
 - Support deterministic diagnostics suitable for CI snapshots.
 - Leave room for Astroid or another engine behind an interface later.
 
@@ -85,8 +85,8 @@ Episodic.
 
 The design borrows concepts from Import Linter forbidden contracts, layered
 contracts, external-package handling, and ignore entries, while keeping
-Hecate's configuration focused on ordered groups and allowed dependencies.[^1][
-^2]
+Hecate's configuration focused on ordered groups and allowed dependencies.[^1]
+[ ^2]
 
 ______________________________________________________________________
 
