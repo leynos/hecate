@@ -5,12 +5,9 @@ package-barrel re-export expansion, policy classification, fixtures, and
 Makefile integration. Hecate keeps those concepts as reusable package modules
 instead of project-local scripts.
 
-The BeatCue branch URL supplied during implementation did not expose the raw
-`beatcue/architecture/policy.py` path through Firecrawl. The migration shape
-below is therefore based on the requested TOML example and the stated BeatCue
-trial outcomes: stdlib `ast` worked; the harder reusable pieces were policy
-configuration, package-root handling, re-export semantics, diagnostics,
-ignores, and tests.
+The policy below is translated from `beatcue/architecture/policy.py` in a fresh
+Git clone of `git@github.com:leynos/beatcue.git` at commit
+`872872d13b5bcf9cdee16fd2c902f1ca1683cf9b`.
 
 ## Policy shape
 
@@ -21,7 +18,7 @@ groups:
 [tool.hecate]
 root_packages = ["beatcue"]
 include_external_packages = true
-default_rule_id = "HEC001"
+default_rule_id = "ARCH001"
 
 [[tool.hecate.groups]]
 name = "composition_root"
@@ -75,7 +72,7 @@ allowed = [
 
 [[tool.hecate.groups]]
 name = "infrastructure"
-prefixes = ["rich", "cyclopts", "cv2", "librosa", "transformers", "cuprum", "cmdmox"]
+prefixes = ["cmdmox", "cuprum", "cv2", "cyclopts", "librosa", "rich", "transformers"]
 allowed = ["infrastructure"]
 ```
 
