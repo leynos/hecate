@@ -74,10 +74,23 @@ def check(
 ) -> int:
     """Check configured Python packages for architecture violations.
 
+    Parameters
+    ----------
+    src : _SourceArgs
+        Source-selection arguments for configuration discovery and package
+        overrides.
+    out : _OutputArgs
+        Output rendering and unmatched-ignore handling options.
+
     Returns
     -------
     int
         Process exit code for the check result.
+
+    Raises
+    ------
+    Exception
+        Unexpected failures from architecture checking are allowed to propagate.
 
     Exit codes
     ----------

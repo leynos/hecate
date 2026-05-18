@@ -107,6 +107,45 @@ allowed = ["domain"]
     )
 
 
+def test_config_discovery_skips_pyproject_without_hecate_table(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Config discovery continues past pyproject files without Hecate config."""
+    package_root = tmp_path / "pkg"
+    package_root.mkdir()
+    child_root = tmp_path / "child"
+    child_root.mkdir()
+    (child_root / "pyproject.toml").write_text(
+        """
+[project]
+name = "not-hecate"
+""",
+        encoding="utf-8",
+    )
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+""",
+        encoding="utf-8",
+    )
+
+    monkeypatch.chdir(child_root)
+
+    hecate_config = load_config()
+
+    assert hecate_config.source_path == config, (
+        f"expected discovery to skip child pyproject, got {hecate_config.source_path}"
+    )
+
+
 def test_text_and_json_output_include_violation_identity(tmp_path: Path) -> None:
     """Diagnostic renderers preserve the same violation identity."""
     violation = ArchitectureViolation(

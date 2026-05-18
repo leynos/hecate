@@ -137,10 +137,22 @@ def discover_config(path: Path | None = None) -> Path:
     current = Path.cwd()
     for candidate_root in (current, *current.parents):
         candidate = candidate_root / "pyproject.toml"
-        if candidate.is_file():
+        if candidate.is_file() and _has_hecate_tool_table(candidate):
             return candidate
-    msg = "No pyproject.toml found for [tool.hecate] configuration"
+    msg = "No pyproject.toml with [tool.hecate] configuration found"
     raise ConfigError(msg)
+
+
+def _has_hecate_tool_table(candidate: Path) -> bool:
+    try:
+        data = tomllib.loads(candidate.read_text(encoding="utf-8"))
+    except tomllib.TOMLDecodeError as error:
+        msg = f"{candidate}: invalid TOML: {error}"
+        raise ConfigError(msg) from error
+    tool = data.get("tool")
+    if not isinstance(tool, dict):
+        return False
+    return isinstance(tool.get("hecate"), dict)
 
 
 def _read_tool_config(path: Path) -> dict[str, object]:
