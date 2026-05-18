@@ -18,12 +18,37 @@ if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
 
 
+def _assert_config_rejects(
+    tmp_path: Path,
+    toml_text: str,
+    *expected_substrings: str,
+) -> None:
+    """Scaffold a temp config and assert ``load_config`` raises ``ConfigError``.
+
+    The config file path and every string in *expected_substrings* must appear in
+    the resulting error message.
+    """
+    config = tmp_path / "pyproject.toml"
+    (tmp_path / "pkg").mkdir(exist_ok=True)
+    config.write_text(toml_text, encoding="utf-8")
+
+    with pytest.raises(ConfigError) as exc_info:
+        load_config(config)
+
+    error_text = str(exc_info.value)
+    assert str(config) in error_text, (
+        f"expected config path {config!r} in error message: {error_text}"
+    )
+    for expected in expected_substrings:
+        assert expected in error_text, (
+            f"expected {expected!r} in error message: {error_text}"
+        )
+
+
 def test_config_validation_rejects_unknown_allowed_group(tmp_path: Path) -> None:
     """Policy validation reports unknown group names."""
-    config = tmp_path / "pyproject.toml"
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    config.write_text(
+    _assert_config_rejects(
+        tmp_path,
         """
 [tool.hecate]
 root_packages = ["pkg"]
@@ -33,17 +58,7 @@ name = "domain"
 prefixes = ["pkg.domain"]
 allowed = ["missing"]
 """,
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ConfigError) as error:
-        load_config(config)
-
-    assert str(config) in str(error.value), (
-        f"expected config {config!r} to appear in error message: {error.value}"
-    )
-    assert "undeclared groups" in str(error.value), (
-        f"expected 'undeclared groups' in error message: {error.value}"
+        "undeclared groups",
     )
 
 
@@ -51,10 +66,8 @@ def test_config_validation_rejects_malformed_ignore_import(
     tmp_path: Path,
 ) -> None:
     """Policy validation rejects malformed ignore dotted strings."""
-    config = tmp_path / "pyproject.toml"
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    config.write_text(
+    _assert_config_rejects(
+        tmp_path,
         """
 [tool.hecate]
 root_packages = ["pkg"]
@@ -69,17 +82,8 @@ importer = "pkg..domain"
 imported = "pkg.other"
 reason = "Malformed entry should fail."
 """,
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ConfigError) as error:
-        load_config(config)
-
-    assert "ignore_imports entry" in str(error.value), (
-        f"expected ignore context in error message: {error.value}"
-    )
-    assert "pkg..domain" in str(error.value), (
-        f"expected malformed dotted string in error message: {error.value}"
+        "ignore_imports entry",
+        "pkg..domain",
     )
 
 
@@ -87,10 +91,8 @@ def test_config_validation_rejects_invalid_dotted_identifier_segment(
     tmp_path: Path,
 ) -> None:
     """Policy validation rejects dotted strings with invalid identifiers."""
-    config = tmp_path / "pyproject.toml"
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    config.write_text(
+    _assert_config_rejects(
+        tmp_path,
         """
 [tool.hecate]
 root_packages = ["pkg"]
@@ -100,17 +102,8 @@ name = "domain"
 prefixes = ["pkg.adapters-db"]
 allowed = ["domain"]
 """,
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ConfigError) as error:
-        load_config(config)
-
-    assert "group domain" in str(error.value), (
-        f"expected group context in error message: {error.value}"
-    )
-    assert "pkg.adapters-db" in str(error.value), (
-        f"expected invalid dotted string in error message: {error.value}"
+        "group domain",
+        "pkg.adapters-db",
     )
 
 
