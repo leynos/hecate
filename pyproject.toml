@@ -5,11 +5,19 @@ description = "hecate package"
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "ISC" }
-dependencies = []
+dependencies = [
+    "cyclopts",
+]
+
+[project.scripts]
+hecate = "hecate.cli:main"
 
 [dependency-groups]
 dev = [
+    "crosshair-tool",
+    "hypothesis",
     "pytest",
+    "pytest-bdd",
     "ruff",
     "pyright",
     "ty",
@@ -81,7 +89,16 @@ extend-ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "**/__init__.py" = ["RUF067"]
-"**/test_*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301"]
+"hecate/cli.py" = ["A002", "PLR0913", "TC003"]
+"hecate/checker.py" = ["PLR0913", "TC001"]
+"hecate/config.py" = ["PLR0913"]
+"hecate/diagnostics.py" = ["S101", "TC003"]
+"hecate/output.py" = ["TC001"]
+"hecate/imports.py" = ["S101", "TC003"]
+"hecate/policy.py" = ["S101"]
+"hecate/reexports.py" = ["TC001", "TC003"]
+"**/test_*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
+"tests/test_properties.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/steps/*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301"]
 
 [tool.ruff.lint.flake8-import-conventions]
@@ -307,3 +324,11 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["hecate"]
 
+[tool.hecate]
+root_packages = ["hecate"]
+default_rule_id = "HEC001"
+
+[[tool.hecate.groups]]
+name = "hecate"
+prefixes = ["hecate"]
+allowed = ["hecate"]

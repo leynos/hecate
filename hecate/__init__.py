@@ -1,19 +1,21 @@
-"""hecate package."""
+"""Reusable Python hexagonal architecture checker."""
 
 from __future__ import annotations
 
-import importlib
-import typing as typ
+from pathlib import Path
 
-if typ.TYPE_CHECKING:
-    import collections.abc as cabc
+from .checker import ArchitectureCheckResult, check_architecture
+from .cli import main
+from .config import ConfigOverrides, HecateConfig, load_policy
+from .diagnostics import ArchitectureViolation
 
-PACKAGE_NAME = "hecate"
-
-try:  # pragma: no cover - Rust optional
-    rust = importlib.import_module(f"._{PACKAGE_NAME}_rs", package=__name__)
-    hello = typ.cast("cabc.Callable[[], str]", rust.hello)
-except ModuleNotFoundError:  # pragma: no cover - Python fallback
-    from .pure import hello
-
-__all__ = ["hello"]
+__all__ = [
+    "ArchitectureCheckResult",
+    "ArchitectureViolation",
+    "ConfigOverrides",
+    "HecateConfig",
+    "Path",
+    "check_architecture",
+    "load_policy",
+    "main",
+]
