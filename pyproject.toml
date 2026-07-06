@@ -23,6 +23,7 @@ dev = [
     "ty",
     "pytest-timeout",
     "pytest-xdist",
+    "pyyaml>=6.0.3",
 ]
 
 [tool.ruff]
@@ -308,6 +309,10 @@ enable = [
     "too-many-public-methods",
     "too-many-statements",
 ]
+
+[tool.mutmut]
+source_paths = ["hecate/"]
+pytest_add_cli_args_test_selection = ["tests/"]
 
 [tool.pytest.ini_options]
 # Tests automatically killed after seconds elapsed
