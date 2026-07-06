@@ -25,7 +25,7 @@ WORKFLOW_PATH = (
 
 #: The pinned commit of leynos/shared-actions providing
 #: mutation-mutmut.yml. Bump the workflow and this test together.
-PINNED_SHA = "47aea18960d24f33aedc4782ec6b73e365418313"
+PINNED_SHA = "2b09d10192627fd6e1034e7c12625dd266b45503"
 
 EXPECTED_USES = (
     "leynos/shared-actions/.github/workflows/mutation-mutmut.yml@" + PINNED_SHA
@@ -34,6 +34,7 @@ EXPECTED_USES = (
 EXPECTED_WITH = {
     "paths": "hecate/",
     "module-prefix-strip": "",
+    "python-version": "3.14",
 }
 
 EXPECTED_CRON = "50 6 * * *"
