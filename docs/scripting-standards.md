@@ -1,9 +1,17 @@
 # Scripting standards
 
-Project scripts must prioritise clarity, reproducibility, and testability. The
+Project scripts must prioritize clarity, reproducibility, and testability. The
 baseline tooling is Python and the [`uv`](https://github.com/astral-sh/uv)
 launcher so that scripts remain dependency‑self‑contained and easy to execute
 in Continuous Integration (CI) or locally.
+
+## Spelling policy
+
+Run `make spelling` to enforce en-GB-oxendict prose spelling. The generated
+`typos.toml` starts from the shared estate dictionary, refreshes its untracked
+local cache only when the authority is newer, and then applies the narrow
+repository policy in `typos.local.toml`. Edit the local policy and regenerate
+the configuration rather than changing generated entries by hand.
 
 Cyclopts is the default command‑line interface (CLI) framework for new and
 updated scripts. This document supersedes prior guidance that recommended Typer

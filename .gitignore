@@ -204,3 +204,7 @@ target/
 **/mutants.out*/
 
 .crush/
+
+# Generated spelling-policy caches
+.typos-oxendict-base.json
+.typos-oxendict-base.toml
