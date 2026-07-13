@@ -8,13 +8,11 @@ on:
 jobs:
   lint-test:
     runs-on: ubuntu-latest
-    env:
-      CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-      CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}
-      
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -49,29 +47,20 @@ jobs:
         run: make typecheck
 
       - name: Test and Measure Coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@67025f53e79b821327d2f4d48a2af488cca42803
+        uses: leynos/shared-actions/.github/actions/generate-coverage@927edd45ae77be4251a8a18ca9eb5613a2e32cbd
         with:
           output-path: coverage.xml
           format: cobertura
           artefact-name-suffix: hecate
-          
+          with-ratchet: 'true'
 
-      - name: Install CodeScene Coverage CLI
-        if: env.CS_ACCESS_TOKEN != ''
-        run: |
-          curl -fsSL https://downloads.codescene.io/enterprise/cli/install-cs-coverage-tool.sh | bash -s -- -y
-          if [ -n "${CODESCENE_CLI_SHA256:-}" ]; then
-            echo "${CODESCENE_CLI_SHA256}  install-cs-coverage-tool.sh" | sha256sum -c -
-          fi
-
-      - name: Upload coverage to CodeScene
-        if: env.CS_ACCESS_TOKEN != ''
-        run: |
-          if [ ! -f coverage.xml ]; then
-            echo "coverage.xml not found!"
-            exit 1
-          fi
-          cs-coverage upload \
-            --format "cobertura" \
-            --metric "line-coverage" \
-            coverage.xml
+      # The `mode: check` step is deliberately not wired in yet: CodeScene
+      # project 80198 has no coverage-gates configuration, so
+      # `cs-coverage check` would fail every run with "HTTP call
+      # succeeded, but the received project-config isn't valid. Lacks
+      # the gates configuration." — a CodeScene-side per-project
+      # setting, not a CI defect (see ddlint#287 and chutoro#156 for the
+      # byte-identical error). Add the check step in a fast-follow PR
+      # once coverage-main.yml has uploaded to main at least once and
+      # the gate is confirmed to resolve, or once CodeScene confirms
+      # the project's coverage gate is enabled.
