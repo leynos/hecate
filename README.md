@@ -1,5 +1,8 @@
 # hecate
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](
+https://deepwiki.com/leynos/hecate)
+
 `hecate` is a standalone Python architecture checker for df12 internal projects
 that use hexagonal architecture. It scans Python package roots with the
 standard library `ast` module, classifies imports into configured groups,
