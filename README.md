@@ -97,6 +97,7 @@ filesystem, `ast.parse`, TOML parsing, and CLI code.
 
 - [Configuration schema](docs/configuration.md)
 - [Users' guide](docs/users-guide.md)
+- [Developers' guide](docs/developers-guide.md)
 - [BeatCue migration notes](docs/migration-beatcue.md)
 - [Episodic migration notes](docs/migration-episodic.md)
 - [ADR 001: use stdlib `ast` for v1 import analysis](docs/adr-001-stdlib-ast-import-engine.md)
