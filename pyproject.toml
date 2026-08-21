@@ -330,13 +330,23 @@ package = true
 [tool.skylos.gate]
 strict = true
 
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+full_name = [
+    "hecate.diagnostics.IgnoredImportDiagnostic.render",
+    "hecate.diagnostics.IgnoredImportDiagnostic.to_dict",
+]
+reason = "hecate.output invokes these methods when rendering and serializing ignored diagnostics."
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+full_name = ["hecate.reexports.ReexportIndex.expand_import"]
+reason = "hecate.checker invokes this method while resolving imported modules."
+
 [tool.skylos.whitelist]
 names = []
 
 [tool.skylos.whitelist.documented]
-"render" = "Called by hecate.output when rendering production diagnostics."
-"to_dict" = "Called by hecate.output when serializing production diagnostics."
-"expand_import" = "Called by hecate.checker while resolving imported modules."
 
 
 [build-system]
