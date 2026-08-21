@@ -327,6 +327,17 @@ timeout = 30
 [tool.uv]
 package = true
 
+[tool.skylos.gate]
+strict = true
+
+[tool.skylos.whitelist]
+names = []
+
+[tool.skylos.whitelist.documented]
+"render" = "Called by hecate.output when rendering production diagnostics."
+"to_dict" = "Called by hecate.output when serializing production diagnostics."
+"expand_import" = "Called by hecate.checker while resolving imported modules."
+
 
 [build-system]
 requires = ["hatchling"]

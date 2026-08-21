@@ -218,8 +218,7 @@ record, replay, and verify loop:
 
 - `-P ubuntu-latest=catthehacker/ubuntu:act-latest`: pin a close runner image.
 - `-b/--bind`: bind mount the repository; enables checking file side effects.
-- `--artifact-server-path <dir>`: export uploaded artefacts to a host
-  directory.
+- `--artifact-server-path <dir>`: export uploaded files to a host directory.
 - `--json`: emit a line-delimited JSON log stream suitable for parsing.
 - `-e <event.json>` / `--env` / `--env-file`: control the event and
   environment under test.

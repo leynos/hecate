@@ -18,9 +18,13 @@ PYLINT_TARGETS ?= $(PYTHON_TARGETS)
 PYLINT_PYPY_SHIM_REF ?= 726d09f968b4d729ee4b29c71fc732e744854f3b
 PYLINT_PYPY_SHIM = git+https://github.com/leynos/pylint-pypy-shim.git@$(PYLINT_PYPY_SHIM_REF)
 PYLINT = $(UV_ENV) $(UV) tool run --python $(PYLINT_PYTHON) --from '$(PYLINT_PYPY_SHIM)' pylint-pypy
+SKYLOS_VERSION ?= 4.33.2
+SKYLOS = $(UV_ENV) $(UV) tool run --from 'skylos==$(SKYLOS_VERSION)' skylos \
+	--config-file pyproject.toml
+SKYLOS_PRODUCTION_TARGETS ?= hecate
 
 
-.PHONY: help all clean build build-release lint lint-python fmt check-fmt \
+.PHONY: help all clean build build-release lint lint-python skylos fmt check-fmt \
         markdownlint nixie spelling spelling-helper-test test typecheck \
         crosshair $(TOOLS) $(VENV_TOOLS)
 
@@ -90,11 +94,15 @@ check-fmt: build ## Verify formatting
 
 	# mdformat-all doesn't currently do checking
 
-lint: lint-python ## Run linters
+lint: lint-python skylos ## Run linters
 
 lint-python: build ## Run Python linters
 	$(UV_ENV) $(UV) run ruff check $(PYTHON_TARGETS)
 	$(PYLINT) $(PYLINT_TARGETS)
+
+skylos: build ## Detect dead production code
+	$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS) --category dead_code --gate \
+		--format concise --no-upload --no-provenance --no-grep-verify
 
 
 typecheck: build ## Run typechecking
