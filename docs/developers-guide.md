@@ -19,14 +19,17 @@ configuration, and neither uploads code nor collects provenance.
 
 Treat each finding as dead code until a runtime caller has been verified.
 Remove genuine dead code. When static analysis cannot see an intentional
-runtime reference, add a narrow, reasoned named exception to
-`[tool.skylos.whitelist.documented]` in `pyproject.toml`:
+runtime reference, prefer a narrow, typed entry point in `pyproject.toml`:
 
 ```toml
-[tool.skylos.whitelist.documented]
-"symbol" = "Verified runtime caller."
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+full_name = ["hecate.module.Class.method"]
+reason = "Verified runtime caller."
 ```
 
-The reason must identify the verified runtime caller. Do not add broad
-exceptions or baselines; remove an exception when its runtime boundary no
-longer exists.
+The entry point's fully qualified name and type must identify only the verified
+runtime boundary. Use `[tool.skylos.whitelist.documented]` only when no entry
+point can describe that boundary. Its reason must identify the verified runtime
+caller. Do not add broad exceptions or baselines; remove an exception when its
+runtime boundary no longer exists.

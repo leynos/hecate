@@ -85,8 +85,11 @@ When implementing changes, adhere to the following testing procedures:
     - **Linting:** Passes the complete `make lint` pipeline: Ruff, the
       built-in Pylint rules under managed PyPy, and the blocking Skylos
       dead-code scan. Investigate every Skylos finding and remove genuine dead
-      code. After verifying a false positive, record a narrow named exception
-      with the verified runtime caller in `[tool.skylos.whitelist.documented]`.
+      code. After verifying a false positive, prefer a precise typed entry
+      point in `[tool.skylos.dead_code.entrypoints]`, using its fully qualified
+      symbol, actual kind, and a reason naming the verified runtime caller. Use
+      `[tool.skylos.whitelist.documented]` only when an entry point cannot
+      describe the boundary.
     - **Formatting:** Adheres to formatting standards (run `make check-fmt` to
       verify, use `make fmt` to apply formatting).
     - **Typechecking:** Passes type checking (`make typecheck`).
