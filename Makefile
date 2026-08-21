@@ -33,9 +33,13 @@ PYLINT_PYTHON ?= pypy@3.12
 PYLINT_VERSION ?= 4.0.9
 PYLINT_TARGETS ?= $(PYTHON_TARGETS)
 PYLINT = $(UV_ENV) $(UV) tool run --managed-python --python $(PYLINT_PYTHON) --from 'pylint==$(PYLINT_VERSION)' pylint
+SKYLOS_VERSION ?= 4.33.2
+SKYLOS = $(UV_ENV) $(UV) tool run --from 'skylos==$(SKYLOS_VERSION)' skylos \
+	--config-file pyproject.toml
+SKYLOS_PRODUCTION_TARGETS ?= hecate
 
 
-.PHONY: help all clean build build-release lint lint-python fmt check-fmt \
+.PHONY: help all clean build build-release lint lint-python skylos fmt check-fmt \
         markdownlint nixie spelling spelling-helper-test test typecheck \
         crosshair $(TOOLS) $(VENV_TOOLS) test-workflow-contracts
 
@@ -109,11 +113,15 @@ check-fmt: build ## Verify formatting
 
 	$(MDTABLEFIX) --check $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 
-lint: lint-python ## Run linters
+lint: lint-python skylos ## Run linters
 
 lint-python: build ## Run Python linters
 	$(UV_ENV) $(UV) run ruff check $(PYTHON_TARGETS)
 	$(PYLINT) $(PYLINT_TARGETS)
+
+skylos: build ## Detect dead production code
+	$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS) --category dead_code --gate \
+		--format concise --no-upload --no-provenance --no-grep-verify
 
 
 typecheck: build ## Run typechecking

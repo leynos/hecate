@@ -82,7 +82,11 @@ When implementing changes, adhere to the following testing procedures:
   - For Python files:
     - **Testing:** Passes all relevant unit and behavioural tests according to
       the guidelines above (run `make test` to verify).
-    - **Linting:** Passes lint checks (`make lint`).
+    - **Linting:** Passes the complete `make lint` pipeline: Ruff, the
+      built-in Pylint rules under managed PyPy, and the blocking Skylos
+      dead-code scan. Investigate every Skylos finding and remove genuine dead
+      code. After verifying a false positive, record a narrow named exception
+      with the verified runtime caller in `[tool.skylos.whitelist.documented]`.
     - **Formatting:** Adheres to formatting standards (run `make check-fmt` to
       verify, use `make fmt` to apply formatting).
     - **Typechecking:** Passes type checking (`make typecheck`).
