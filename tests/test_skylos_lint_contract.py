@@ -66,7 +66,7 @@ def test_skylos_target_is_blocking_local_production_scan() -> None:
     command = _skylos_command()
 
     assert "SKYLOS_VERSION ?= 4.33.2" in makefile
-    assert "--config-file pyproject.toml" in makefile
+    assert "SKYLOS = $(SKYLOS_COMMAND) --config-file pyproject.toml" in makefile
     assert "SKYLOS_PRODUCTION_TARGETS ?= hecate" in makefile
     assert "$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS)" in command
     assert "--category dead_code" in command
@@ -75,6 +75,27 @@ def test_skylos_target_is_blocking_local_production_scan() -> None:
     assert "--no-upload" in command
     assert "--no-provenance" in command
     assert "--no-grep-verify" in command
+
+
+def test_skylos_allow_target_uses_the_whitelist_subcommand() -> None:
+    """The named exception helper must not treat ``whitelist`` as a scan."""
+    makefile = MAKEFILE_PATH.read_text(encoding="utf-8")
+    match = re.search(
+        r"^skylos-allow: ## Document one named Skylos exception, not an entry point\n"
+        r"(?P<recipe>(?:\t[^\n]*(?:\n|$))+)",
+        makefile,
+        flags=re.MULTILINE,
+    )
+
+    assert "SKYLOS_WHITELIST = $(SKYLOS_COMMAND) whitelist" in makefile
+    assert "skylos-allow: export SKYLOS_NAME = $(value NAME)" in makefile
+    assert "skylos-allow: export SKYLOS_REASON" not in makefile
+    assert match is not None, "Makefile must define the Skylos allow-list target"
+    recipe = " ".join(match.group("recipe").split())
+    assert "NAME is required" in recipe
+    assert '$(SKYLOS_WHITELIST) "$${SKYLOS_NAME}"' in recipe
+    assert "--config-file" not in recipe
+    assert "--reason" not in recipe
 
 
 def test_skylos_false_positives_are_scoped_entry_points() -> None:

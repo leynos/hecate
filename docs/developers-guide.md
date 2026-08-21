@@ -30,6 +30,12 @@ reason = "Verified runtime caller."
 
 The entry point's fully qualified name and type must identify only the verified
 runtime boundary. Use `[tool.skylos.whitelist.documented]` only when no entry
-point can describe that boundary. Its reason must identify the verified runtime
-caller. Do not add broad exceptions or baselines; remove an exception when its
-runtime boundary no longer exists.
+point can describe that boundary. Add a named exception with:
+
+```shell
+make skylos-allow NAME=handler
+```
+
+Skylos records the name only, so retain the verified runtime caller's rationale
+in the reviewing change. Do not add broad exceptions or baselines; remove an
+exception when its runtime boundary no longer exists.
