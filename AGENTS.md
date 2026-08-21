@@ -89,7 +89,9 @@ When implementing changes, adhere to the following testing procedures:
       point in `[tool.skylos.dead_code.entrypoints]`, using its fully qualified
       symbol, actual kind, and a reason naming the verified runtime caller. Use
       `[tool.skylos.whitelist.documented]` only when an entry point cannot
-      describe the boundary.
+      describe the boundary. Add a named exception with
+      `make skylos-allow NAME=handler`; retain its caller-specific rationale in
+      the reviewing change because Skylos records only the exception name.
     - **Formatting:** Adheres to formatting standards (run `make check-fmt` to
       verify, use `make fmt` to apply formatting).
     - **Typechecking:** Passes type checking (`make typecheck`).

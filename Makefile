@@ -34,12 +34,13 @@ PYLINT_VERSION ?= 4.0.9
 PYLINT_TARGETS ?= $(PYTHON_TARGETS)
 PYLINT = $(UV_ENV) $(UV) tool run --managed-python --python $(PYLINT_PYTHON) --from 'pylint==$(PYLINT_VERSION)' pylint
 SKYLOS_VERSION ?= 4.33.2
-SKYLOS = $(UV_ENV) $(UV) tool run --from 'skylos==$(SKYLOS_VERSION)' skylos \
-	--config-file pyproject.toml
+SKYLOS_COMMAND = $(UV_ENV) $(UV) tool run --from 'skylos==$(SKYLOS_VERSION)' skylos
+SKYLOS = $(SKYLOS_COMMAND) --config-file pyproject.toml
+SKYLOS_WHITELIST = $(SKYLOS_COMMAND) whitelist
 SKYLOS_PRODUCTION_TARGETS ?= hecate
 
 
-.PHONY: help all clean build build-release lint lint-python skylos fmt check-fmt \
+.PHONY: help all clean build build-release lint lint-python skylos skylos-allow fmt check-fmt \
         markdownlint nixie spelling spelling-helper-test test typecheck \
         crosshair $(TOOLS) $(VENV_TOOLS) test-workflow-contracts
 
@@ -122,6 +123,11 @@ lint-python: build ## Run Python linters
 skylos: build ## Detect dead production code
 	$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS) --category dead_code --gate \
 		--format concise --no-upload --no-provenance --no-grep-verify
+
+skylos-allow: export SKYLOS_NAME = $(value NAME)
+skylos-allow: ## Document one named Skylos exception, not an entry point
+	@test -n "$${SKYLOS_NAME}" || { printf "Error: NAME is required for a named whitelist exception\\n" >&2; exit 2; }
+	$(SKYLOS_WHITELIST) "$${SKYLOS_NAME}"
 
 
 typecheck: build ## Run typechecking
