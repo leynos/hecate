@@ -42,7 +42,7 @@ jobs:
       - name: Check spelling
         run: make spelling
 
-      - name: Run ruff
+      - name: Run lint gate, including Skylos dead-code detection
         run: make lint
 
       - name: Run typechecker
