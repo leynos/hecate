@@ -13,9 +13,12 @@ blocking Skylos scan for dead production code in `hecate`. Continuous
 integration runs the same `make lint` target, so an unexplained Skylos finding
 blocks both local commits and pull requests.
 
-Skylos is provisioned independently at the version pinned in the Makefile. The
-scan is limited to dead-code analysis, uses the reviewed `pyproject.toml`
-configuration, and neither uploads code nor collects provenance.
+Skylos is provisioned independently at the version pinned in the Makefile. Its
+command-only macro runs it under Python 3.14 because Skylos parses source using
+its own runtime AST; the pinned runtime prevents phantom findings when the
+project uses newer Python syntax. The scan-only macro adds the reviewed
+`pyproject.toml` configuration. The scan is limited to dead-code analysis and
+neither uploads code nor collects provenance.
 
 Treat each finding as dead code until a runtime caller has been verified.
 Remove genuine dead code. When static analysis cannot see an intentional
@@ -33,9 +36,25 @@ runtime boundary. Use `[tool.skylos.whitelist.documented]` only when no entry
 point can describe that boundary. Add a named exception with:
 
 ```shell
-make skylos-allow NAME=handler
+make skylos-allow SYMBOL=handler REASON="Loaded by plugin registry"
 ```
 
-Skylos records the name only, so retain the verified runtime caller's rationale
-in the reviewing change. Do not add broad exceptions or baselines; remove an
-exception when its runtime boundary no longer exists.
+The target requires both values. It dispatches `skylos whitelist` before the
+symbol and reason, then records the reason in Skylos's documented allow list.
+Do not add broad exceptions or baselines; retain the verified runtime caller's
+evidence in the reviewing change and remove an exception when its runtime
+boundary no longer exists.
+
+The Makefile contracts are parsed by the pinned `makeutil` executable in
+`tests/test_skylos_lint_contract.py`; `make test` verifies that the parser is
+available before running the test suite. CI installs the same pinned Makeutil
+revision before each full pytest suite. To bootstrap that parser locally, run:
+
+```shell
+rustup toolchain install nightly-2026-05-28 --profile minimal
+RUSTFLAGS="-Zpolonius=next" cargo +nightly-2026-05-28 install \
+  --git https://github.com/leynos/makeutil \
+  --rev 29fc5a1634ffbaa18a773eed9dff1b2838a45d9c \
+  --locked --force makeutil
+make test
+```
