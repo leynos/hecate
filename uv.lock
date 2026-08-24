@@ -35,7 +35,7 @@ wheels = [
 
 [[package]]
 name = "crosshair-tool"
-version = "0.0.109"
+version = "0.0.110"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "importlib-metadata" },
@@ -46,15 +46,15 @@ dependencies = [
     { name = "typing-inspect" },
     { name = "z3-solver" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/64/77/53ce9bb66a3930d1641fa934a11c83a7182b0318087bf9e6fd43cc9968a2/crosshair_tool-0.0.109.tar.gz", hash = "sha256:486e3b1772c6d530a614e870fc4709ccebe5e04fd8af16bc160cba5d6c21cee4", size = 613845, upload-time = "2026-07-21T14:29:05.171Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/fb/04/dbe1e3769eec8ec46bbb8e1ccf7540369ef74a40e9121440bef6dec815e5/crosshair_tool-0.0.110.tar.gz", hash = "sha256:fc0dd25117309728bf6fe304ed6ffce906a6b6aefc6c275b5bbb6cc7186367b3", size = 628630, upload-time = "2026-08-16T23:53:29.851Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/8e/e9/c83388ac1815ecba3755ba0e4d813992f524df2e3033cc2e393a63dba905/crosshair_tool-0.0.109-cp314-cp314-macosx_10_13_universal2.whl", hash = "sha256:9b271f1bc35068181cc5ea912d4e5cde2154c9794af12537f25a409a5505bda1", size = 711425, upload-time = "2026-07-21T14:28:38.941Z" },
-    { url = "https://files.pythonhosted.org/packages/bc/fd/64d2ddafa0dc736f80b4d76b82c803db1acf4978d19490d022e18d95ab30/crosshair_tool-0.0.109-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:35c52feeb9d011e0f30482dda88423f03060f15814c3db0093b44d53279d820b", size = 695269, upload-time = "2026-07-21T14:28:40.149Z" },
-    { url = "https://files.pythonhosted.org/packages/83/9b/8596ea2c1aa8880ef8568b82836f2949bb0cc22f6188670b30814db7b4d1/crosshair_tool-0.0.109-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:ed7cb3b139de22aea15e5db97551a847110195d57429f64663df028f9de01f5b", size = 695882, upload-time = "2026-07-21T14:28:41.415Z" },
-    { url = "https://files.pythonhosted.org/packages/4b/b8/6adfae5d2520fafb9a53f323a1de9fbade347b0e95dd18a4fe364c1624a0/crosshair_tool-0.0.109-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:6b465ec291d4867f27736a622ac220c7dabe55650af3f8a8cadf414cdc543f01", size = 785790, upload-time = "2026-07-21T14:28:42.669Z" },
-    { url = "https://files.pythonhosted.org/packages/52/7b/37c9f2213392b7a25821f1d6c976b44272e01a8b84ee369910438e13d1fe/crosshair_tool-0.0.109-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:f09112e7e4f118d54514bf75f344bc4ca3b25a45b78cebfe4f67a2d2196eb8b6", size = 784243, upload-time = "2026-07-21T14:28:43.97Z" },
-    { url = "https://files.pythonhosted.org/packages/9b/01/6c59ba2d810a58fb5bb6ee510980961f41046fed600faef93cdbb28528d6/crosshair_tool-0.0.109-cp314-cp314-win32.whl", hash = "sha256:242d1e828c22ab3596439086a29ea355ff343329d2166d714749b1fdaf37afd2", size = 689205, upload-time = "2026-07-21T14:28:45.118Z" },
-    { url = "https://files.pythonhosted.org/packages/bd/37/4aaf72d0b30539efd167b87a6fe18aafb0143e57267d8586be8dfbf59b67/crosshair_tool-0.0.109-cp314-cp314-win_amd64.whl", hash = "sha256:e2ced2f4dc500465537ba4f43ed760775a1b4b2080c498b4f7c2722bb0ff2f3b", size = 690632, upload-time = "2026-07-21T14:28:46.215Z" },
+    { url = "https://files.pythonhosted.org/packages/37/76/1188b519ede0c1ba42fdce400a2ba9052744bbb393afb1c503edc1682ee1/crosshair_tool-0.0.110-cp314-cp314-macosx_10_13_universal2.whl", hash = "sha256:d30ef73b792f6e0c9202db82cdb9a45005b66396c9c2e0a745bc65a8608c80d8", size = 728452, upload-time = "2026-08-16T23:53:00.456Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/38/8182a8878c3d57c1a7c73a5c289b411e0ac4e97d1e2f2a3f13c5ce8a36ab/crosshair_tool-0.0.110-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:2a787b8aaf8790f519bfe5cbc53cbc7690811b6d6259fe122735c76e7d390140", size = 712301, upload-time = "2026-08-16T23:53:01.74Z" },
+    { url = "https://files.pythonhosted.org/packages/0c/4d/228eaa2873efbe1bc3b2b8da9c7c014c0ced2046ca703ba6c358ba5ec2cf/crosshair_tool-0.0.110-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:e78e2f74ebcee7ffb36251f83e6534bd1bee6c6edeb2ccedfed9826609a23252", size = 712916, upload-time = "2026-08-16T23:53:02.892Z" },
+    { url = "https://files.pythonhosted.org/packages/4f/95/4d76ae5652a8c1d1cf7e44f6742f018da545df5c968e1ad923ce858f03dc/crosshair_tool-0.0.110-cp314-cp314-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:72135403a82d4467ca4d53b844cfcd67aa370fd9249944b9fa3dcab1927726b3", size = 802818, upload-time = "2026-08-16T23:53:04.717Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/e4/822d9decd4eaaab97f8050f3ddd8788369389ff6e6e2b6896a083f8e4c7c/crosshair_tool-0.0.110-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:345d8024a47c58bd64adf2f2511bc022765bd429c783447d536cd9c8fb62e68f", size = 801270, upload-time = "2026-08-16T23:53:06.144Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/6d/01bc3532c919ff82b2f8a52ffed56be823c3fb182467a103747268a4aea3/crosshair_tool-0.0.110-cp314-cp314-win32.whl", hash = "sha256:9f59a847bc46cb25db849999d156285298bbaa601d52922a097bab20b45e9bde", size = 706272, upload-time = "2026-08-16T23:53:07.471Z" },
+    { url = "https://files.pythonhosted.org/packages/56/83/b602c6da62cef07495ca1a4e5565205c2289a79a634ebb34cfd5000bde27/crosshair_tool-0.0.110-cp314-cp314-win_amd64.whl", hash = "sha256:a73a9ab75b1a1899b01ad74e9de382ee1f9b9e54e93b4ef39438b9b6bf64f29a", size = 707699, upload-time = "2026-08-16T23:53:09.105Z" },
 ]
 
 [[package]]
