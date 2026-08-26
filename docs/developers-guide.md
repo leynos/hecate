@@ -39,16 +39,20 @@ point can describe that boundary. Add a named exception with:
 make skylos-allow SYMBOL=handler REASON="Loaded by plugin registry"
 ```
 
-The target requires both values. It dispatches `skylos whitelist` before the
-symbol and reason, then records the reason in Skylos's documented allow list.
-Do not add broad exceptions or baselines; retain the verified runtime caller's
+The target requires both values to contain at least one non-whitespace
+character. Use `SYMBOL`, not `NAME`: Windows Subsystem for Linux injects
+`NAME` with the hostname. It dispatches `skylos whitelist` before the symbol
+and reason, then records the reason in Skylos's documented allow list. Do not
+add broad exceptions or baselines; retain the verified runtime caller's
 evidence in the reviewing change and remove an exception when its runtime
 boundary no longer exists.
 
 The Makefile contracts are parsed by the pinned `makeutil` executable in
-`tests/test_skylos_lint_contract.py`; `make test` verifies that the parser is
-available before running the test suite. CI installs the same pinned Makeutil
-revision before each full pytest suite. To bootstrap that parser locally, run:
+`tests/test_skylos_lint_contract.py`; `tests/test_skylos_allow_contract.py`
+uses a temporary recorder to verify exact shell argument forwarding without
+editing `pyproject.toml`. `make test` verifies that the parser is available
+before running the test suite. CI installs the same pinned Makeutil revision
+before each full pytest suite. To bootstrap that parser locally, run:
 
 ```shell
 rustup toolchain install nightly-2026-05-28 --profile minimal

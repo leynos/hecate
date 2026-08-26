@@ -35,8 +35,8 @@ Investigate every finding and remove genuine dead code. When a verified runtime
 caller is not statically visible, record a precise typed entry point with its
 fully qualified symbol, kind and caller-specific reason. Use the documented
 allow list only when an entry-point rule cannot model the boundary. The
-`skylos-allow` helper requires `SYMBOL` and `REASON` and dispatches the
-`whitelist` subcommand before its arguments.
+`skylos-allow` helper requires non-whitespace `SYMBOL` and `REASON` values
+and dispatches the `whitelist` subcommand before its arguments.
 
 ## Consequences
 
@@ -46,3 +46,17 @@ contributors and each coverage workflow install the pinned Makeutil revision
 with its pinned nightly toolchain and Polonius flag. This adds a small
 bootstrap requirement, but it makes command ordering, tool versions and CI
 provisioning regressions observable before review.
+
+## Addendum: 2026-08-27 allow-list boundary hardening
+
+The original decision remains in force. The command-only `SKYLOS_CLI` macro
+pins Skylos to Python 3.14, while the separate scan macro owns global options
+such as `--config-file`. This avoids sending scan-only options to the
+`whitelist` subcommand and keeps the runtime AST compatibility rationale
+visible at the command definition.
+
+The helper rejects missing and whitespace-only `SYMBOL` or `REASON` with exit
+code 2 before it invokes Skylos. Its behavioural contract injects a temporary
+recorder through `SKYLOS_CLI` and verifies the exact argument sequence, so
+shell-significant values cannot be split or silently rewritten. The test does
+not modify the documented allow list.
