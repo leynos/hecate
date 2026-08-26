@@ -15,7 +15,7 @@ hecate = "hecate.cli:main"
 [dependency-groups]
 dev = [
     "crosshair-tool",
-    "hypothesis",
+    "hypothesis>=6.0,<7",
     "pytest",
     "pytest-bdd",
     "ruff",

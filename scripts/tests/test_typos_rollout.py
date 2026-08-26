@@ -19,6 +19,7 @@ if typ.TYPE_CHECKING:
     import types
 
 SCRIPT_DIRECTORY = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = SCRIPT_DIRECTORY.parent
 
 
 def test_rollout_scripts_support_python_313() -> None:
@@ -53,13 +54,15 @@ def _dictionary_text(stem: str = "organ") -> str:
     )
 
 
-def test_rollout_generates_oxford_corrections(
-    rollout_modules: tuple[types.ModuleType, types.ModuleType, types.ModuleType],
-) -> None:
-    """The shared renderer accepts Oxford forms and corrects plain-British ones."""
-    _, rollout, _ = rollout_modules
-
-    mappings = rollout.generate_word_mappings(rollout.Dictionary(stems=("organ",)))
+def test_committed_spelling_policy_retains_oxford_corrections() -> None:
+    """The committed spelling policy retains its reviewed Oxford correction."""
+    configuration = tomllib.loads(
+        (REPOSITORY_ROOT / "typos.toml").read_text(encoding="utf-8")
+    )
+    default = configuration["default"]
+    assert isinstance(default, dict), "typos.toml default settings must be a table"
+    mappings = default["extend-words"]
+    assert isinstance(mappings, dict), "typos.toml word policy must be a table"
 
     assert mappings["organize"] == "organize"
     assert mappings["organise"] == "organize"

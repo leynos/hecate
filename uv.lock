@@ -136,7 +136,7 @@ requires-dist = [{ name = "cyclopts" }]
 [package.metadata.requires-dev]
 dev = [
     { name = "crosshair-tool" },
-    { name = "hypothesis" },
+    { name = "hypothesis", specifier = ">=6.0,<7" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-bdd" },

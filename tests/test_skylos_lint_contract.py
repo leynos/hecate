@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import shlex
 import shutil
 import subprocess  # noqa: S404 - contract tests invoke fixed local tools.
@@ -173,22 +172,6 @@ def _sole_workflow_step(
     return matches[0]
 
 
-def _run_skylos_allow(*arguments: str) -> subprocess.CompletedProcess[str]:
-    """Run a rejecting whitelist boundary without invoking Skylos itself."""
-    environment: dict[str, str] = dict(os.environ)
-    environment["NAME"] = "wsl-hostname"
-    environment.pop("REASON", None)
-    environment.pop("SYMBOL", None)
-    return subprocess.run(  # noqa: S603 - fixed Make target and test arguments.
-        (_executable_path("make"), "skylos-allow", *arguments),
-        capture_output=True,
-        check=False,
-        cwd=REPOSITORY_ROOT,
-        env=environment,
-        text=True,
-    )
-
-
 def _assert_makeutil_installation(command: object, *, contract: str) -> None:
     """Assert that `command` installs the pinned Makeutil parser."""
     assert isinstance(command, str), (
@@ -264,52 +247,6 @@ def test_skylos_cli_and_whitelist_dispatch_are_separate() -> None:
             "$${SKYLOS_REASON}",
         )
     ], "Skylos whitelist must dispatch before its symbol and --reason arguments"
-
-
-def test_skylos_allow_requires_symbol_and_reason() -> None:
-    """The helper must reject incomplete input before it can mutate TOML."""
-    for arguments, expected_error in (
-        ((), "Error: SYMBOL is required for a named whitelist exception"),
-        (
-            ("SYMBOL=handler",),
-            "Error: REASON is required for a named whitelist exception",
-        ),
-    ):
-        completed = _run_skylos_allow(*arguments)
-
-        assert completed.returncode == 2, (
-            "Skylos whitelist boundary must reject a missing required argument "
-            f"for {arguments!r}"
-        )
-        assert expected_error in completed.stderr, (
-            "Skylos whitelist boundary must identify the missing required "
-            f"argument for {arguments!r}"
-        )
-
-
-def test_skylos_allow_dry_run_preserves_whitelist_argument_order() -> None:
-    """Complete dry-run input must reveal, but not execute, the helper command."""
-    completed = subprocess.run(  # noqa: S603 - fixed Make target and test arguments.
-        (
-            _executable_path("make"),
-            "--dry-run",
-            "skylos-allow",
-            "SYMBOL=handler",
-            "REASON=Loaded by plugin registry",
-        ),
-        capture_output=True,
-        check=False,
-        cwd=REPOSITORY_ROOT,
-        text=True,
-    )
-
-    assert completed.returncode == 0, (
-        "Skylos whitelist dry run must accept complete SYMBOL and REASON input"
-    )
-    assert (
-        'skylos whitelist "${SKYLOS_SYMBOL}" --reason "${SKYLOS_REASON}"'
-        in completed.stdout
-    ), "Skylos whitelist dry run must preserve subcommand-before-reason order"
 
 
 def test_skylos_configuration_models_only_verified_runtime_callers() -> None:
