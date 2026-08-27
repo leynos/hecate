@@ -43,6 +43,8 @@ def _make_executable() -> str:
 def _run_skylos_allow(
     *,
     variables: dict[str, str],
+    working_directory: Path,
+    allow_lock_path: Path,
     skylos_cli: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     """Run the helper with environment-provided caller values."""
@@ -52,14 +54,20 @@ def _run_skylos_allow(
     environment["NAME"] = "wsl-hostname"
     environment.update(variables)
 
-    command = [_make_executable(), "skylos-allow"]
+    command = [
+        _make_executable(),
+        "--file",
+        str(REPOSITORY_ROOT / "Makefile"),
+        f"SKYLOS_ALLOW_LOCK={allow_lock_path}",
+    ]
     if skylos_cli is not None:
         command.append(f"SKYLOS_CLI={skylos_cli}")
+    command.append("skylos-allow")
     return subprocess.run(  # noqa: S603 - fixed Make target and controlled test inputs.
         command,
         capture_output=True,
         check=False,
-        cwd=REPOSITORY_ROOT,
+        cwd=working_directory,
         env=environment,
         text=True,
     )
@@ -101,9 +109,12 @@ def test_skylos_allow_rejects_missing_or_whitespace_values(
     pyproject = REPOSITORY_ROOT / "pyproject.toml"
     before = pyproject.read_bytes()
     recorder, output = _write_recorder(tmp_path)
+    allow_lock_path = tmp_path / ".skylos-whitelist.lock"
 
     completed = _run_skylos_allow(
         variables={**variables, "SKYLOS_RECORDER_OUTPUT": str(output)},
+        working_directory=tmp_path,
+        allow_lock_path=allow_lock_path,
         skylos_cli=str(recorder),
     )
 
@@ -116,6 +127,9 @@ def test_skylos_allow_rejects_missing_or_whitespace_values(
     ), f"Skylos allow-list helper must identify the missing {missing_name}"
     assert not output.exists(), (
         "Skylos allow-list helper must reject invalid input before invoking Skylos"
+    )
+    assert not allow_lock_path.exists(), (
+        "Skylos allow-list helper must reject invalid input before creating its lock"
     )
     assert pyproject.read_bytes() == before, (
         "Skylos allow-list validation must not mutate pyproject.toml"
@@ -132,13 +146,19 @@ def test_skylos_allow_forwards_exact_environment_values(
     pyproject = REPOSITORY_ROOT / "pyproject.toml"
     before = pyproject.read_bytes()
     with TemporaryDirectory(prefix="hecate-skylos-") as temporary_directory:
-        recorder, output = _write_recorder(Path(temporary_directory))
+        temporary_root = Path(temporary_directory)
+        working_directory = temporary_root / "workspace"
+        working_directory.mkdir()
+        recorder, output = _write_recorder(temporary_root)
+        allow_lock_path = working_directory / ".skylos-whitelist.lock"
         completed = _run_skylos_allow(
             variables={
                 "REASON": reason,
                 "SKYLOS_RECORDER_OUTPUT": str(output),
                 "SYMBOL": symbol,
             },
+            working_directory=working_directory,
+            allow_lock_path=allow_lock_path,
             skylos_cli=str(recorder),
         )
 
@@ -147,6 +167,9 @@ def test_skylos_allow_forwards_exact_environment_values(
         )
         assert output.exists(), (
             "Skylos allow-list helper must invoke the injected SKYLOS_CLI recorder"
+        )
+        assert allow_lock_path.exists(), (
+            "Skylos allow-list helper must create the overridden isolated lock file"
         )
         assert json.loads(output.read_text(encoding="utf-8")) == [
             "whitelist",

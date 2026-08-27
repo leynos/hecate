@@ -59,4 +59,6 @@ The helper rejects missing and whitespace-only `SYMBOL` or `REASON` with exit
 code 2 before it invokes Skylos. Its behavioural contract injects a temporary
 recorder through `SKYLOS_CLI` and verifies the exact argument sequence, so
 shell-significant values cannot be split or silently rewritten. The test does
-not modify the documented allow list.
+not modify the documented allow list. The helper also serializes its
+read-modify-write update with `flock` on the ignored repository-local
+`.skylos-whitelist.lock` file.

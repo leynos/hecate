@@ -34,11 +34,62 @@ _MAKEUTIL_INSTALL_TOKENS: typ.Final = (
     "--force",
     "makeutil",
 )
+_SKYLOS_VERSION_TOKENS: typ.Final = ("4.33.2",)
+_SKYLOS_PRODUCTION_TARGET_TOKENS: typ.Final = ("hecate",)
+_SKYLOS_EXCLUDE_FOLDER_TOKENS: typ.Final = ("tests",)
+_SKYLOS_ALLOW_LOCK_TOKENS: typ.Final = (".skylos-whitelist.lock",)
+_SKYLOS_CLI_TOKENS: typ.Final = (
+    "$(UV_ENV)",
+    "$(UV)",
+    "tool",
+    "run",
+    "--python",
+    "3.14",
+    "--from",
+    "skylos==$(SKYLOS_VERSION)",
+    "skylos",
+)
+_SKYLOS_SCAN_MACRO_TOKENS: typ.Final = (
+    "$(SKYLOS_CLI)",
+    "--config-file",
+    "pyproject.toml",
+)
+_SKYLOS_SCAN_RECIPE_TOKENS: typ.Final = (
+    (
+        "$(SKYLOS)",
+        "$(SKYLOS_PRODUCTION_TARGETS)",
+        "--exclude",
+        "$(SKYLOS_EXCLUDE_FOLDERS)",
+        "--category",
+        "dead_code",
+        "--gate",
+        "--format",
+        "concise",
+        "--no-upload",
+        "--no-provenance",
+        "--no-grep-verify",
+    ),
+)
+_SKYLOS_WHITELIST_RECIPE_TOKENS: typ.Final = (
+    "@(",
+    "flock",
+    "9",
+    "||",
+    "exit;",
+    "$(SKYLOS_CLI)",
+    "whitelist",
+    "$${SKYLOS_SYMBOL}",
+    "--reason",
+    "$${SKYLOS_REASON}",
+    ")",
+    "9>$(SKYLOS_ALLOW_LOCK)",
+)
 _RUNTIME_METHOD_ENTRY_POINTS: typ.Final = frozenset({
     "hecate.diagnostics.IgnoredImportDiagnostic.render",
     "hecate.diagnostics.IgnoredImportDiagnostic.to_dict",
     "hecate.reexports.ReexportIndex.expand_import",
 })
+_DOCUMENTED_WHITELIST_NAMES: typ.Final = frozenset[str]()
 
 
 def _mapping(value: object, *, subject: str) -> dict[str, object]:
@@ -187,66 +238,41 @@ def test_lint_runs_the_strict_production_dead_code_gate() -> None:
     assert "skylos" in _rule_prerequisites("lint"), (
         "make lint must depend on the Skylos dead-code target"
     )
-    assert _variable_tokens("SKYLOS_VERSION") == ("4.33.2",), (
+    assert _variable_tokens("SKYLOS_VERSION") == _SKYLOS_VERSION_TOKENS, (
         "Skylos version contract must pin 4.33.2"
     )
-    assert _variable_tokens("SKYLOS_PRODUCTION_TARGETS") == ("hecate",), (
-        "Skylos production-target contract must scan hecate"
+    assert (
+        _variable_tokens("SKYLOS_PRODUCTION_TARGETS")
+        == _SKYLOS_PRODUCTION_TARGET_TOKENS
+    ), "Skylos production-target contract must scan hecate"
+    assert (
+        _variable_tokens("SKYLOS_EXCLUDE_FOLDERS") == _SKYLOS_EXCLUDE_FOLDER_TOKENS
+    ), "Skylos exclusion contract must omit tests"
+    assert _recipe_tokens("skylos") == _SKYLOS_SCAN_RECIPE_TOKENS, (
+        "Skylos production scan must retain its strict blocking and no-upload flags"
     )
-    assert _variable_tokens("SKYLOS_EXCLUDE_FOLDERS") == ("tests",), (
-        "Skylos exclusion contract must omit tests"
-    )
-    assert _recipe_tokens("skylos") == (
-        (
-            "$(SKYLOS)",
-            "$(SKYLOS_PRODUCTION_TARGETS)",
-            "--exclude",
-            "$(SKYLOS_EXCLUDE_FOLDERS)",
-            "--category",
-            "dead_code",
-            "--gate",
-            "--format",
-            "concise",
-            "--no-upload",
-            "--no-provenance",
-            "--no-grep-verify",
-        ),
-    ), "Skylos production scan must retain its strict blocking and no-upload flags"
 
 
 def test_skylos_cli_and_whitelist_dispatch_are_separate() -> None:
     """Scans and named exceptions must use their distinct command shapes."""
-    assert _variable_tokens("SKYLOS_CLI") == (
-        "$(UV_ENV)",
-        "$(UV)",
-        "tool",
-        "run",
-        "--python",
-        "3.14",
-        "--from",
-        "skylos==$(SKYLOS_VERSION)",
-        "skylos",
-    ), "Skylos CLI must pin Python 3.14 and the pinned Skylos release"
-    assert _variable_tokens("SKYLOS") == (
-        "$(SKYLOS_CLI)",
-        "--config-file",
-        "pyproject.toml",
-    ), "Skylos scan command must add only its configuration-file option"
+    assert _variable_tokens("SKYLOS_CLI") == _SKYLOS_CLI_TOKENS, (
+        "Skylos CLI must pin Python 3.14 and the pinned Skylos release"
+    )
+    assert _variable_tokens("SKYLOS") == _SKYLOS_SCAN_MACRO_TOKENS, (
+        "Skylos scan command must add only its configuration-file option"
+    )
+    assert _variable_tokens("SKYLOS_ALLOW_LOCK") == _SKYLOS_ALLOW_LOCK_TOKENS, (
+        "Skylos allow-list helper must use the ignored repository-local lock file"
+    )
 
     whitelist_commands = [
         command
         for command in _recipe_tokens("skylos-allow")
-        if command[:1] == ("$(SKYLOS_CLI)",)
+        if "$(SKYLOS_CLI)" in command
     ]
-    assert whitelist_commands == [
-        (
-            "$(SKYLOS_CLI)",
-            "whitelist",
-            "$${SKYLOS_SYMBOL}",
-            "--reason",
-            "$${SKYLOS_REASON}",
-        )
-    ], "Skylos whitelist must dispatch before its symbol and --reason arguments"
+    assert whitelist_commands == [_SKYLOS_WHITELIST_RECIPE_TOKENS], (
+        "Skylos whitelist must serialize its documented update before dispatch"
+    )
 
 
 def test_skylos_configuration_models_only_verified_runtime_callers() -> None:
@@ -291,8 +317,25 @@ def test_skylos_configuration_models_only_verified_runtime_callers() -> None:
     documented = _mapping(
         whitelist.get("documented"), subject="documented Skylos whitelist"
     )
-    assert not {"render", "to_dict", "expand_import"} & documented.keys(), (
-        "common method names must not become global bare-name whitelist entries"
+    assert frozenset(documented) == _DOCUMENTED_WHITELIST_NAMES, (
+        "documented Skylos whitelist names must match the consciously reviewed set"
+    )
+
+
+def test_skylos_allow_lock_is_ignored() -> None:
+    """The serialized allow-list lock must remain repository-local state."""
+    completed = subprocess.run(  # noqa: S603 - fixed Git check-ignore command.
+        (
+            _executable_path("git"),
+            "check-ignore",
+            "--quiet",
+            _SKYLOS_ALLOW_LOCK_TOKENS[0],
+        ),
+        check=False,
+        cwd=REPOSITORY_ROOT,
+    )
+    assert completed.returncode == 0, (
+        "Skylos allow-list lock must be ignored as repository-local state"
     )
 
 

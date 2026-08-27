@@ -94,6 +94,7 @@ When implementing changes, adhere to the following testing procedures:
       `make skylos-allow SYMBOL=handler REASON="Verified runtime caller"`.
       Both values must contain at least one non-whitespace character; `NAME`
       is not a substitute because WSL injects it with the hostname. Skylos
+      serializes updates through the ignored repository-local lock file and
       records the reason in its documented allow list; retain the
       caller-specific evidence in the reviewing change and never add a broad
       exception or baseline.
