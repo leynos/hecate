@@ -18,11 +18,19 @@ PYLINT_TARGETS ?= $(PYTHON_TARGETS)
 PYLINT_PYPY_SHIM_REF ?= 726d09f968b4d729ee4b29c71fc732e744854f3b
 PYLINT_PYPY_SHIM = git+https://github.com/leynos/pylint-pypy-shim.git@$(PYLINT_PYPY_SHIM_REF)
 PYLINT = $(UV_ENV) $(UV) tool run --python $(PYLINT_PYTHON) --from '$(PYLINT_PYPY_SHIM)' pylint-pypy
+SKYLOS_VERSION ?= 4.33.2
+# Skylos parses source using its own Python AST, so Python 3.14 prevents
+# phantom dead-code findings from syntax older tool runtimes cannot parse.
+SKYLOS_CLI = $(UV_ENV) $(UV) tool run --python 3.14 --from 'skylos==$(SKYLOS_VERSION)' skylos
+SKYLOS = $(SKYLOS_CLI) --config-file pyproject.toml
+SKYLOS_PRODUCTION_TARGETS ?= hecate
+SKYLOS_EXCLUDE_FOLDERS ?= tests
+SKYLOS_ALLOW_LOCK ?= .skylos-whitelist.lock
 
 
-.PHONY: help all clean build build-release lint lint-python fmt check-fmt \
+.PHONY: help all clean build build-release lint lint-python skylos skylos-allow fmt check-fmt \
         markdownlint nixie spelling spelling-helper-test test typecheck \
-        crosshair $(TOOLS) $(VENV_TOOLS)
+        crosshair makeutil $(TOOLS) $(VENV_TOOLS)
 
 .DEFAULT_GOAL := all
 
@@ -90,11 +98,23 @@ check-fmt: build ## Verify formatting
 
 	# mdformat-all doesn't currently do checking
 
-lint: lint-python ## Run linters
+lint: lint-python skylos ## Run linters
 
 lint-python: build ## Run Python linters
 	$(UV_ENV) $(UV) run ruff check $(PYTHON_TARGETS)
 	$(PYLINT) $(PYLINT_TARGETS)
+
+skylos: build ## Detect dead production code
+	$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS) --exclude $(SKYLOS_EXCLUDE_FOLDERS) \
+		--category dead_code --gate \
+		--format concise --no-upload --no-provenance --no-grep-verify
+
+skylos-allow: export SKYLOS_SYMBOL = $(value SYMBOL)
+skylos-allow: export SKYLOS_REASON = $(value REASON)
+skylos-allow: ## Document one named Skylos exception, not an entry point
+	@case "$${SKYLOS_SYMBOL}" in *[![:space:]]*) ;; *) printf "Error: SYMBOL is required for a named whitelist exception\\n" >&2; exit 2;; esac
+	@case "$${SKYLOS_REASON}" in *[![:space:]]*) ;; *) printf "Error: REASON is required for a named whitelist exception\\n" >&2; exit 2;; esac
+	@( flock 9 || exit; $(SKYLOS_CLI) whitelist "$${SKYLOS_SYMBOL}" --reason "$${SKYLOS_REASON}" ) 9>"$(SKYLOS_ALLOW_LOCK)"
 
 
 typecheck: build ## Run typechecking
@@ -130,7 +150,10 @@ nixie: ## Validate Mermaid diagrams
 	$(call ensure_tool,$(NIXIE))
 	$(NIXIE) --no-sandbox
 
-test: build $(VENV_TOOLS) ## Run tests
+makeutil: ## Verify the Makefile parser used by contract tests
+	$(call ensure_tool,$@)
+
+test: build $(VENV_TOOLS) makeutil ## Run tests
 	$(UV_ENV) $(UV) run pytest -v -n $(PYTEST_XDIST_WORKERS)
 
 crosshair: build ## Run bounded CrossHair contracts

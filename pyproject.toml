@@ -15,7 +15,7 @@ hecate = "hecate.cli:main"
 [dependency-groups]
 dev = [
     "crosshair-tool",
-    "hypothesis",
+    "hypothesis>=6.0,<7",
     "pytest",
     "pytest-bdd",
     "ruff",
@@ -326,6 +326,27 @@ timeout = 30
 
 [tool.uv]
 package = true
+
+[tool.skylos.gate]
+strict = true
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+full_name = [
+    "hecate.diagnostics.IgnoredImportDiagnostic.render",
+    "hecate.diagnostics.IgnoredImportDiagnostic.to_dict",
+]
+reason = "hecate.output invokes these methods when rendering and serializing ignored diagnostics."
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+full_name = ["hecate.reexports.ReexportIndex.expand_import"]
+reason = "hecate.checker invokes this method while resolving imported modules."
+
+[tool.skylos.whitelist]
+names = []
+
+[tool.skylos.whitelist.documented]
 
 
 [build-system]

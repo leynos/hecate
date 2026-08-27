@@ -100,3 +100,4 @@ filesystem, `ast.parse`, TOML parsing, and CLI code.
 - [BeatCue migration notes](docs/migration-beatcue.md)
 - [Episodic migration notes](docs/migration-episodic.md)
 - [ADR 001: use stdlib `ast` for v1 import analysis](docs/adr-001-stdlib-ast-import-engine.md)
+- [ADR 002: four-tier Python commit-gate linting and Skylos contracts](docs/adr-002-four-tier-python-linting.md)

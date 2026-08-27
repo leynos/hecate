@@ -20,7 +20,7 @@ consistent for developers.
   - and so forth.
 - The words **“outwith”** and **“caveat”** are acceptable.
 - Keep United States (US) spelling when used in an external API, command, or
-  library, for example, `color`.
+  library.
 - The name of the project licence file is spelled `LICENSE` for community
   consistency.
 

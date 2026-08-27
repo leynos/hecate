@@ -82,7 +82,22 @@ When implementing changes, adhere to the following testing procedures:
   - For Python files:
     - **Testing:** Passes all relevant unit and behavioural tests according to
       the guidelines above (run `make test` to verify).
-    - **Linting:** Passes lint checks (`make lint`).
+    - **Linting:** Passes the complete `make lint` pipeline: Ruff, the
+      built-in Pylint rules under managed PyPy, and the blocking Skylos
+      dead-code scan. Skylos runs under Python 3.14 because it parses source
+      using its own runtime AST. Investigate every Skylos finding and remove
+      genuine dead code. After verifying a false positive, prefer a precise
+      typed entry point in `[tool.skylos.dead_code.entrypoints]`, using its
+      fully qualified symbol, actual kind, and a reason naming the verified
+      runtime caller. Use `[tool.skylos.whitelist.documented]` only when an
+      entry point cannot describe the boundary. Add a named exception with
+      `make skylos-allow SYMBOL=handler REASON="Verified runtime caller"`.
+      Both values must contain at least one non-whitespace character; `NAME`
+      is not a substitute because WSL injects it with the hostname. Skylos
+      serializes updates through the ignored repository-local lock file and
+      records the reason in its documented allow list; retain the
+      caller-specific evidence in the reviewing change and never add a broad
+      exception or baseline.
     - **Formatting:** Adheres to formatting standards (run `make check-fmt` to
       verify, use `make fmt` to apply formatting).
     - **Typechecking:** Passes type checking (`make typecheck`).

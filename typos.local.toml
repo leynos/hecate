@@ -12,7 +12,8 @@ accepted = ["Astroid", "Flavored"]
 [words.corrections]
 
 [patterns]
-ignore = []
+# `act` exposes this literal command-line flag with US spelling.
+ignore = ["--artifact-server-path"]
 
 [files]
 exclude = []
