@@ -45,7 +45,9 @@ character. Use `SYMBOL`, not `NAME`: Windows Subsystem for Linux injects
 and reason, then records the reason in Skylos's documented allow list. Do not
 add broad exceptions or baselines; retain the verified runtime caller's
 evidence in the reviewing change and remove an exception when its runtime
-boundary no longer exists.
+boundary no longer exists. The helper holds an ignored repository-local
+`.skylos-whitelist.lock` with `flock` while Skylos updates the allow list, so
+concurrent contributors cannot interleave its read-modify-write operation.
 
 The Makefile contracts are parsed by the pinned `makeutil` executable in
 `tests/test_skylos_lint_contract.py`; `tests/test_skylos_allow_contract.py`
