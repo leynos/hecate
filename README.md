@@ -100,3 +100,7 @@ filesystem, `ast.parse`, TOML parsing, and CLI code.
 - [BeatCue migration notes](docs/migration-beatcue.md)
 - [Episodic migration notes](docs/migration-episodic.md)
 - [ADR 001: use stdlib `ast` for v1 import analysis](docs/adr-001-stdlib-ast-import-engine.md)
+- [Roadmap: proposed P1–P3 work](docs/roadmap.md)
+- [RFC 001: conformance corpus](docs/rfc-001-conformance-corpus.md)
+- [RFC 002: explainable analysis](docs/rfc-002-explainable-analysis.md)
+- [RFC 003: safe policy adoption](docs/rfc-003-safe-policy-adoption.md)
