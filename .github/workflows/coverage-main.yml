@@ -1,12 +1,7 @@
 name: Coverage (main)
 
-# CodeScene accepts `cs-coverage upload` only for analysed branches, so
-# main-branch coverage is uploaded here on push; the pull-request gate
-# is deferred until CodeScene enables the coverage-gates configuration
-# for project 80198 (see the comment in ci.yml). This workflow also
-# advances the coverage ratchet baseline: caches saved on main are
-# readable by every pull-request run, so the baseline written here is
-# the one PR ratchet checks compare against.
+# Main owns the ratchet baseline and CodeScene publication. Pull requests read
+# this baseline but neither receive CodeScene credentials nor contact CodeScene.
 #
 # workflow_dispatch lets the upload be re-run on demand: merges
 # performed by the automerge workflow's GITHUB_TOKEN do not fire
@@ -39,17 +34,22 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Generate coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@47b337e4f230b591891656534d4ffad868131740
+        uses: leynos/shared-actions/.github/actions/generate-coverage@152d9c4784d0ae5877938a984fe6d1f04d718fd8
         with:
+          language: python
+          python-source: ./hecate
           output-path: coverage.xml
           format: cobertura
           artefact-name-suffix: hecate-main
+          pytest-workers: ''
           with-ratchet: 'true'
 
       - name: Upload coverage data to CodeScene
         if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@47b337e4f230b591891656534d4ffad868131740
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@152d9c4784d0ae5877938a984fe6d1f04d718fd8
         with:
           format: cobertura
+          path: coverage.xml
+          mode: upload
           access-token: ${{ env.CS_ACCESS_TOKEN }}
           installer-checksum: ${{ env.CODESCENE_CLI_SHA256 }}

@@ -6,6 +6,14 @@ testing** of a workflow using `act` and `pytest`, treating the workflow as a
 structured logs. Host-side command interception is intentionally avoided;
 containers execute in isolation.
 
+## Coverage workflow boundary
+
+Pull-request CI generates serial, source-scoped coverage and compares it with
+the ratcheted baseline written by `main`. It does not contact CodeScene, expose
+`CS_ACCESS_TOKEN`, or require full Git history. The main-only
+`coverage-main.yml` workflow regenerates that measurement after merges,
+advances the ratchet, and publishes it to CodeScene in explicit upload mode.
+
 ## TL;DR
 
 - Keep **unit tests** in the action codebase (plain `pytest` or the language's
