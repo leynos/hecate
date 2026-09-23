@@ -13,15 +13,8 @@ import typing as typ
 
 from .codescene_reach import codescene_contacts
 from .expressions import ConditionError, missing_terms
-from .reading import (
-    Document,
-    WorkflowReadingError,
-    jobs,
-    steps,
-    texts,
-    trigger_filters,
-    triggers,
-)
+from .loading import Document, WorkflowReadingError
+from .reading import jobs, steps, texts, trigger_filters, triggers
 
 UPLOAD_ACTION: typ.Final[str] = (
     "leynos/shared-actions/.github/actions/upload-codescene-coverage"

@@ -23,7 +23,7 @@ from .coverage_lanes import (
     second_writer_violations,
 )
 from .fixtures import PUBLISHER, mutate, tree
-from .reading import Document, WorkflowReadingError, load_workflow
+from .loading import Document, WorkflowReadingError, load_workflow
 
 GUARD = "if: env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'"
 

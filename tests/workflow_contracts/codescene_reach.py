@@ -11,14 +11,8 @@ from __future__ import annotations
 import re
 import typing as typ
 
-from .reading import (
-    PULL_REQUEST_TRIGGERS,
-    Document,
-    WorkflowReadingError,
-    jobs,
-    texts,
-    triggers,
-)
+from .loading import Document, WorkflowReadingError
+from .reading import PULL_REQUEST_TRIGGERS, jobs, texts, triggers
 
 #: Where a same-repository reusable workflow lives.
 WORKFLOW_DIRECTORY: typ.Final[str] = ".github/workflows/"

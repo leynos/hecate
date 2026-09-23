@@ -24,7 +24,7 @@ from .coverage_lanes import (
     pull_request_lane_violations,
     second_writer_violations,
 )
-from .reading import Document, WorkflowReadingError, load_workflow
+from .loading import Document, WorkflowReadingError, load_workflow
 
 REPOSITORY: typ.Final[str] = "leynos/example"
 PIN: typ.Final[str] = "a" * 40

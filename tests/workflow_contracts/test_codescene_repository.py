@@ -27,7 +27,7 @@ from .coverage_lanes import (
     pull_request_lane_violations,
     second_writer_violations,
 )
-from .reading import Document, read_workflows
+from .loading import Document, read_workflows
 
 REPOSITORY: typ.Final[str] = "leynos/hecate"
 ROOT: typ.Final[Path] = Path(__file__).resolve().parents[2]

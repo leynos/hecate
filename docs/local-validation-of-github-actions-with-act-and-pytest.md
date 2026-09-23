@@ -29,18 +29,18 @@ gone; the shared uploader verifies the `cs-coverage` archive from its own
 manifest.
 
 `tests/workflow_contracts/` holds this shape as plain `pytest` contracts over
-the parsed workflows, without `act`. `reading.py` parses workflows through a
-loader that refuses duplicate keys and reads the `on:` triggers in scalar,
-sequence and mapping form under either key. `codescene_reach.py` follows local
-reusable-workflow calls (`./` and `$/`) from every pull-request-started
-workflow and refuses any key or value in that closure naming the CodeScene
-host, the credential, the client or the uploader. `codescene_publisher.py` and
-`coverage_lanes.py` hold the publisher and the lanes to the rules above. Each
-rule returns its findings as text, so the rule tests beside them can drive it
-over a constructed tree; every refusal case changes one thing in the compliant
-tree in `fixtures.py`. Keep a new rule to that pattern: a pure reading, a
-repository assertion, and a refusal case that fails when the rule's clause is
-deleted.
+the parsed workflows, without `act`. `loading.py` parses workflows through a
+loader that refuses duplicate keys, and `reading.py` reads the `on:` triggers
+in scalar, sequence and mapping form under either key. `codescene_reach.py`
+follows local reusable-workflow calls (`./` and `$/`) from every
+pull-request-started workflow and refuses any key or value in that closure
+naming the CodeScene host, the credential, the client or the uploader.
+`codescene_publisher.py` and `coverage_lanes.py` hold the publisher and the
+lanes to the rules above. Each rule returns its findings as text, so the rule
+tests beside them can drive it over a constructed tree; every refusal case
+changes one thing in the compliant tree in `fixtures.py`. Keep a new rule to
+that pattern: a pure reading, a repository assertion, and a refusal case that
+fails when the rule's clause is deleted.
 
 ## TL;DR
 

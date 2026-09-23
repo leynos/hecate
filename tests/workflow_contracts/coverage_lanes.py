@@ -20,7 +20,10 @@ from .codescene_publisher import (
     upload_step,
 )
 from .expressions import ConditionError, missing_terms
-from .reading import Document, triggers
+from .reading import triggers
+
+if typ.TYPE_CHECKING:
+    from .loading import Document
 
 #: Inputs that may differ between a pull-request lane and the publisher,
 #: because they name or ship the report rather than select what runs.
