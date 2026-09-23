@@ -14,11 +14,16 @@ from .codescene_publisher import (
     concurrency_violations,
     find_publisher,
     retired_checksum_violations,
-    token_scope_violations,
     trigger_violations,
     upload_step_violations,
 )
 from .codescene_reach import pull_request_closure, pull_request_violations
+from .codescene_token import (
+    check_step_violations,
+    token_scope_violations,
+    upload_guard_violations,
+    upload_token_violations,
+)
 from .coverage_lanes import (
     publisher_lane_violations,
     pull_request_lane_violations,
@@ -51,6 +56,15 @@ PULL_REQUEST_LANE: typ.Final[str] = textwrap.dedent(f"""\
               publish-artefact: 'false'
     """)
 
+#: The availability check's one command, and the upload guard reading it.
+CHECK_RUN: typ.Final[str] = (
+    'echo "available=${{ secrets.CS_ACCESS_TOKEN != \'\' }}" >> "$GITHUB_OUTPUT"'
+)
+UPLOAD_IF: typ.Final[str] = (
+    "steps.codescene-token.outputs.available == 'true'"
+    " && github.ref == 'refs/heads/main'"
+)
+
 PUBLISHER: typ.Final[str] = textwrap.dedent(f"""\
     name: Coverage (main)
     on:
@@ -71,15 +85,16 @@ PUBLISHER: typ.Final[str] = textwrap.dedent(f"""\
               output-path: coverage.xml
               artefact-name-suffix: example
               with-ratchet: 'true'
+          - name: Check for the CodeScene token
+            id: codescene-token
+            run: {CHECK_RUN}
           - name: Upload coverage data to CodeScene
-            env:
-              CS_ACCESS_TOKEN: ${{{{ secrets.CS_ACCESS_TOKEN }}}}
-            if: env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'
+            if: {UPLOAD_IF}
             uses: {SHARED}/upload-codescene-coverage@{PIN}
             with:
               path: coverage.xml
               mode: upload
-              access-token: ${{{{ env.CS_ACCESS_TOKEN }}}}
+              access-token: ${{{{ secrets.CS_ACCESS_TOKEN }}}}
     """)
 
 TREE: typ.Final[dict[str, str]] = {
@@ -109,10 +124,11 @@ def replaced(text: str, old: str, new: str) -> str:
         nothing would pass for a reason that proves nothing.
 
     """
-    if old not in text:
-        message = f"{old!r} is absent; the mutation would change nothing"
+    result = text.replace(old, new)
+    if result == text:
+        message = f"replacing {old!r} with {new!r} would change nothing"
         raise ValueError(message)
-    return text.replace(old, new)
+    return result
 
 
 def mutate(name: str, old: str, new: str) -> dict[str, str]:
@@ -148,6 +164,9 @@ def violations(texts: dict[str, str]) -> list[str]:
         *trigger_violations(publisher),
         *concurrency_violations(publisher),
         *upload_step_violations(publisher),
+        *check_step_violations(publisher),
+        *upload_guard_violations(publisher),
+        *upload_token_violations(publisher),
         *token_scope_violations(publisher),
         *retired_checksum_violations(documents),
         *pull_request_lane_violations(closure),

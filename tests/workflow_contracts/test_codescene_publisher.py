@@ -13,7 +13,6 @@ from .codescene_publisher import (
     concurrency_violations,
     find_publisher,
     retired_checksum_violations,
-    token_scope_violations,
     trigger_violations,
     upload_step_violations,
 )
@@ -24,8 +23,6 @@ from .coverage_lanes import (
 )
 from .fixtures import PUBLISHER, PULL_REQUEST_LANE, REPOSITORY, mutate, replaced, tree
 from .loading import Document, WorkflowReadingError, load_workflow
-
-GUARD = "if: env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'"
 
 
 def _publisher(texts: dict[str, str]) -> Document:
@@ -39,65 +36,16 @@ def _documents(texts: dict[str, str]) -> dict[str, Document]:
 
 
 @pytest.mark.parametrize(
-    "guard",
-    [
-        # Every required term stays whole; only the `||` refusal catches it.
-        f"{GUARD} && github.actor != 'x' || github.event_name == 'workflow_dispatch'",
-        "if: env.CS_ACCESS_TOKEN != ''",
-        "if: github.ref == 'refs/heads/main'",
-        "if: ${{ !(env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main') }}",
-        "if: (env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'",
-        "if: env.CS_ACCESS_TOKEN != '' && github.ref != 'refs/heads/main'",
-    ],
-)
-def test_the_upload_guard_needs_both_terms_and_no_disjunction(guard: str) -> None:
-    """The ref and token guard must hold as whole terms of a conjunction."""
-    texts = mutate("coverage-main.yml", GUARD, guard)
-    found = upload_step_violations(_publisher(texts))
-    assert found, found
-
-
-@pytest.mark.parametrize(
-    "guard",
-    [
-        f"{GUARD} && github.actor != 'x'",
-        f"{GUARD} && (github.actor != 'x' || github.run_attempt == '1')",
-        "if: ${{ github.ref == 'refs/heads/main' && env.CS_ACCESS_TOKEN != '' }}",
-        f"{GUARD} && 'a||b' != ''",
-    ],
-)
-def test_a_narrower_upload_guard_is_accepted(guard: str) -> None:
-    """Extra terms, a wrapper and a quoted `||` do not trip the guard rule."""
-    texts = mutate("coverage-main.yml", GUARD, guard)
-    found = upload_step_violations(_publisher(texts))
-    assert not found, found
-
-
-@pytest.mark.parametrize(
     ("old", "new"),
     [
-        (
-            "          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}\n",
-            "          OTHER: x\n",
-        ),
-        ("          access-token: ${{ env.CS_ACCESS_TOKEN }}\n", ""),
         ("          mode: upload\n", "          mode: check\n"),
         ("upload-codescene-coverage@" + "a" * 40, "upload-codescene-coverage@main"),
     ],
 )
-def test_the_upload_step_binds_the_token_positively(old: str, new: str) -> None:
-    """A deleted binding, a missing input, check mode or a branch pin is refused."""
+def test_the_upload_step_names_its_mode_and_pin(old: str, new: str) -> None:
+    """Check mode or a branch pin on the uploader is refused."""
     texts = mutate("coverage-main.yml", old, new)
     found = upload_step_violations(_publisher(texts))
-    assert found, found
-
-
-def test_the_token_is_refused_in_any_wider_scope() -> None:
-    """The credential bound at job level reaches every step, so it is refused."""
-    job = "    runs-on: ubuntu-latest\n"
-    wider = job + "    env:\n      T: ${{ secrets.CS_ACCESS_TOKEN }}\n"
-    texts = mutate("coverage-main.yml", job, wider)
-    found = token_scope_violations(_publisher(texts))
     assert found, found
 
 
@@ -147,7 +95,9 @@ def test_a_literal_ref_is_not_a_ref_key(job_group: str) -> None:
     texts = mutate(
         "coverage-main.yml", GROUP, "group: coverage-main-github.ref-github.event_name"
     )
-    text = replaced(texts["coverage-main.yml"], UPLOAD_JOB, UPLOAD_JOB + job_group)
+    text = texts["coverage-main.yml"]
+    if job_group:
+        text = replaced(text, UPLOAD_JOB, UPLOAD_JOB + job_group)
     found = concurrency_violations(load_workflow(text))
     assert found, found
 
@@ -322,3 +272,5 @@ def test_a_substitution_that_changes_nothing_is_refused() -> None:
     """Every fixture edit goes through a helper that refuses a no-op."""
     with pytest.raises(ValueError, match="would change nothing"):
         replaced(PUBLISHER, "absent text", "anything")
+    with pytest.raises(ValueError, match="would change nothing"):
+        replaced(PUBLISHER, "mode: upload", "mode: upload")

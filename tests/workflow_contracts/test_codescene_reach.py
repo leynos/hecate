@@ -130,11 +130,29 @@ def test_a_pull_request_step_cannot_reach_codescene(where: str, text: str) -> No
         "${{ toJSON(secrets) }}",
         "${{ tojson( secrets ) }}",
         "${{ secrets[format('CS_{0}', 'ACCESS_TOKEN')] }}",
+        "${{ join(secrets.*, ',') }}",
+        "${{ fromJSON(toJSON(secrets)).CS_ACCESS_TOKEN }}",
+        "${{ contains(secrets, 'x') }}",
     ],
 )
 def test_an_unnamed_secret_read_is_refused(expression: str) -> None:
     """Reading every secret, or one by a computed name, names nothing to sweep for."""
     step = f"      - run: echo '{expression}'\n"
+    findings = _findings(mutate("ci.yml", "      - uses: actions/checkout@v4\n", step))
+    assert any("reads" in item for item in findings), findings
+
+
+@pytest.mark.parametrize(
+    "condition",
+    [
+        "join(secrets.*, ',') != ''",
+        "toJSON(secrets) != ''",
+        "secrets[format('CS_{0}', 'ACCESS_TOKEN')] != ''",
+    ],
+)
+def test_an_unnamed_secret_read_in_a_bare_condition_is_refused(condition: str) -> None:
+    """An `if:` condition needs no `${{ }}`, so the forms are read anywhere."""
+    step = f'      - if: "{condition}"\n        run: echo x\n'
     findings = _findings(mutate("ci.yml", "      - uses: actions/checkout@v4\n", step))
     assert any("reads" in item for item in findings), findings
 

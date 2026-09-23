@@ -185,12 +185,28 @@ def codescene_contacts(document: Document) -> list[str]:
     ]
 
 
-#: Reads of the whole `secrets` context, or of a key computed at run time.
-#: Like `secrets: inherit`, neither names the credential, so a sweep for
-#: its name cannot see them.
+#: Reads of the whole `secrets` context, of a wildcard over it, or of a
+#: key computed at run time. Like `secrets: inherit`, none names the
+#: credential, so a sweep for its name cannot see them. Matched anywhere,
+#: since an `if:` condition carries no `${{ }}` wrapper.
 UNNAMED_SECRET_ACCESS: typ.Final[re.Pattern[str]] = re.compile(
-    r"tojson\(\s*secrets\s*\)|\bsecrets\s*\["
+    r"tojson\(\s*secrets\s*\)|\bsecrets\s*\[|\bsecrets\s*\.\s*\*"
 )
+
+#: Inside an expression, any use of the `secrets` context that is not a
+#: plain `secrets.NAME` property read names nothing a sweep can match.
+_EXPRESSION: typ.Final[re.Pattern[str]] = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
+_WHOLE_CONTEXT: typ.Final[re.Pattern[str]] = re.compile(
+    r"\bsecrets\b(?!\s*\.\s*[a-z_])"
+)
+
+
+def _reads_unnamed(text: str) -> bool:
+    """Return whether a text reads secrets without naming one."""
+    folded = text.casefold()
+    return bool(UNNAMED_SECRET_ACCESS.search(folded)) or any(
+        _WHOLE_CONTEXT.search(body) for body in _EXPRESSION.findall(folded)
+    )
 
 
 def unnamed_secret_reads(document: Document) -> list[str]:
@@ -202,11 +218,7 @@ def unnamed_secret_reads(document: Document) -> list[str]:
     ['${{ toJSON(secrets) }}']
 
     """
-    return [
-        text
-        for text in texts(document)
-        if UNNAMED_SECRET_ACCESS.search(text.casefold())
-    ]
+    return [text for text in texts(document) if _reads_unnamed(text)]
 
 
 def inherited_secrets(document: Document) -> list[str]:
