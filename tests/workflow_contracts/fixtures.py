@@ -139,7 +139,7 @@ def violations(texts: dict[str, str]) -> list[str]:
         *token_scope_violations(publisher),
         *retired_checksum_violations(documents),
         *pull_request_lane_violations(closure),
-        *second_writer_violations(documents, name),
+        *second_writer_violations(documents, name, REPOSITORY),
         *publisher_lane_violations(publisher, closure),
     ]
 

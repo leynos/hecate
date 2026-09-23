@@ -108,7 +108,7 @@ def test_only_the_publisher_writes_the_baseline(
     documents: dict[str, Document],
 ) -> None:
     """Coverage elsewhere is guarded to pull requests, so main has one writer."""
-    found = second_writer_violations(documents, PUBLISHER)
+    found = second_writer_violations(documents, PUBLISHER, REPOSITORY)
     assert not found, found
 
 

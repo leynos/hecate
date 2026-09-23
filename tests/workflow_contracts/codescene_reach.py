@@ -106,17 +106,36 @@ def pull_request_closure(
         this tree does not hold.
 
     """
-    pending = [name for name, doc in documents.items() if is_pull_request_seed(doc)]
-    if not pending:
+    seeds = [name for name, doc in documents.items() if is_pull_request_seed(doc)]
+    if not seeds:
         message = "no workflow serves a pull request; the trigger reader is broken"
         raise WorkflowReadingError(message)
+    return reachable(documents, seeds, repository)
+
+
+def reachable(
+    documents: dict[str, Document], seeds: list[str], repository: str
+) -> dict[str, Document]:
+    """Return the seed workflows and every local workflow they call, transitively.
+
+    A called workflow runs in its caller's event context, so whatever a
+    rule asks of the caller it must also ask of everything the caller
+    reaches.
+
+    Raises
+    ------
+    WorkflowReadingError
+        If a call names a workflow this tree does not hold.
+
+    """
+    pending = list(seeds)
     found: dict[str, Document] = {}
     while pending:
         name = pending.pop()
         if name in found:
             continue
         if name not in documents:
-            message = f"a pull-request workflow calls {name}, which does not exist"
+            message = f"a workflow calls {name}, which does not exist"
             raise WorkflowReadingError(message)
         found[name] = documents[name]
         pending.extend(called_workflows(documents[name], repository))

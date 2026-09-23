@@ -101,17 +101,34 @@ def _cancels(concurrency: object) -> bool:
     return concurrency.get("cancel-in-progress", False) not in {False, "false"}
 
 
-def concurrency_violations(document: Document) -> list[str]:
-    """Require a concurrency group on the publisher that never cancels.
+def upload_job(document: Document) -> dict[str, object]:
+    """Return the job holding the publisher's one upload step."""
+    step = upload_step(document)
+    return next(
+        job
+        for job in jobs(document).values()
+        if any(candidate is step for candidate in steps(job))
+    )
 
-    A newer push then replaces an older pending run rather than killing a
-    running one, so the newest baseline wins and no upload is abandoned.
+
+def concurrency_violations(document: Document) -> list[str]:
+    """Require a concurrency group over the upload that never cancels.
+
+    The group must sit on the workflow or on the job that uploads: one on
+    an unrelated job leaves concurrent uploads possible. A newer push then
+    replaces an older pending run rather than killing a running one, so
+    the newest baseline wins and no upload is abandoned.
     """
+    governing = [document.get("concurrency"), upload_job(document).get("concurrency")]
+    found = (
+        []
+        if any(value is not None for value in governing)
+        else ["neither the publisher nor its upload job declares a concurrency group"]
+    )
     declared = [document.get("concurrency")] + [
         job.get("concurrency") for job in jobs(document).values()
     ]
     present = [value for value in declared if value is not None]
-    found = [] if present else ["the publisher declares no concurrency group"]
     return found + [
         f"concurrency {value!r} may cancel an upload"
         for value in present
