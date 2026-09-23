@@ -1,7 +1,10 @@
 name: Coverage (main)
 
-# Main owns the ratchet baseline and CodeScene publication. Pull requests read
-# this baseline but neither receive CodeScene credentials nor contact CodeScene.
+# The one CodeScene publisher. Main owns the ratchet baseline and
+# CodeScene publication; pull requests read this baseline but neither
+# receive CodeScene credentials nor contact CodeScene. ci.yml's
+# generate-coverage selection has to match the one below field for
+# field, and tests/workflow_contracts holds that shape.
 #
 # workflow_dispatch lets the upload be re-run on demand: merges
 # performed by the automerge workflow's GITHUB_TOKEN do not fire
@@ -13,14 +16,19 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# One publisher generation at a time, never cancelled. GitHub keeps at
+# most one pending run per group, so a newer push replaces an older
+# pending run and the newest baseline wins; a cancelled run would abandon
+# both its upload and its baseline write.
+concurrency:
+  group: coverage-main
+  cancel-in-progress: false
+
 jobs:
   coverage-upload:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    env:
-      CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
-      CODESCENE_CLI_SHA256: ${{ vars.CODESCENE_CLI_SHA256 }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -34,7 +42,7 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
 
       - name: Generate coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@152d9c4784d0ae5877938a984fe6d1f04d718fd8
+        uses: leynos/shared-actions/.github/actions/generate-coverage@dbe2e22ceaf498d85512679ccded38be9dbe7777
         with:
           language: python
           python-source: ./hecate
@@ -45,11 +53,15 @@ jobs:
           with-ratchet: 'true'
 
       - name: Upload coverage data to CodeScene
-        if: env.CS_ACCESS_TOKEN != ''
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@152d9c4784d0ae5877938a984fe6d1f04d718fd8
+        env:
+          CS_ACCESS_TOKEN: ${{ secrets.CS_ACCESS_TOKEN }}
+        # The ref as well as the token: a dispatch can name any branch, and
+        # without this guard it would upload that branch's coverage as
+        # main's.
+        if: env.CS_ACCESS_TOKEN != '' && github.ref == 'refs/heads/main'
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@dbe2e22ceaf498d85512679ccded38be9dbe7777
         with:
           format: cobertura
           path: coverage.xml
           mode: upload
           access-token: ${{ env.CS_ACCESS_TOKEN }}
-          installer-checksum: ${{ env.CODESCENE_CLI_SHA256 }}

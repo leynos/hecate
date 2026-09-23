@@ -8,11 +8,39 @@ containers execute in isolation.
 
 ## Coverage workflow boundary
 
-Pull-request CI generates serial, source-scoped coverage and compares it with
-the ratcheted baseline written by `main`. It does not contact CodeScene, expose
-`CS_ACCESS_TOKEN`, or require full Git history. The main-only
-`coverage-main.yml` workflow regenerates that measurement after merges,
-advances the ratchet, and publishes it to CodeScene in explicit upload mode.
+Main owns CodeScene. Pull-request CI generates serial, source-scoped coverage
+with `generate-coverage`, compares it with the ratchet baseline written by
+`main` (`with-ratchet: 'true'`), and uploads no artefact
+(`publish-artefact: 'false'`). Nothing a pull request can start contacts
+CodeScene, holds `CS_ACCESS_TOKEN`, or needs full Git history. The step is
+guarded to the `pull_request` event, because `generate-coverage` saves its
+baseline on a push to `main` and `coverage-main.yml` must be the only workflow
+writing it.
+
+After each merge, `coverage-main.yml` regenerates that measurement, advances
+the ratchet, and uploads it with `upload-codescene-coverage` in explicit
+`mode: upload`. The upload step binds the secret itself and runs only when
+`github.ref == 'refs/heads/main'` and the token is non-empty, so a
+`workflow_dispatch` aimed at a branch cannot publish that branch as `main`. Its
+concurrency group never cancels: a newer push replaces an older pending run,
+and the newest baseline wins. The retired `installer-checksum` input, the
+`CODESCENE_CLI_SHA256` variable and the `get-codescene-sha.yml` refresher are
+gone; the shared uploader verifies the `cs-coverage` archive from its own
+manifest.
+
+`tests/workflow_contracts/` holds this shape as plain `pytest` contracts over
+the parsed workflows, without `act`. `reading.py` parses workflows through a
+loader that refuses duplicate keys and reads the `on:` triggers in scalar,
+sequence and mapping form under either key. `codescene_reach.py` follows local
+reusable-workflow calls (`./` and `$/`) from every pull-request-started
+workflow and refuses any key or value in that closure naming the CodeScene
+host, the credential, the client or the uploader. `codescene_publisher.py` and
+`coverage_lanes.py` hold the publisher and the lanes to the rules above. Each
+rule returns its findings as text, so the rule tests beside them can drive it
+over a constructed tree; every refusal case changes one thing in the compliant
+tree in `fixtures.py`. Keep a new rule to that pattern: a pure reading, a
+repository assertion, and a refusal case that fails when the rule's clause is
+deleted.
 
 ## TL;DR
 

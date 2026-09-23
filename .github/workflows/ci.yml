@@ -47,10 +47,13 @@ jobs:
       # Guarded to pull requests: pushes to main run the suite and
       # upload coverage in coverage-main.yml, so running this step on
       # main too would duplicate the suite and race the ratchet
-      # baseline save (see wireframe#589).
+      # baseline save (see wireframe#589). The ratchet compares against
+      # the baseline main writes; nothing here talks to CodeScene, and
+      # publish-artefact is off because the report is compared, not
+      # published.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@152d9c4784d0ae5877938a984fe6d1f04d718fd8
+        uses: leynos/shared-actions/.github/actions/generate-coverage@dbe2e22ceaf498d85512679ccded38be9dbe7777
         with:
           language: python
           python-source: ./hecate
@@ -59,3 +62,4 @@ jobs:
           artefact-name-suffix: hecate
           pytest-workers: ''
           with-ratchet: 'true'
+          publish-artefact: 'false'
