@@ -23,10 +23,11 @@ the ratchet, and uploads it with `upload-codescene-coverage` in explicit
 `github.ref == 'refs/heads/main'` and the token is non-empty, so a
 `workflow_dispatch` aimed at a branch cannot publish that branch as `main`. Its
 concurrency group never cancels: a newer push replaces an older pending run,
-and the newest baseline wins. The retired `installer-checksum` input, the
-`CODESCENE_CLI_SHA256` variable, and the `get-codescene-sha.yml` refresher are
-gone; the shared uploader verifies the `cs-coverage` archive from its own
-manifest.
+and the newest baseline wins. The group is keyed on `github.ref`, so a branch
+dispatch cannot displace a pending push to `main`. The retired
+`installer-checksum` input, the `CODESCENE_CLI_SHA256` variable, and the
+`get-codescene-sha.yml` refresher are gone; the shared uploader verifies the
+`cs-coverage` archive from its own manifest.
 
 `tests/workflow_contracts/` holds this shape as plain `pytest` contracts over
 the parsed workflows, without `act`. `loading.py` parses workflows through a
