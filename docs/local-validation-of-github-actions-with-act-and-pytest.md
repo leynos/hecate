@@ -24,17 +24,17 @@ the ratchet, and uploads it with `upload-codescene-coverage` in explicit
 `workflow_dispatch` aimed at a branch cannot publish that branch as `main`. Its
 concurrency group never cancels: a newer push replaces an older pending run,
 and the newest baseline wins. The retired `installer-checksum` input, the
-`CODESCENE_CLI_SHA256` variable and the `get-codescene-sha.yml` refresher are
+`CODESCENE_CLI_SHA256` variable, and the `get-codescene-sha.yml` refresher are
 gone; the shared uploader verifies the `cs-coverage` archive from its own
 manifest.
 
 `tests/workflow_contracts/` holds this shape as plain `pytest` contracts over
 the parsed workflows, without `act`. `loading.py` parses workflows through a
 loader that refuses duplicate keys, and `reading.py` reads the `on:` triggers
-in scalar, sequence and mapping form under either key. `codescene_reach.py`
+in scalar, sequence, and mapping form under either key. `codescene_reach.py`
 follows local reusable-workflow calls (`./` and `$/`) from every
 pull-request-started workflow and refuses any key or value in that closure
-naming the CodeScene host, the credential, the client or the uploader.
+naming the CodeScene host, the credential, the client, or the uploader.
 `codescene_publisher.py` and `coverage_lanes.py` hold the publisher and the
 lanes to the rules above. Each rule returns its findings as text, so the rule
 tests beside them can drive it over a constructed tree; every refusal case
