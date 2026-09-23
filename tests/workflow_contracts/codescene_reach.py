@@ -185,6 +185,30 @@ def codescene_contacts(document: Document) -> list[str]:
     ]
 
 
+#: Reads of the whole `secrets` context, or of a key computed at run time.
+#: Like `secrets: inherit`, neither names the credential, so a sweep for
+#: its name cannot see them.
+UNNAMED_SECRET_ACCESS: typ.Final[re.Pattern[str]] = re.compile(
+    r"tojson\(\s*secrets\s*\)|\bsecrets\s*\["
+)
+
+
+def unnamed_secret_reads(document: Document) -> list[str]:
+    """Return every text reading the whole `secrets` context or a computed key.
+
+    Examples
+    --------
+    >>> unnamed_secret_reads({"jobs": {"a": {"env": {"S": "${{ toJSON(secrets) }}"}}}})
+    ['${{ toJSON(secrets) }}']
+
+    """
+    return [
+        text
+        for text in texts(document)
+        if UNNAMED_SECRET_ACCESS.search(text.casefold())
+    ]
+
+
 def inherited_secrets(document: Document) -> list[str]:
     """Return the jobs forwarding every secret with `secrets: inherit`.
 
@@ -212,5 +236,6 @@ def pull_request_violations(
                 f"job {job} uses secrets: inherit"
                 for job in inherited_secrets(document)
             ),
+            *(f"reads {text!r}" for text in unnamed_secret_reads(document)),
         )
     ]

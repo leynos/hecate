@@ -99,6 +99,22 @@ def tree(*, extra: dict[str, str] | None = None, **replaced: str) -> dict[str, s
     return texts | (extra or {})
 
 
+def replaced(text: str, old: str, new: str) -> str:
+    """Return a text with one substitution applied, refusing a no-op.
+
+    Raises
+    ------
+    ValueError
+        If the text to replace is absent, since a mutation that changes
+        nothing would pass for a reason that proves nothing.
+
+    """
+    if old not in text:
+        message = f"{old!r} is absent; the mutation would change nothing"
+        raise ValueError(message)
+    return text.replace(old, new)
+
+
 def mutate(name: str, old: str, new: str) -> dict[str, str]:
     """Return the compliant tree with one exact substitution in one file.
 
@@ -109,11 +125,7 @@ def mutate(name: str, old: str, new: str) -> dict[str, str]:
         nothing would pass for a reason that proves nothing.
 
     """
-    text = TREE[name]
-    if old not in text:
-        message = f"{old!r} is not in {name}; the mutation would change nothing"
-        raise ValueError(message)
-    return tree() | {name: text.replace(old, new)}
+    return tree() | {name: replaced(TREE[name], old, new)}
 
 
 def violations(texts: dict[str, str]) -> list[str]:

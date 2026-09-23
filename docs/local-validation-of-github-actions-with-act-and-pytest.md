@@ -38,7 +38,8 @@ follows local reusable-workflow calls (`./` and `$/`) from every workflow a
 pull request can start (its own events, reviews, comments, the merge queue,
 `workflow_run` chains, and pushes not confined to `main` or to tags) and
 refuses any key or value in that closure naming the CodeScene host, the
-credential, the client, or the uploader. `codescene_publisher.py` and
+credential, the client, or the uploader, and any read of the whole `secrets`
+context or of a computed secret name. `codescene_publisher.py` and
 `coverage_lanes.py` hold the publisher and the lanes to the rules above. Each
 rule returns its findings as text, so the rule tests beside them can drive it
 over a constructed tree; every refusal case changes one thing in the compliant
