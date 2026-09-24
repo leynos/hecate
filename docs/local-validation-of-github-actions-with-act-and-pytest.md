@@ -6,6 +6,64 @@ testing** of a workflow using `act` and `pytest`, treating the workflow as a
 structured logs. Host-side command interception is intentionally avoided;
 containers execute in isolation.
 
+## Coverage workflow boundary
+
+Main owns CodeScene. Pull-request CI generates serial, source-scoped coverage
+with `generate-coverage`, compares it with the ratchet baseline written by
+`main` (`with-ratchet: 'true'`), and uploads no artefact
+(`publish-artefact: 'false'`). Nothing a pull request can start contacts
+CodeScene, holds `CS_ACCESS_TOKEN`, or needs full Git history. The step is
+guarded to the `pull_request` event, because `generate-coverage` saves its
+baseline on a push to `main` and `coverage-main.yml` must be the only workflow
+writing it.
+
+After each merge, `coverage-main.yml` regenerates that measurement, advances
+the ratchet, and uploads it with `upload-codescene-coverage` in explicit
+`mode: upload`. A check step learns whether the token exists with the one
+command
+`echo "available=${{ secrets.CS_ACCESS_TOKEN != '' }}" >> "$GITHUB_OUTPUT"`,
+which binds nothing, and the upload step runs only when that output is `true`
+and `github.ref == 'refs/heads/main'`. The token reaches the uploader only as
+its `access-token` input, because the uploader is a composite action and a step
+`env` would reach every action nested in it. The ref guard means that a
+`workflow_dispatch` aimed at a branch cannot publish that branch as `main`. Its
+concurrency group never cancels: a newer push replaces an older pending run,
+and the newest baseline wins. The group is keyed on `github.ref` alone, so runs
+on `main` never overlap and triggered runs (push and dispatch) upload in commit
+order, and a branch dispatch cannot displace a pending push to `main`. A
+dispatch on `main` that replaces a pending push still uploads the same or a
+newer commit, but leaves the ratchet baseline one commit behind until the next
+push; that is accepted. A manual re-run of an older run is an operator action:
+it republishes that commit's coverage and baseline until the next push
+supersedes it. Merges made by the Dependabot automerge workflow's
+`GITHUB_TOKEN` fire no push, so they are published only by a manual dispatch;
+this is a known exception until the shared automerge workflow dispatches the
+publisher itself. The retired `installer-checksum` input, the
+`CODESCENE_CLI_SHA256` variable, and the `get-codescene-sha.yml` refresher are
+gone; the shared uploader verifies the `cs-coverage` archive from its own
+manifest.
+
+`tests/workflow_contracts/` holds this shape as plain `pytest` contracts over
+the parsed workflows, without `act`. `loading.py` parses workflows through a
+loader that refuses duplicate keys, and `reading.py` reads the `on:` triggers
+in scalar, sequence, and mapping form under either key. `codescene_reach.py`
+follows local reusable-workflow calls (`./` and `$/`) from every workflow a
+pull request can start (its own events, reviews, comments, the merge queue,
+`workflow_run` chains, and pushes not confined to `main` or to tags) and
+refuses any key or value in that closure naming the CodeScene host, the
+credential, the client, or the uploader, and any read of the whole `secrets`
+context or of a computed secret name. `codescene_publisher.py`,
+`codescene_token.py`, and `coverage_lanes.py` hold the publisher and the lanes
+to the rules above. Each rule returns its findings as text, so the rule tests
+beside them can drive it over a constructed tree; every refusal case changes
+one thing in the compliant tree in `fixtures.py`. Keep a new rule to that
+pattern: a pure reading, a repository assertion, and a refusal case that fails
+when the rule's clause is deleted. `test_bounded_properties.py` checks the pure
+readings exhaustively over small domains instead of sampling: the closure
+against Warshall reachability for every call graph over three workflows, the
+condition reader over every conjunction of up to three terms, and the document
+walk with a key or value planted at every depth up to three.
+
 ## TL;DR
 
 - Keep **unit tests** in the action codebase (plain `pytest` or the language's

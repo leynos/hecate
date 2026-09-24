@@ -7,7 +7,7 @@ stems = []
 
 [words]
 # Official names: the Astroid library and GitHub Flavored Markdown.
-accepted = ["Astroid", "Flavored"]
+accepted = ["artifact", "Astroid", "Flavored"]
 
 [words.corrections]
 
