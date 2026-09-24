@@ -79,14 +79,14 @@ def test_the_publisher_needs_a_concurrency_group() -> None:
     [
         # A constant group lets a branch dispatch replace a pending main run.
         "group: coverage-main",
-        # An event key lets a dispatch and a push on main upload out of order.
+        # An event key lets a dispatch and a push on main run at once.
         "group: coverage-main-${{ github.ref }}-${{ github.event_name }}",
         # Text naming the ref outside an expression evaluates nothing.
         "group: coverage-main-github.ref",
     ],
 )
 def test_the_group_is_keyed_on_the_ref_alone(group: str) -> None:
-    """Only the exact ref-keyed group keeps triggered uploads in commit order."""
+    """Only the exact ref-keyed group keeps runs on main from overlapping."""
     found = concurrency_violations(
         _publisher(mutate("coverage-main.yml", GROUP, group))
     )
