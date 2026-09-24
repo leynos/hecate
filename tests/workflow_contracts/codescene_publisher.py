@@ -24,6 +24,7 @@ COVERAGE_ACTION: typ.Final[str] = (
 PINNED_COMMIT: typ.Final[re.Pattern[str]] = re.compile(r"^[0-9a-f]{40}$")
 PUBLISHER_GROUP: typ.Final[str] = "coverage-main-${{ github.ref }}"
 PERMITTED_TRIGGERS: typ.Final[frozenset[str]] = frozenset({"push", "workflow_dispatch"})
+LEAST_PRIVILEGE: typ.Final[dict[str, str]] = {"contents": "read"}
 
 
 def find_publisher(documents: dict[str, Document]) -> tuple[str, Document]:
@@ -192,3 +193,23 @@ def retired_checksum_violations(documents: dict[str, Document]) -> list[str]:
         for name in documents
         if name.startswith("get-codescene-sha.")
     ]
+
+
+def permission_violations(document: Document) -> list[str]:
+    """Require the publisher to grant nothing beyond reading its checkout.
+
+    The upload authenticates with the CodeScene secret, not with
+    `GITHUB_TOKEN`, so the workflow grants nothing and the upload job only
+    `contents: read` for its checkout. Any wider grant is authority that
+    no step uses.
+    """
+    workflow = document.get("permissions")
+    found = (
+        []
+        if workflow == {}
+        else [f"the publisher grants {workflow!r} at workflow scope, not {{}}"]
+    )
+    granted = upload_job(document).get("permissions")
+    if granted != LEAST_PRIVILEGE:
+        found.append(f"the upload job grants {granted!r}, not {LEAST_PRIVILEGE!r}")
+    return found
