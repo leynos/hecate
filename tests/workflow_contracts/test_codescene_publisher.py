@@ -79,14 +79,14 @@ def test_the_publisher_needs_a_concurrency_group() -> None:
     [
         # A constant group lets a branch dispatch replace a pending main run.
         "group: coverage-main",
-        # An event key lets a dispatch and a push on main upload out of order.
+        # An event key lets a dispatch and a push on main run at once.
         "group: coverage-main-${{ github.ref }}-${{ github.event_name }}",
         # Text naming the ref outside an expression evaluates nothing.
         "group: coverage-main-github.ref",
     ],
 )
 def test_the_group_is_keyed_on_the_ref_alone(group: str) -> None:
-    """Only the exact ref-keyed group keeps triggered uploads in commit order."""
+    """Only the exact ref-keyed group keeps runs on main from overlapping."""
     found = concurrency_violations(
         _publisher(mutate("coverage-main.yml", GROUP, group))
     )
@@ -239,12 +239,29 @@ def test_a_push_lane_cannot_write_a_baseline_through_a_callee() -> None:
         ),
         ("coverage-main.yml", "          with-ratchet: 'true'\n", ""),
         ("ci.yml", "generate-coverage@" + "a" * 40, "generate-coverage@" + "b" * 40),
+        # An interpreter pinned on one side only measures on another Python.
+        (
+            "ci.yml",
+            "        if: github.event_name == 'pull_request'\n",
+            (
+                "        if: github.event_name == 'pull_request'\n"
+                "        env:\n          UV_PYTHON: '3.14'\n"
+            ),
+        ),
+        (
+            "coverage-main.yml",
+            "      - name: Generate coverage\n",
+            (
+                "      - name: Generate coverage\n"
+                "        env:\n          UV_PYTHON: '3.14'\n"
+            ),
+        ),
     ],
 )
 def test_the_publisher_measures_what_each_lane_measures(
     name: str, old: str, new: str
 ) -> None:
-    """A selection or pin differing from the publisher's is refused."""
+    """A selection, pin or step env differing from the publisher's is refused."""
     documents = _documents(mutate(name, old, new))
     closure = {"ci.yml": documents["ci.yml"]}
     found = publisher_lane_violations(documents["coverage-main.yml"], closure)
