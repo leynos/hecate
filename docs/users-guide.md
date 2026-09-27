@@ -60,8 +60,18 @@ some edges were quietly skipped. The states are:
 | `unclassified` | At least one endpoint matched no configured group.                               |
 | `unresolved`   | The import target resolved to no known internal module.                          |
 
-`permitted` and `forbidden` edges are the normal case. The other three are
-reported through the coverage section described below.
+`permitted` and `forbidden` edges are the normal case. The remaining three are
+reported in two different places:
+
+- `unclassified` and `unresolved` appear in the **coverage** section described
+  below, and fail the check only under the conditions given there; and
+- `exempted` appears in the **ignored** section, which text output shows only
+  when `--show-ignored` is passed.
+
+An edge that matches an `ignore_imports` entry is recorded as `exempted`, so it
+is reported as ignored and *not* as coverage. A documented ignore is therefore
+the way to accept a known `unclassified` or `unresolved` edge without the
+coverage section reporting it.
 
 ## Coverage reporting
 
@@ -79,6 +89,11 @@ Each entry carries `state`, `severity`, `importer`, `imported`, `line`, and
 whichever endpoint groups were resolved. Text output hides coverage warnings by
 default to keep snapshots stable; pass `--show-coverage` to see them alongside
 a pass or fail message. Coverage findings that fail the check are always shown.
+
+An edge covered by a matching `ignore_imports` entry is exempted rather than
+reported, so it appears in the ignored section and not in coverage. Only an
+`unclassified` or `unresolved` edge with no matching ignore reaches the
+coverage section.
 
 Outside strict mode these findings are warnings, so adding a subtree does not
 break an existing build. Inside strict mode they become failures.

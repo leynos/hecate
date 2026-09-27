@@ -29,6 +29,7 @@ import typing as typ
 from .imports import compute_module_name, resolve_import_from
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
     from pathlib import Path
 
     from .config import PackageRoot
@@ -113,6 +114,56 @@ def analyse_module(source_path: Path, *, module: str) -> ModuleNamespace:
     )
 
 
+#: Nodes whose bodies run in their own local scope. Names bound inside them are
+#: not module attributes, and imports inside them are not module imports, so the
+#: traversal stops here.
+_LOCAL_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
+
+
+def module_level_statements(
+    body: list[ast.stmt],
+) -> cabc.Iterator[tuple[ast.stmt, bool]]:
+    """Yield every statement that runs at module scope, with a nesting flag.
+
+    A module-level ``if``, ``try``, loop, ``with``, or ``match`` still executes
+    its body at import time, so a binding or import inside one is a real part of
+    the module's behaviour. Reading only the top level would miss those entirely.
+    Function and class bodies are skipped, because what they bind is local.
+
+    The flag is ``False`` for a statement written directly at module level and
+    ``True`` for one nested inside a control-flow block. Callers that need to
+    reason about execution order, such as ``__all__``, use it to tell an
+    unconditional statement from a conditional one.
+    """
+    for node in body:
+        yield node, False
+        yield from _nested_module_statements(node)
+
+
+def _nested_module_statements(node: ast.stmt) -> cabc.Iterator[tuple[ast.stmt, bool]]:
+    if isinstance(node, _LOCAL_SCOPE_NODES):
+        return
+    for child in _direct_bodies(node):
+        for nested, _ in module_level_statements([child]):
+            yield nested, True
+
+
+def _direct_bodies(node: ast.stmt) -> list[ast.stmt]:
+    """Return the statements nested one level inside ``node``."""
+    if isinstance(node, ast.If | ast.For | ast.AsyncFor | ast.While):
+        return [*node.body, *node.orelse]
+    if isinstance(node, ast.Try | ast.TryStar):
+        bodies = [*node.body, *node.orelse, *node.finalbody]
+        for handler in node.handlers:
+            bodies.extend(handler.body)
+        return bodies
+    if isinstance(node, ast.With | ast.AsyncWith):
+        return list(node.body)
+    if isinstance(node, ast.Match):
+        return [statement for case in node.cases for statement in case.body]
+    return []
+
+
 def analyse_namespace(
     tree: ast.Module, *, module: str, is_package_init: bool
 ) -> ModuleNamespace:
@@ -135,7 +186,7 @@ def analyse_namespace(
     """
     bindings: dict[str, Binding] = {}
     wildcard_origins: list[str] = []
-    for node in tree.body:
+    for node, _ in module_level_statements(tree.body):
         bindings.update(
             _bindings_from_statement(
                 node, module=module, is_package_init=is_package_init
@@ -162,9 +213,9 @@ def _bindings_from_statement(
         return ((node.name, Definition()),)
     if isinstance(node, ast.Assign):
         return tuple(
-            (target.id, Definition())
+            (name, Definition())
             for target in node.targets
-            if isinstance(target, ast.Name)
+            for name in _assigned_names(target)
         )
     if isinstance(node, ast.AnnAssign):
         name = _annotated_target_name(node)
@@ -178,6 +229,24 @@ def _bindings_from_statement(
     return ()
 
 
+def _assigned_names(target: ast.expr) -> tuple[str, ...]:
+    """Return every name an assignment target binds.
+
+    Unpacking targets bind each element, so ``First, Second = ...`` binds both
+    names and ``[a, *rest] = ...`` binds both of those. Reading only a bare
+    ``ast.Name`` target would miss those bindings entirely.
+    """
+    if isinstance(target, ast.Name):
+        return (target.id,)
+    if isinstance(target, ast.Starred):
+        return _assigned_names(target.value)
+    if isinstance(target, ast.Tuple | ast.List):
+        return tuple(
+            name for element in target.elts for name in _assigned_names(element)
+        )
+    return ()
+
+
 def _annotated_target_name(node: ast.AnnAssign) -> str | None:
     """Return the name an annotated assignment binds, if it binds one."""
     target = node.target
@@ -187,14 +256,21 @@ def _annotated_target_name(node: ast.AnnAssign) -> str | None:
 
 
 def _direct_import_bindings(node: ast.Import) -> tuple[tuple[str, Binding], ...]:
-    """Return bindings for ``import a.b``, which binds the leading name ``a``."""
-    return tuple(
-        (
-            alias.asname or alias.name.split(".", maxsplit=1)[0],
-            Imported(origin=alias.name, symbol=None),
-        )
-        for alias in node.names
-    )
+    """Return bindings for ``import a.b``.
+
+    Without an ``as`` clause Python binds the *leading* name: ``import a.b``
+    makes ``a`` available, and ``a.b`` is reached as an attribute of it. So the
+    bound name and its origin are both the leading component. With ``as``, the
+    chosen name is bound directly to the full dotted module instead.
+    """
+    return tuple(_direct_import_binding(alias) for alias in node.names)
+
+
+def _direct_import_binding(alias: ast.alias) -> tuple[str, Binding]:
+    if alias.asname is not None:
+        return (alias.asname, Imported(origin=alias.name, symbol=None))
+    leading = alias.name.split(".", maxsplit=1)[0]
+    return (leading, Imported(origin=leading, symbol=None))
 
 
 def _from_import_bindings(
@@ -249,12 +325,19 @@ def _literal_all_names(tree: ast.Module) -> tuple[str, ...] | None:
     assignment extends whatever the sequence held before. An operation Hecate
     cannot evaluate leaves the sequence unknown, which the caller reads as
     "fall back to the default public-name rule" rather than as emptiness.
+
+    An ``__all__`` assigned inside a control-flow block is conditional, so which
+    branch ran decides the result. Hecate cannot evaluate the condition, so it
+    treats such an assignment as making the sequence unknowable rather than
+    guessing from source order.
     """
     names: tuple[str, ...] | None = None
-    for node in tree.body:
+    for node, is_nested in module_level_statements(tree.body):
         assignment = _all_assignment(node)
         if assignment is None:
             continue
+        if is_nested:
+            return None
         names = _apply_all_assignment(assignment, names=names)
     return names
 

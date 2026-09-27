@@ -14,20 +14,39 @@ from __future__ import annotations
 from pathlib import Path
 
 from hecate.config import PackageRoot
-from hecate.namespaces import analyse_namespaces
+from hecate.namespaces import ModuleNamespace, analyse_namespaces
 from hecate.origins import OriginIndex, Resolution, build_origin_index
 
 
-def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> OriginIndex:
-    """Build a package from ``files`` and return its origin index."""
+def _write(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> Path:
+    """Write ``files`` under a package root and return that root."""
     package_root = tmp_path / package
-    package_root.mkdir(parents=True, exist_ok=True)
     for relative_path, contents in files.items():
         target = package_root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(contents, encoding="utf-8")
-    packages = (PackageRoot(package, package_root),)
+    return package_root
+
+
+def _analyse(
+    tmp_path: Path, files: dict[str, str], package: str = "pkg"
+) -> dict[str, ModuleNamespace]:
+    """Build a package from ``files`` and return its analysed namespaces."""
+    packages = _packages(tmp_path, files, package=package)
+    return analyse_namespaces(packages)
+
+
+def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> OriginIndex:
+    """Build a package from ``files`` and return its origin index."""
+    packages = _packages(tmp_path, files, package=package)
     return build_origin_index(packages, analyse_namespaces(packages))
+
+
+def _packages(
+    tmp_path: Path, files: dict[str, str], package: str = "pkg"
+) -> tuple[PackageRoot, ...]:
+    """Write a package from ``files`` and return its package root."""
+    return (PackageRoot(package, _write(tmp_path, files, package=package)),)
 
 
 def test_empty_all_still_exposes_explicitly_imported_names(tmp_path: Path) -> None:
@@ -197,7 +216,7 @@ def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None
     depend on the exporting module. The namespace therefore records the star
     origin, and provenance resolves the name through it on demand.
     """
-    index = _index(
+    packages = _packages(
         tmp_path,
         {
             "__init__.py": "from .barrel import *\n",
@@ -205,7 +224,8 @@ def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None
             "nested.py": "class Thing: ...\n",
         },
     )
-    namespaces = analyse_namespaces((PackageRoot("pkg", tmp_path / "pkg"),))
+    namespaces = analyse_namespaces(packages)
+    index = build_origin_index(packages, namespaces)
 
     assert not namespaces["pkg"].bindings, (
         "a star import must not fabricate a literal binding for a name it "
@@ -263,7 +283,13 @@ def test_augmented_all_without_a_known_prefix_stays_unknowable(
         },
     )
 
-    namespaces = analyse_namespaces((PackageRoot("pkg", tmp_path / "pkg"),))
+    namespaces = _analyse(
+        tmp_path,
+        {
+            "__init__.py": "from .adapter import First\n__all__ += ['First']\n",
+            "adapter.py": "class First: ...\n",
+        },
+    )
 
     assert namespaces["pkg"].all_names is None, (
         f"an append to an unknown sequence must stay unknown, "
@@ -281,4 +307,41 @@ def test_unresolved_star_reexport_is_not_a_known_module(tmp_path: Path) -> None:
 
     assert index.resolve("missing") is Resolution.EXTERNAL, (
         "an unscanned star origin outside the package roots is external"
+    )
+
+
+def test_bare_dotted_import_originates_at_its_leading_package(
+    tmp_path: Path,
+) -> None:
+    """``import a.b`` binds ``a``, so the name's origin is ``a``.
+
+    Python binds the leading component, and reaches ``a.b`` as an attribute of
+    it. Recording ``a.b`` as the origin of the name ``a`` would attribute the
+    binding to a module the name does not refer to.
+    """
+    index = _index(
+        tmp_path,
+        {"__init__.py": "import os.path\nimport json.decoder as dec\n"},
+    )
+
+    assert index.origins_for("pkg.os") == ("pkg.os", "os"), (
+        "an unaliased dotted import must originate at its leading package"
+    )
+    assert index.origins_for("pkg.dec") == ("pkg.dec", "json.decoder"), (
+        "an aliased dotted import keeps the full module as its origin"
+    )
+
+
+def test_unpacking_assignment_binds_every_name(tmp_path: Path) -> None:
+    """Tuple, list, and starred targets each bind their names."""
+    namespaces = _analyse(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "m.py": "First, Second = 1, 2\n[a, *rest] = [3, 4, 5]\n",
+        },
+    )
+
+    assert set(namespaces["pkg.m"].binding_map) == {"First", "Second", "a", "rest"}, (
+        f"unpacking must bind every target: {namespaces['pkg.m'].bindings!r}"
     )
