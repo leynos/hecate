@@ -103,6 +103,69 @@ def test_external_imports_are_skipped_when_disabled(tmp_path: Path) -> None:
     )
 
 
+def test_unclaimed_external_import_does_not_fail_strict_mode(tmp_path: Path) -> None:
+    """Strict mode must not fail every dependency no group claims.
+
+    Opting into external packages widens what *can* be classified. It does not
+    assert that every third-party import was classified, so an unclaimed
+    external edge is skipped rather than reported. Otherwise ``import json``
+    alone would fail a strict check.
+    """
+    result = _check(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "domain.py": "import json\nfrom collections.abc import Sequence\n",
+        },
+        policy=_policy(
+            groups=(
+                ModuleGroup("domain", ("pkg",), ("domain",)),
+                ModuleGroup("infrastructure", ("sqlalchemy",), ("infrastructure",)),
+            ),
+            strict=True,
+            include_external_packages=True,
+        ),
+    )
+
+    assert result.ok, (
+        f"an unclaimed external import must not fail strict mode, got {result!r}"
+    )
+    assert not result.coverage, (
+        f"expected no coverage noise for an unclaimed external import, got {result!r}"
+    )
+
+
+def test_claimed_external_import_is_still_enforced(tmp_path: Path) -> None:
+    """A group that claims an external prefix remains a real boundary.
+
+    Skipping unclaimed external edges must not weaken the case the option
+    exists for, so this pins the other half of the rule.
+    """
+    result = _check(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "domain.py": "import sqlalchemy\n",
+        },
+        policy=_policy(
+            groups=(
+                ModuleGroup("domain", ("pkg",), ("domain",)),
+                ModuleGroup("infrastructure", ("sqlalchemy",), ("infrastructure",)),
+            ),
+            strict=True,
+            include_external_packages=True,
+        ),
+    )
+
+    imported = {violation.imported for violation in result.violations}
+    assert not result.ok, (
+        f"expected a claimed external import to be enforced, got {result!r}"
+    )
+    assert "sqlalchemy" in imported, (
+        f"expected the external boundary to be flagged, got {imported!r}"
+    )
+
+
 def test_explicit_import_keeps_origin_when_all_omits_it(tmp_path: Path) -> None:
     """An explicitly imported re-export stays forbidden despite ``__all__ = []``."""
     result = _check(

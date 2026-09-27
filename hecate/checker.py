@@ -195,8 +195,9 @@ def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
     resolution = ctx.origins.resolve(imported)
     importer_group = ctx.policy.group_for(edge.importer)
     imported_group = ctx.policy.group_for(imported)
-    if resolution is Resolution.EXTERNAL and not ctx.policy.include_external_packages:
-        # External dependencies are out of scope unless configured otherwise.
+    if resolution is Resolution.EXTERNAL and not _policy_claims_external(
+        imported_group, ctx=ctx
+    ):
         return
     if resolution is Resolution.UNRESOLVED_INTERNAL:
         _record_coverage(
@@ -257,6 +258,24 @@ def _record_coverage(
         imported_group=imported_group.name if imported_group else None,
     )
     ctx.coverage[diagnostic.identity()] = diagnostic
+
+
+def _policy_claims_external(
+    imported_group: ModuleGroup | None, *, ctx: _CheckContext
+) -> bool:
+    """Return whether the policy takes a position on an external dependency.
+
+    ``include_external_packages`` widens what *can* be classified; it does not
+    assert that every third-party import was classified. So an external edge is
+    in scope only when the option is enabled *and* a configured group claims
+    its prefix. Anything else is a dependency the policy never expressed an
+    opinion about, and is skipped rather than reported: otherwise every stdlib
+    import would become an unclassified failure once strict mode meets
+    external packages.
+    """
+    if not ctx.policy.include_external_packages:
+        return False
+    return imported_group is not None
 
 
 def coverage_severity(state: EdgeState, policy: ArchitecturePolicy) -> Severity:
