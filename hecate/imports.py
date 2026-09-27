@@ -133,11 +133,14 @@ def collect_import_statements(
 
     Statements are returned in source order so that later analysis can apply
     Python's last-binding-wins rules when several statements bind one name.
+    ``ast.walk`` yields breadth-first, which is not source order once an import
+    is nested in a block, so the collected nodes are sorted before conversion.
     """
     module_name = compute_module_name(root, package, source_path)
     tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    is_package_init = source_path.name == "__init__.py"
     statements: list[ImportStatement] = []
-    for node in ast.walk(tree):
+    for node in sorted(_import_nodes(tree), key=_source_position):
         if isinstance(node, ast.Import):
             statements.extend(_collect_direct_imports(node, module_name, source_path))
         elif isinstance(node, ast.ImportFrom):
@@ -145,11 +148,23 @@ def collect_import_statements(
                 _collect_from_imports(
                     node,
                     module_name=module_name,
-                    is_package_init=source_path.name == "__init__.py",
+                    is_package_init=is_package_init,
                     source_path=source_path,
                 )
             )
     return tuple(statements)
+
+
+def _import_nodes(tree: ast.Module) -> list[ast.Import | ast.ImportFrom]:
+    """Return every import node in ``tree``, in arbitrary order."""
+    return [
+        node for node in ast.walk(tree) if isinstance(node, ast.Import | ast.ImportFrom)
+    ]
+
+
+def _source_position(node: ast.Import | ast.ImportFrom) -> tuple[int, int]:
+    """Return an import node's position, so collected statements sort sanely."""
+    return (node.lineno, node.col_offset)
 
 
 def _collect_direct_imports(

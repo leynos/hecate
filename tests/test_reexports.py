@@ -14,7 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from hecate.config import PackageRoot
-from hecate.namespaces import ModuleNamespace, analyse_namespaces
+from hecate.namespaces import analyse_namespaces
 from hecate.origins import OriginIndex, Resolution, build_origin_index
 
 
@@ -26,14 +26,6 @@ def _write(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> Path:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(contents, encoding="utf-8")
     return package_root
-
-
-def _analyse(
-    tmp_path: Path, files: dict[str, str], package: str = "pkg"
-) -> dict[str, ModuleNamespace]:
-    """Build a package from ``files`` and return its analysed namespaces."""
-    packages = _packages(tmp_path, files, package=package)
-    return analyse_namespaces(packages)
 
 
 def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> OriginIndex:
@@ -275,21 +267,15 @@ def test_augmented_all_without_a_known_prefix_stays_unknowable(
     Extending a sequence Hecate never saw means the resulting set is unknown,
     so the default public-name rule must apply rather than an empty selection.
     """
-    index = _index(
+    packages = _packages(
         tmp_path,
         {
             "__init__.py": "from .adapter import First\n__all__ += ['First']\n",
             "adapter.py": "class First: ...\n",
         },
     )
-
-    namespaces = _analyse(
-        tmp_path,
-        {
-            "__init__.py": "from .adapter import First\n__all__ += ['First']\n",
-            "adapter.py": "class First: ...\n",
-        },
-    )
+    namespaces = analyse_namespaces(packages)
+    index = build_origin_index(packages, namespaces)
 
     assert namespaces["pkg"].all_names is None, (
         f"an append to an unknown sequence must stay unknown, "
@@ -333,14 +319,19 @@ def test_bare_dotted_import_originates_at_its_leading_package(
 
 
 def test_unpacking_assignment_binds_every_name(tmp_path: Path) -> None:
-    """Tuple, list, and starred targets each bind their names."""
-    namespaces = _analyse(
+    """Tuple, list, and starred targets each bind their names.
+
+    Only the binding view is needed here, so the namespace model is read
+    directly rather than through the origin index.
+    """
+    packages = _packages(
         tmp_path,
         {
             "__init__.py": "",
             "m.py": "First, Second = 1, 2\n[a, *rest] = [3, 4, 5]\n",
         },
     )
+    namespaces = analyse_namespaces(packages)
 
     assert set(namespaces["pkg.m"].binding_map) == {"First", "Second", "a", "rest"}, (
         f"unpacking must bind every target: {namespaces['pkg.m'].bindings!r}"

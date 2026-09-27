@@ -139,13 +139,12 @@ def _evaluate_wildcard(statement: ImportStatement, *, ctx: _CheckContext) -> Non
     Statically knowable exports are expanded into concrete symbol edges. The
     package-level edge was already recorded by :func:`_evaluate_statement`,
     which is what reports an unresolvable export set rather than silently
-    approximating it away.
+    approximating it away. Python does not allow naming further imports beside
+    a ``*``, so no per-name edges belong here.
     """
     target = _wildcard_target(statement)
     if target is None:
         return
-    for name in _named_targets(statement):
-        _record_edge(statement, imported=name, ctx=ctx)
     if ctx.origins.resolve(target) is not Resolution.RESOLVED:
         return
     exports = ctx.origins.wildcard_exports(target)
