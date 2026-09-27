@@ -16,7 +16,7 @@ from .config_helpers import (
     _read_string_tuple,
     _validate_dotted_strings,
 )
-from .policy import ArchitecturePolicy, IgnoredImport, ModuleGroup
+from .policy import ArchitecturePolicy, IgnoredImport, ModuleGroup, Severity
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -35,6 +35,7 @@ class HecateConfig:
     policy: ArchitecturePolicy
     source_path: Path | None = None
     show_ignored: bool = False
+    show_coverage: bool = False
     fail_on_unmatched_ignore: bool = False
 
 
@@ -45,7 +46,9 @@ class ConfigOverrides:
     package: str | None = None
     root: Path | None = None
     include_external_packages: bool | None = None
+    strict: bool | None = None
     show_ignored: bool = False
+    show_coverage: bool = False
     fail_on_unmatched_ignore: bool = False
 
 
@@ -90,6 +93,7 @@ def load_config(
     configured_include_external = _read_bool(
         data, "include_external_packages", default=False, path=config_path
     )
+    configured_strict = _read_bool(data, "strict", default=False, path=config_path)
     policy = ArchitecturePolicy(
         groups=groups,
         ignores=ignores,
@@ -101,6 +105,13 @@ def load_config(
             if ov.include_external_packages is None
             else ov.include_external_packages
         ),
+        strict=configured_strict if ov.strict is None else ov.strict,
+        unresolved_internal_severity=_read_severity(
+            data,
+            "unresolved_internal_severity",
+            default=Severity.ERROR,
+            path=config_path,
+        ),
     )
     _validate_policy(policy, config_path)
     _validate_package_roots(packages, config_path)
@@ -109,6 +120,7 @@ def load_config(
         policy=policy,
         source_path=config_path,
         show_ignored=ov.show_ignored,
+        show_coverage=ov.show_coverage,
         fail_on_unmatched_ignore=ov.fail_on_unmatched_ignore,
     )
 
@@ -226,6 +238,26 @@ def _parse_packages(
         _parse_package_table_item(item, index, path)
         for index, item in enumerate(configured)
     )
+
+
+def _read_severity(
+    data: dict[str, object],
+    key: str,
+    *,
+    default: Severity,
+    path: Path,
+) -> Severity:
+    """Read a severity value, rejecting unknown names with a clear error."""
+    value = data.get(key, default.value)
+    if not isinstance(value, str):
+        msg = f"{path}: tool.hecate.{key} must be a string"
+        raise ConfigError(msg)
+    try:
+        return Severity(value)
+    except ValueError as error:
+        allowed = ", ".join(severity.value for severity in Severity)
+        msg = f"{path}: tool.hecate.{key} must be one of: {allowed}"
+        raise ConfigError(msg) from error
 
 
 def _parse_group_item(
