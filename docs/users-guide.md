@@ -48,9 +48,14 @@ or package-root validation failed.
 
 ## Import outcome states
 
-Hecate evaluates every import edge it finds and records exactly one outcome. A
-green result therefore means each edge was understood and permitted, not that
-some edges were quietly skipped. The states are:
+Hecate evaluates every in-scope import edge it finds and records exactly one
+outcome. An edge is in scope when it lies within the scanned package roots, or
+when it is external and the configuration puts it there: an external edge is in
+scope only when `include_external_packages` is enabled and a configured group
+claims its prefix. Any other external import is out of scope and receives no
+outcome at all. A green result therefore means no edge was forbidden and no
+coverage finding carried error severity, not that in-scope edges were quietly
+skipped. The states are:
 
 | State          | Meaning                                                                          |
 | -------------- | -------------------------------------------------------------------------------- |
@@ -76,8 +81,9 @@ coverage section reporting it.
 ## Coverage reporting
 
 Unclassified and unresolved edges are reported rather than skipped, so a new
-package subtree or a misspelled prefix in the policy cannot silently produce a
-green result.
+package subtree or a misspelled prefix in the policy always leaves a trace
+instead of vanishing. Whether that trace fails the build depends on severity:
+only an entry at `error` severity sets a non-zero exit code.
 
 JSON output always includes a `coverage` array:
 
