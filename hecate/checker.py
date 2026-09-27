@@ -14,7 +14,12 @@ from .diagnostics import (
 from .imports import FromImport, ImportStatement, collect_import_statements
 from .namespaces import analyse_namespaces
 from .origins import OriginIndex, Resolution, build_origin_index
-from .policy import ArchitecturePolicy, EdgeState, ModuleGroup, Severity
+from .policy import (
+    ArchitecturePolicy,
+    EdgeState,
+    ModuleGroup,
+    coverage_severity,
+)
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -331,21 +336,6 @@ def _policy_claims_external(
     if not ctx.policy.include_external_packages:
         return False
     return imported_group is not None
-
-
-def coverage_severity(state: EdgeState, policy: ArchitecturePolicy) -> Severity:
-    """Return the severity to apply to one coverage state.
-
-    Outside strict mode these states are reported as warnings so that a green
-    result can be tightened into a failing one without a second code path. In
-    strict mode unclassified internal edges always fail, and unresolved
-    internal edges use the configured severity.
-    """
-    if not policy.strict:
-        return Severity.WARNING
-    if state is EdgeState.UNRESOLVED:
-        return policy.unresolved_internal_severity
-    return Severity.ERROR
 
 
 def _find_unmatched_ignores(
