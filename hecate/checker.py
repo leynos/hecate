@@ -122,15 +122,41 @@ def _collect_package_edges(package_root: PackageRoot, ctx: _CheckContext) -> Non
 
 
 def _evaluate_statement(statement: ImportStatement, *, ctx: _CheckContext) -> None:
-    """Evaluate one import statement, expanding wildcards where knowable."""
+    """Evaluate one import statement, expanding wildcards where knowable.
+
+    A ``from target import name`` statement yields two edges: the target module
+    and the symbol reached through it. When the target is unresolvable the
+    symbol cannot be reached either, so both edges would report one broken
+    import twice. The symbol edge is skipped only when it is unresolved for
+    that same reason: a symbol that *does* resolve despite its parent is a real
+    dependency, and dropping it would reintroduce the false negatives this
+    change exists to remove.
+    """
+    target_unresolved = _target_unresolved_internal(statement, ctx=ctx)
     if isinstance(statement, FromImport):
         _record_edge(statement, imported=statement.target, ctx=ctx)
     if not any(name == "*" for name in _names_for(statement)):
         # Named and direct imports contribute their own module edges.
         for imported in _named_targets(statement):
+            if target_unresolved and _unresolved_internal(imported, ctx=ctx):
+                continue
             _record_edge(statement, imported=imported, ctx=ctx)
         return
     _evaluate_wildcard(statement, ctx=ctx)
+
+
+def _target_unresolved_internal(
+    statement: ImportStatement, *, ctx: _CheckContext
+) -> bool:
+    """Return whether a ``from`` statement's target is internally unresolvable."""
+    if not isinstance(statement, FromImport):
+        return False
+    return _unresolved_internal(statement.target, ctx=ctx)
+
+
+def _unresolved_internal(imported: str, *, ctx: _CheckContext) -> bool:
+    """Return whether ``imported`` names no known internal module."""
+    return ctx.origins.resolve(imported) is Resolution.UNRESOLVED_INTERNAL
 
 
 def _evaluate_wildcard(statement: ImportStatement, *, ctx: _CheckContext) -> None:
