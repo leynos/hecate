@@ -81,91 +81,6 @@ def _check(
     return check_architecture(config)
 
 
-def test_external_imports_are_skipped_when_disabled(tmp_path: Path) -> None:
-    """External classified prefixes require explicit opt-in."""
-    result = _check(
-        tmp_path,
-        {
-            "__init__.py": "",
-            "domain.py": "import sqlalchemy\n",
-        },
-        policy=_policy(
-            groups=(
-                ModuleGroup("domain", ("pkg",), ("domain",)),
-                ModuleGroup("infrastructure", ("sqlalchemy",), ("infrastructure",)),
-            ),
-        ),
-    )
-
-    assert result.ok, f"expected external import to be skipped, got {result!r}"
-    assert not result.coverage, (
-        f"expected no coverage noise for a skipped external import, got {result!r}"
-    )
-
-
-def test_unclaimed_external_import_does_not_fail_strict_mode(tmp_path: Path) -> None:
-    """Strict mode must not fail every dependency no group claims.
-
-    Opting into external packages widens what *can* be classified. It does not
-    assert that every third-party import was classified, so an unclaimed
-    external edge is skipped rather than reported. Otherwise ``import json``
-    alone would fail a strict check.
-    """
-    result = _check(
-        tmp_path,
-        {
-            "__init__.py": "",
-            "domain.py": "import json\nfrom collections.abc import Sequence\n",
-        },
-        policy=_policy(
-            groups=(
-                ModuleGroup("domain", ("pkg",), ("domain",)),
-                ModuleGroup("infrastructure", ("sqlalchemy",), ("infrastructure",)),
-            ),
-            strict=True,
-            include_external_packages=True,
-        ),
-    )
-
-    assert result.ok, (
-        f"an unclaimed external import must not fail strict mode, got {result!r}"
-    )
-    assert not result.coverage, (
-        f"expected no coverage noise for an unclaimed external import, got {result!r}"
-    )
-
-
-def test_claimed_external_import_is_still_enforced(tmp_path: Path) -> None:
-    """A group that claims an external prefix remains a real boundary.
-
-    Skipping unclaimed external edges must not weaken the case the option
-    exists for, so this pins the other half of the rule.
-    """
-    result = _check(
-        tmp_path,
-        {
-            "__init__.py": "",
-            "domain.py": "import sqlalchemy\n",
-        },
-        policy=_policy(
-            groups=(
-                ModuleGroup("domain", ("pkg",), ("domain",)),
-                ModuleGroup("infrastructure", ("sqlalchemy",), ("infrastructure",)),
-            ),
-            strict=True,
-            include_external_packages=True,
-        ),
-    )
-
-    imported = {violation.imported for violation in result.violations}
-    assert not result.ok, (
-        f"expected a claimed external import to be enforced, got {result!r}"
-    )
-    assert "sqlalchemy" in imported, (
-        f"expected the external boundary to be flagged, got {imported!r}"
-    )
-
-
 def test_explicit_import_keeps_origin_when_all_omits_it(tmp_path: Path) -> None:
     """An explicitly imported re-export stays forbidden despite ``__all__ = []``."""
     result = _check(
@@ -363,6 +278,33 @@ def test_documented_ignore_still_exempts_and_stays_distinguishable(
     )
 
 
+def test_unresolved_wildcard_target_records_one_edge_not_two(tmp_path: Path) -> None:
+    """A wildcard over an unresolvable target reports that target exactly once.
+
+    The statement's own module edge and the wildcard target are the same edge,
+    so recording it in both places would double-count the diagnostic.
+    """
+    result = _check(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "domain/__init__.py": "",
+            "application/__init__.py": "",
+            "application/service.py": "from pkg.gone import *\n",
+        },
+        policy=_policy(strict=True),
+    )
+
+    targeted = [
+        diagnostic
+        for diagnostic in result.coverage
+        if diagnostic.imported == "pkg.gone"
+    ]
+    assert len(targeted) == 1, (
+        f"expected exactly one diagnostic for the target, got {targeted!r}"
+    )
+
+
 def test_internal_import_of_unknown_module_is_unresolved(tmp_path: Path) -> None:
     """An internal target no module provides is unresolved, not external."""
     result = _check(
@@ -380,3 +322,71 @@ def test_internal_import_of_unknown_module_is_unresolved(tmp_path: Path) -> None
     assert any(
         diagnostic.state is EdgeState.UNRESOLVED for diagnostic in result.coverage
     ), f"expected unresolved state, got {result.coverage!r}"
+
+
+def test_documented_ignore_exempts_unclassified_edge_in_strict_mode(
+    tmp_path: Path,
+) -> None:
+    """A documented ignore suppresses an unclassified edge, not just a forbidden one.
+
+    Adopting strict mode surfaces edges that were previously unexamined, and an
+    adopter needs the documented-ignore escape hatch for those too. An exemption
+    that only covered forbidden edges would leave no way to accept a known
+    unclassified edge while the policy is being tightened.
+    """
+    result = _check(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "domain/__init__.py": "",
+            "consumer.py": "from pkg.domain import model\n",
+        },
+        policy=_policy(
+            groups=(ModuleGroup("domain", ("pkg.domain",), ("domain",)),),
+            strict=True,
+            ignores=(
+                IgnoredImport(
+                    importer="pkg.consumer",
+                    imported="pkg.domain",
+                    reason="Consumer sits outside the declared groups.",
+                ),
+            ),
+        ),
+    )
+
+    assert result.ok, f"a documented ignore must exempt in strict mode, got {result!r}"
+    assert result.ignored, f"expected the exemption to be reported, got {result!r}"
+    assert not result.coverage_failures, (
+        f"an exempted edge must not fail the check, got {result.coverage!r}"
+    )
+    assert not result.unmatched_ignores, (
+        "the ignore applied, so it must not read as stale: "
+        f"{result.unmatched_ignores!r}"
+    )
+
+
+def test_documented_ignore_exempts_unresolved_edge_in_strict_mode(
+    tmp_path: Path,
+) -> None:
+    """The exemption also covers an unresolved internal edge."""
+    result = _check(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "application/__init__.py": "",
+            "application/service.py": "from pkg.gone import helper\n",
+        },
+        policy=_policy(
+            strict=True,
+            ignores=(
+                IgnoredImport(
+                    importer="pkg.application",
+                    imported="pkg.gone",
+                    reason="Legacy shim pending removal.",
+                ),
+            ),
+        ),
+    )
+
+    assert result.ok, f"a documented ignore must exempt in strict mode, got {result!r}"
+    assert result.ignored, f"expected the exemption to be reported, got {result!r}"

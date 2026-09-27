@@ -137,17 +137,16 @@ def _evaluate_wildcard(statement: ImportStatement, *, ctx: _CheckContext) -> Non
     """Evaluate a wildcard import using Python's wildcard semantics.
 
     Statically knowable exports are expanded into concrete symbol edges. The
-    package-level edge is recorded in its own right, and an unresolvable export
-    set is reported rather than silently approximated away.
+    package-level edge was already recorded by :func:`_evaluate_statement`,
+    which is what reports an unresolvable export set rather than silently
+    approximating it away.
     """
     target = _wildcard_target(statement)
     if target is None:
         return
     for name in _named_targets(statement):
         _record_edge(statement, imported=name, ctx=ctx)
-    resolution = ctx.origins.resolve(target)
-    if resolution is not Resolution.RESOLVED:
-        _record_edge(statement, imported=target, ctx=ctx)
+    if ctx.origins.resolve(target) is not Resolution.RESOLVED:
         return
     exports = ctx.origins.wildcard_exports(target)
     if not exports:
@@ -190,7 +189,12 @@ def _record_edge(
 
 
 def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
-    """Classify one already-expanded origin of an import edge."""
+    """Classify one already-expanded origin of an import edge.
+
+    Every path records exactly one outcome, and a documented ignore is honoured
+    before any outcome is reported, so an edge the policy could not classify or
+    resolve is exemptible just like a forbidden one.
+    """
     imported = edge.imported
     resolution = ctx.origins.resolve(imported)
     importer_group = ctx.policy.group_for(edge.importer)
@@ -200,7 +204,7 @@ def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
     ):
         return
     if resolution is Resolution.UNRESOLVED_INTERNAL:
-        _record_coverage(
+        _exempt_or_record_coverage(
             edge,
             state=EdgeState.UNRESOLVED,
             groups=(importer_group, imported_group),
@@ -208,7 +212,7 @@ def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
         )
         return
     if importer_group is None or imported_group is None:
-        _record_coverage(
+        _exempt_or_record_coverage(
             edge,
             state=EdgeState.UNCLASSIFIED,
             groups=(importer_group, imported_group),
@@ -217,14 +221,9 @@ def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
         return
     if ctx.policy.is_allowed(importer_group.name, imported_group.name):
         return
-    ignored_import = ctx.policy.ignored_import_for(edge.importer, imported)
-    if ignored_import is not None:
-        ctx.ignored[edge.importer, imported] = IgnoredImportDiagnostic(
-            importer=edge.importer,
-            imported=imported,
-            reason=ignored_import.reason,
-        )
+    if _record_exemption(edge, ctx=ctx):
         return
+    # Both groups are known here: the unclassified case returned above.
     violation = ArchitectureViolation(
         rule_id=ctx.policy.default_rule_id,
         importer=edge.importer,
@@ -235,6 +234,37 @@ def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
         line=edge.line,
     )
     ctx.violations[violation.identity()] = violation
+
+
+def _exempt_or_record_coverage(
+    edge: _Edge,
+    *,
+    state: EdgeState,
+    groups: tuple[ModuleGroup | None, ModuleGroup | None],
+    ctx: _CheckContext,
+) -> None:
+    """Honour a documented ignore for an incomplete edge, else report it."""
+    if not _record_exemption(edge, ctx=ctx):
+        _record_coverage(edge, state=state, groups=groups, ctx=ctx)
+
+
+def _record_exemption(edge: _Edge, *, ctx: _CheckContext) -> bool:
+    """Record a documented ignore covering ``edge``, if one exists.
+
+    Any non-permitted outcome is exemptible, so an edge the policy could not
+    classify or resolve can be suppressed under a documented reason just like a
+    forbidden one. The exemption is recorded so that it stays visible and so a
+    fail-on-unmatched-ignore run can still tell the entry applied.
+    """
+    ignored_import = ctx.policy.ignored_import_for(edge.importer, edge.imported)
+    if ignored_import is None:
+        return False
+    ctx.ignored[edge.importer, edge.imported] = IgnoredImportDiagnostic(
+        importer=edge.importer,
+        imported=edge.imported,
+        reason=ignored_import.reason,
+    )
+    return True
 
 
 def _record_coverage(

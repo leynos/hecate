@@ -221,6 +221,60 @@ def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None
     ), "a wildcard-supplied name must resolve to its defining module"
 
 
+def test_augmented_all_appends_to_the_earlier_selection(tmp_path: Path) -> None:
+    """``__all__ += [...]`` extends the sequence rather than replacing it.
+
+    Python evaluates the augmented assignment as a concatenation, so a module
+    that builds its export list in two steps exports both halves.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": (
+                "from .adapter import First, Second\n"
+                "__all__ = ['First']\n"
+                "__all__ += ['Second']\n"
+            ),
+            "adapter.py": "class First: ...\nclass Second: ...\n",
+        },
+    )
+
+    assert index.wildcard_exports("pkg") == (
+        "pkg.First",
+        "pkg.adapter.First",
+        "pkg.Second",
+        "pkg.adapter.Second",
+    ), "an augmented __all__ must extend, not replace, the earlier selection"
+
+
+def test_augmented_all_without_a_known_prefix_stays_unknowable(
+    tmp_path: Path,
+) -> None:
+    """An append to an unknown ``__all__`` cannot be enumerated.
+
+    Extending a sequence Hecate never saw means the resulting set is unknown,
+    so the default public-name rule must apply rather than an empty selection.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .adapter import First\n__all__ += ['First']\n",
+            "adapter.py": "class First: ...\n",
+        },
+    )
+
+    namespaces = analyse_namespaces((PackageRoot("pkg", tmp_path / "pkg"),))
+
+    assert namespaces["pkg"].all_names is None, (
+        f"an append to an unknown sequence must stay unknown, "
+        f"got {namespaces['pkg'].all_names!r}"
+    )
+    assert index.wildcard_exports("pkg") == (
+        "pkg.First",
+        "pkg.adapter.First",
+    ), "an unknowable __all__ must fall back to the public-name rule"
+
+
 def test_unresolved_star_reexport_is_not_a_known_module(tmp_path: Path) -> None:
     """A star import of an unscanned module is reported, not silently dropped."""
     index = _index(tmp_path, {"__init__.py": "from missing import *\n"})
