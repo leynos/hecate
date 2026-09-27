@@ -243,20 +243,55 @@ def _resolve_from(
 
 
 def _literal_all_names(tree: ast.Module) -> tuple[str, ...] | None:
-    """Return the names from the last literal ``__all__`` assignment, if any."""
-    last_assignment: tuple[str, ...] | None = None
+    """Return the names the module's ``__all__`` ends up holding, if knowable.
+
+    A plain assignment replaces the sequence outright, while an augmented
+    assignment extends whatever the sequence held before. An operation Hecate
+    cannot evaluate leaves the sequence unknown, which the caller reads as
+    "fall back to the default public-name rule" rather than as emptiness.
+    """
+    names: tuple[str, ...] | None = None
     for node in tree.body:
-        value = _all_assignment_value(node)
-        if value is not None:
-            last_assignment = _literal_string_sequence(value)
-    return last_assignment
+        assignment = _all_assignment(node)
+        if assignment is None:
+            continue
+        names = _apply_all_assignment(assignment, names=names)
+    return names
 
 
-def _all_assignment_value(node: ast.stmt) -> ast.expr | None:
+def _apply_all_assignment(
+    assignment: tuple[bool, ast.expr | None], *, names: tuple[str, ...] | None
+) -> tuple[str, ...] | None:
+    """Return the ``__all__`` sequence after one assignment statement.
+
+    ``names`` is the sequence beforehand, or ``None`` when it is not statically
+    known. A ``None`` result means the sequence stays, or becomes, unknowable.
+    """
+    is_augmented, value = assignment
+    if value is None:
+        return names
+    additions = _literal_string_sequence(value)
+    if additions is None:
+        return None
+    if is_augmented:
+        # ``__all__ += [...]`` extends; it only stays knowable if it started
+        # knowable, since the prefix is whatever the earlier value held.
+        return None if names is None else (*names, *additions)
+    return additions
+
+
+def _all_assignment(node: ast.stmt) -> tuple[bool, ast.expr | None] | None:
+    """Return ``(is_augmented, value)`` when ``node`` assigns to ``__all__``.
+
+    ``value`` is ``None`` for an augmented assignment with a non-list operand,
+    which cannot extend the sequence and so clears any known value.
+    """
     if isinstance(node, ast.Assign) and _assigns_all(node.targets):
-        return node.value
+        return (False, node.value)
     if isinstance(node, ast.AnnAssign) and _target_is_all(node.target):
-        return node.value
+        return (False, node.value)
+    if isinstance(node, ast.AugAssign) and _target_is_all(node.target):
+        return (True, node.value)
     return None
 
 
