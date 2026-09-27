@@ -3,8 +3,41 @@
 from __future__ import annotations
 
 import dataclasses as dc
+import enum
 
 from .imports import is_module_prefix
+
+
+class Severity(enum.StrEnum):
+    """How a diagnostic affects the overall check result."""
+
+    ERROR = "error"
+    """Fails the check and sets a non-zero exit code."""
+
+    WARNING = "warning"
+    """Reported but does not fail the check."""
+
+    EXEMPT = "exempt"
+    """Deliberately accepted, usually through a configured ignore entry."""
+
+
+class EdgeState(enum.StrEnum):
+    """The outcome of evaluating one import edge against policy."""
+
+    PERMITTED = "permitted"
+    """Both endpoints classified, and the importer group may import the target."""
+
+    FORBIDDEN = "forbidden"
+    """Both endpoints classified, and the importer group may not import it."""
+
+    EXEMPTED = "exempted"
+    """Forbidden in principle, but covered by a documented ignore entry."""
+
+    UNCLASSIFIED = "unclassified"
+    """At least one endpoint matched no configured group."""
+
+    UNRESOLVED = "unresolved"
+    """The import target could not be resolved to a known module."""
 
 
 def module_prefix_contains(prefix: str, module: str) -> bool:
@@ -46,6 +79,11 @@ class ArchitecturePolicy:
     ignores: tuple[IgnoredImport, ...] = ()
     default_rule_id: str = "HEC001"
     include_external_packages: bool = False
+    strict: bool = False
+    """Whether unclassified and unresolved internal edges fail the check."""
+
+    unresolved_internal_severity: Severity = Severity.ERROR
+    """Severity applied to unresolved internal edges under strict mode."""
 
     def group_for(self, module: str) -> ModuleGroup | None:
         """Return the first matching group for ``module``."""
