@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from hecate.checker import coverage_severity
 from hecate.policy import (
+    ArchitecturePolicy,
+    EdgeState,
     IgnoredImport,
     ModuleGroup,
+    Severity,
     first_matching_group,
     ignore_matches,
     is_group_allowed,
@@ -42,4 +46,39 @@ def test_ignore_matching_accepts_descendant_edges() -> None:
 
     assert ignore_matches(
         ignored_import, "pkg.config.runtime", "pkg.adapters.outbound.db"
+    )
+
+
+def test_coverage_severity_warns_outside_strict_mode() -> None:
+    """Coverage findings never fail a non-strict run."""
+    policy = ArchitecturePolicy(groups=(), strict=False)
+
+    for state in EdgeState:
+        severity = coverage_severity(state, policy)
+        assert severity is Severity.WARNING, (
+            f"expected warning for {state.value} outside strict mode, got {severity}"
+        )
+
+
+def test_coverage_severity_fails_strict_unclassified_edges() -> None:
+    """Strict mode promotes unclassified edges to errors."""
+    policy = ArchitecturePolicy(groups=(), strict=True)
+
+    severity = coverage_severity(EdgeState.UNCLASSIFIED, policy)
+
+    assert severity is Severity.ERROR, (
+        f"expected unclassified strict failure, got {severity}"
+    )
+
+
+def test_coverage_severity_honours_configured_unresolved_severity() -> None:
+    """Strict unresolved edges use the configured severity."""
+    policy = ArchitecturePolicy(
+        groups=(), strict=True, unresolved_internal_severity=Severity.WARNING
+    )
+
+    severity = coverage_severity(EdgeState.UNRESOLVED, policy)
+
+    assert severity is Severity.WARNING, (
+        f"expected the configured severity to apply, got {severity}"
     )

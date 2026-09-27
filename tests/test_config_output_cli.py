@@ -11,8 +11,9 @@ import pytest
 from hecate.checker import ArchitectureCheckResult
 from hecate.cli import main
 from hecate.config import ConfigError, load_config
-from hecate.diagnostics import ArchitectureViolation
+from hecate.diagnostics import ArchitectureViolation, CoverageDiagnostic
 from hecate.output import render_json, render_text
+from hecate.policy import EdgeState, Severity
 
 if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
@@ -176,6 +177,158 @@ def test_text_and_json_output_include_violation_identity(tmp_path: Path) -> None
     )
     assert json_output["violations"][0]["line"] == 1, (
         f"expected JSON line 1, got {json_output!r}"
+    )
+
+
+def test_json_output_reports_coverage_by_default(tmp_path: Path) -> None:
+    """JSON output carries a coverage section so machine consumers see it."""
+    result = ArchitectureCheckResult(violations=())
+
+    payload = json.loads(render_json(result))
+
+    assert payload["coverage"] == [], (
+        f"expected an empty coverage list, got {payload!r}"
+    )
+    assert payload["ok"] is True, f"expected a passing payload, got {payload!r}"
+
+
+def test_text_output_hides_coverage_warnings_by_default(tmp_path: Path) -> None:
+    """Text output keeps its existing shape unless coverage is requested."""
+    diagnostic = CoverageDiagnostic(
+        state=EdgeState.UNCLASSIFIED,
+        severity=Severity.WARNING,
+        rule_id="HEC001",
+        importer="pkg.application.service",
+        imported="pkg.newthing",
+        source_path=tmp_path / "pkg/application/service.py",
+        line=3,
+        importer_group="application",
+    )
+    result = ArchitectureCheckResult(violations=(), coverage=(diagnostic,))
+
+    default_output = render_text(result)
+    verbose_output = render_text(result, show_coverage=True)
+
+    assert "unclassified" not in default_output, (
+        f"expected coverage to stay hidden by default, got {default_output!r}"
+    )
+    assert "unclassified" in verbose_output, (
+        f"expected coverage behind the flag, got {verbose_output!r}"
+    )
+    assert "pkg.newthing" in verbose_output, (
+        f"expected the unclassified target to be named, got {verbose_output!r}"
+    )
+
+
+def test_coverage_failure_always_renders_and_fails_the_check(tmp_path: Path) -> None:
+    """A coverage failure changes the exit code, so it is always rendered."""
+    diagnostic = CoverageDiagnostic(
+        state=EdgeState.UNRESOLVED,
+        severity=Severity.ERROR,
+        rule_id="HEC001",
+        importer="pkg.application.service",
+        imported="pkg.domain.missing",
+        source_path=tmp_path / "pkg/application/service.py",
+        line=3,
+        importer_group="application",
+        imported_group="domain",
+    )
+    result = ArchitectureCheckResult(violations=(), coverage=(diagnostic,))
+
+    output = render_text(result)
+
+    assert not result.ok, f"an error-severity coverage entry must fail, got {result!r}"
+    assert "unresolved" in output, (
+        f"expected the coverage failure in text output, got {output!r}"
+    )
+    assert "architecture check passed" not in output, (
+        f"expected no pass message, got {output!r}"
+    )
+
+
+def test_config_rejects_unknown_unresolved_severity(tmp_path: Path) -> None:
+    """An unknown severity name is a configuration error."""
+    _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+unresolved_internal_severity = "loud"
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+""",
+        "unresolved_internal_severity",
+    )
+
+
+def test_config_loads_strict_and_severity_options(tmp_path: Path) -> None:
+    """Strict mode and the unresolved severity are read from TOML."""
+    (tmp_path / "pkg").mkdir()
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+strict = true
+unresolved_internal_severity = "warning"
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+""",
+        encoding="utf-8",
+    )
+
+    hecate_config = load_config(config)
+
+    assert hecate_config.policy.strict is True, (
+        f"expected strict mode from TOML, got {hecate_config.policy!r}"
+    )
+    assert hecate_config.policy.unresolved_internal_severity is Severity.WARNING, (
+        f"expected the configured severity, got {hecate_config.policy!r}"
+    )
+
+
+def test_cli_strict_flag_overrides_configuration(tmp_path: Path) -> None:
+    """``--strict`` on the command line overrides a non-strict config.
+
+    The policy here classifies only ``pkg.domain``, so the consumer is
+    unclassified. A non-strict run passes with a warning, and ``--strict``
+    promotes that warning to a failure.
+    """
+    package_root = tmp_path / "pkg"
+    (package_root / "domain").mkdir(parents=True)
+    (package_root / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "domain" / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "consumer.py").write_text(
+        "from pkg.domain import model\n", encoding="utf-8"
+    )
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg.domain"]
+allowed = ["domain"]
+""",
+        encoding="utf-8",
+    )
+
+    lenient_exit = main(["check", "--config", str(config)])
+    strict_exit = main(["check", "--config", str(config), "--strict"])
+
+    assert lenient_exit == 0, (
+        f"an unclassified edge must not fail a non-strict run, got {lenient_exit}"
+    )
+    assert strict_exit == 1, (
+        f"expected --strict to override the config and fail, got {strict_exit}"
     )
 
 
