@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from hecate.checker import coverage_severity
 from hecate.policy import (
     ArchitecturePolicy,
     EdgeState,
     IgnoredImport,
     ModuleGroup,
     Severity,
+    coverage_severity,
     first_matching_group,
     ignore_matches,
     is_group_allowed,

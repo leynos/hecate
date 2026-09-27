@@ -126,3 +126,18 @@ def ignore_matches(ignored_import: IgnoredImport, importer: str, imported: str) 
     return module_prefix_contains(
         ignored_import.importer, importer
     ) and module_prefix_contains(ignored_import.imported, imported)
+
+
+def coverage_severity(state: EdgeState, policy: ArchitecturePolicy) -> Severity:
+    """Return the severity to apply to one coverage state.
+
+    Outside strict mode these states are reported as warnings so that a green
+    result can be tightened into a failing one without a second code path. In
+    strict mode unclassified internal edges always fail, and unresolved
+    internal edges use the configured severity.
+    """
+    if not policy.strict:
+        return Severity.WARNING
+    if state is EdgeState.UNRESOLVED:
+        return policy.unresolved_internal_severity
+    return Severity.ERROR
