@@ -47,14 +47,16 @@ reason = "Composition root wiring."
 
 ## Top-level keys
 
-| Key                         | Type             | Required                                     | Description                                                                                                |
-| --------------------------- | ---------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `root_packages`             | array of strings | Required unless `package` tables are present | Package names whose roots use the same relative path as the package name.                                  |
-| `include_external_packages` | boolean          | Optional                                     | Enables classification of external module prefixes such as `sqlalchemy` when matching groups declare them. |
-| `default_rule_id`           | string           | Optional                                     | Rule identifier used in diagnostics. Defaults to `HEC001`.                                                 |
-| `package`                   | array of tables  | Optional                                     | Explicit package name and root mappings.                                                                   |
-| `groups`                    | array of tables  | Required                                     | Ordered architecture groups.                                                                               |
-| `ignore_imports`            | array of tables  | Optional                                     | Documented import edges to suppress.                                                                       |
+| Key                           | Type             | Required                                     | Description                                                                                                |
+| ----------------------------- | ---------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `root_packages`               | array of strings | Required unless `package` tables are present | Package names whose roots use the same relative path as the package name.                                  |
+| `include_external_packages`   | boolean          | Optional                                     | Enables classification of external module prefixes such as `sqlalchemy` when matching groups declare them. |
+| `default_rule_id`             | string           | Optional                                     | Rule identifier used in diagnostics. Defaults to `HEC001`.                                                 |
+| `strict`                      | boolean          | Optional                                     | Fails on unclassified and unresolved internal edges. Defaults to `false`.                                  |
+| `unresolved_internal_severity` | string          | Optional                                     | Severity for unresolved internal edges under `strict`. One of `error`, `warning`, `exempt`. Defaults to `error`. |
+| `package`                     | array of tables  | Optional                                     | Explicit package name and root mappings.                                                                   |
+| `groups`                      | array of tables  | Required                                     | Ordered architecture groups.                                                                               |
+| `ignore_imports`              | array of tables  | Optional                                     | Documented import edges to suppress.                                                                       |
 
 _Table 1: Top-level `[tool.hecate]` keys._
 
@@ -98,12 +100,34 @@ Ignores match dotted descendants. An ignore for `sample.config` importing
 `sample.adapters.outbound` also covers `sample.config.runtime` importing
 `sample.adapters.outbound.db`.
 
+## Strict mode
+
+Strict mode closes the gap where an import edge matched no group and was
+therefore never checked. Enable it globally:
+
+```toml
+[tool.hecate]
+strict = true
+```
+
+Under strict mode:
+
+- an unclassified internal edge fails the check;
+- an unresolved internal edge fails, unless
+  `unresolved_internal_severity` lowers it to a warning or `exempt`; and
+- documented `ignore_imports` entries continue to exempt the edges they cover.
+
+Without strict mode these edges are still reported, but as warnings that do
+not change the exit code. This lets an existing project adopt the policy
+without a flag day, then tighten later.
+
 ## Validation rules
 
 - Group names must be unique.
 - Prefixes must be non-empty dotted strings.
 - `allowed` entries must refer to declared groups.
 - Ignores must include a non-empty reason.
+- `unresolved_internal_severity` must be `error`, `warning`, or `exempt`.
 - Missing or non-directory package roots fail before scanning.
 - Configuration errors include the TOML file path and the failing context.
 
@@ -116,11 +140,15 @@ Supported options:
 - `--format text|json`
 - `--include-external-packages`
 - `--no-include-external-packages`
+- `--strict`
+- `--no-strict`
 - `--show-ignored`
+- `--show-coverage`
 - `--fail-on-unmatched-ignore`
 
 `--package` and `--root` must be provided together. They override configured
-package roots for ad hoc checks.
+package roots for ad hoc checks. `--strict` and `--no-strict` override the
+configured `strict` value for a single run.
 
 ______________________________________________________________________
 
