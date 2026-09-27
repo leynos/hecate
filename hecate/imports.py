@@ -17,6 +17,32 @@ class ImportReference:
     source_path: Path
 
 
+@dc.dataclass(frozen=True, slots=True)
+class DirectImport:
+    """An ``import a.b`` statement binding ``a`` in the importing module."""
+
+    importer: str
+    module: str
+    line: int
+    source_path: Path
+
+
+@dc.dataclass(frozen=True, slots=True)
+class FromImport:
+    """A ``from target import names`` statement.
+
+    ``names`` preserves source order and includes ``"*"`` entries verbatim, so
+    that later analysis can apply Python's wildcard rules rather than assuming
+    every listed name denotes a symbol.
+    """
+
+    importer: str
+    target: str
+    names: tuple[str, ...]
+    line: int
+    source_path: Path
+
+
 def is_module_prefix(prefix: str, module: str) -> bool:
     """Return whether ``prefix`` contains ``module`` at a dotted boundary."""
     assert prefix
@@ -52,15 +78,70 @@ def collect_imports(
     root: Path,
     package: str,
 ) -> tuple[ImportReference, ...]:
-    """Collect direct imports from a Python source file."""
+    """Collect direct imports from a Python source file.
+
+    This is the flat edge view of :func:`collect_import_statements`: each
+    statement contributes one module-level edge plus, for ``from`` imports, one
+    edge per explicitly named symbol. Wildcard entries contribute only the
+    module-level edge; callers that must honour Python's wildcard semantics
+    should use :func:`collect_import_statements` instead.
+    """
+    module_name = compute_module_name(root, package, source_path)
+    imports: list[ImportReference] = []
+    for statement in collect_import_statements(source_path, root=root, package=package):
+        if isinstance(statement, DirectImport):
+            imports.append(
+                ImportReference(
+                    importer=statement.importer,
+                    imported=statement.module,
+                    line=statement.line,
+                    source_path=statement.source_path,
+                )
+            )
+            continue
+        imports.append(
+            ImportReference(
+                importer=module_name,
+                imported=statement.target,
+                line=statement.line,
+                source_path=statement.source_path,
+            )
+        )
+        imports.extend(
+            ImportReference(
+                importer=module_name,
+                imported=f"{statement.target}.{name}",
+                line=statement.line,
+                source_path=statement.source_path,
+            )
+            for name in statement.names
+            if name != "*"
+        )
+    return tuple(imports)
+
+
+ImportStatement = DirectImport | FromImport
+
+
+def collect_import_statements(
+    source_path: Path,
+    *,
+    root: Path,
+    package: str,
+) -> tuple[ImportStatement, ...]:
+    """Collect import statements from a Python source file.
+
+    Statements are returned in source order so that later analysis can apply
+    Python's last-binding-wins rules when several statements bind one name.
+    """
     module_name = compute_module_name(root, package, source_path)
     tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
-    imports: list[ImportReference] = []
+    statements: list[ImportStatement] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            imports.extend(_collect_direct_imports(node, module_name, source_path))
+            statements.extend(_collect_direct_imports(node, module_name, source_path))
         elif isinstance(node, ast.ImportFrom):
-            imports.extend(
+            statements.extend(
                 _collect_from_imports(
                     node,
                     module_name=module_name,
@@ -68,16 +149,16 @@ def collect_imports(
                     source_path=source_path,
                 )
             )
-    return tuple(imports)
+    return tuple(statements)
 
 
 def _collect_direct_imports(
     node: ast.Import, importer: str, source_path: Path
-) -> tuple[ImportReference, ...]:
+) -> tuple[DirectImport, ...]:
     return tuple(
-        ImportReference(
+        DirectImport(
             importer=importer,
-            imported=alias.name,
+            module=alias.name,
             line=node.lineno,
             source_path=source_path,
         )
@@ -91,7 +172,7 @@ def _collect_from_imports(
     module_name: str,
     is_package_init: bool,
     source_path: Path,
-) -> tuple[ImportReference, ...]:
+) -> tuple[FromImport, ...]:
     imported_module = resolve_import_from(
         module_name,
         is_package_init=is_package_init,
@@ -100,25 +181,15 @@ def _collect_from_imports(
     )
     if imported_module is None:
         return ()
-    imports = [
-        ImportReference(
+    return (
+        FromImport(
             importer=module_name,
-            imported=imported_module,
+            target=imported_module,
+            names=tuple(alias.name for alias in node.names),
             line=node.lineno,
             source_path=source_path,
-        )
-    ]
-    imports.extend(
-        ImportReference(
-            importer=module_name,
-            imported=f"{imported_module}.{alias.name}",
-            line=node.lineno,
-            source_path=source_path,
-        )
-        for alias in node.names
-        if alias.name != "*"
+        ),
     )
-    return tuple(imports)
 
 
 def resolve_import_from(
