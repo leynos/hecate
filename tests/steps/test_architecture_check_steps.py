@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses as dc
+import json
 import typing as typ
 from pathlib import Path
 
@@ -97,6 +98,48 @@ def when_run_hecate_default(
     fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
 
 
+@when("I run Hecate against the fixture with JSON output")
+def when_run_hecate_json(
+    fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
+) -> None:
+    """Run the checker with machine-readable output for coverage assertions."""
+    exit_code = main([
+        "check",
+        "--config",
+        str(fixture_ctx.config),
+        "--format",
+        "json",
+    ])
+    captured = capsys.readouterr()
+    fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
+
+
+@when("I run Hecate against the fixture in strict mode")
+def when_run_hecate_strict(
+    fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
+) -> None:
+    """Run the checker in strict mode with coverage reporting enabled."""
+    exit_code = main([
+        "check",
+        "--config",
+        str(fixture_ctx.config),
+        "--strict",
+        "--show-coverage",
+    ])
+    captured = capsys.readouterr()
+    fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
+
+
+@then(parsers.parse('the coverage report contains "{text}"'))
+def then_coverage_contains(fixture_ctx: FixtureContext, text: str) -> None:
+    """Assert the JSON coverage report mentions an expected edge state."""
+    payload = json.loads(_result(fixture_ctx).stdout)
+    states = [entry["state"] for entry in payload["coverage"]]
+    assert text in states, (
+        f"expected coverage state {text!r}, got {states!r}"
+    )
+
+
 @when("I run Hecate with the override config")
 def when_run_hecate_override(
     fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
@@ -125,6 +168,15 @@ def then_diagnostics_contain(fixture_ctx: FixtureContext, text: str) -> None:
     """Assert stdout contains expected diagnostic text."""
     stdout = _result(fixture_ctx).stdout
     assert text in stdout, f"expected stdout to contain {text!r}, got {stdout!r}"
+
+
+@then(parsers.parse('the diagnostics omit "{text}"'))
+def then_diagnostics_omit(fixture_ctx: FixtureContext, text: str) -> None:
+    """Assert stdout does not mention an origin that must not be expanded."""
+    stdout = _result(fixture_ctx).stdout
+    assert text not in stdout, (
+        f"expected stdout to omit {text!r}, got {stdout!r}"
+    )
 
 
 @then(parsers.parse('stderr contains "{text}"'))
@@ -214,6 +266,72 @@ def _write_fixture(package_root: Path, fixture: str) -> None:
         fixtures[fixture] = (
             "application/service.py",
             "from sample.adapters import db\n",
+        )
+    if fixture == "application_imports_all_hidden_adapter":
+        # __all__ hides db from wildcards but cannot unbind it, so the
+        # explicit re-export must still resolve to the outbound adapter.
+        (package_root / "adapters" / "__init__.py").write_text(
+            "from .outbound import db\n__all__ = []\n",
+            encoding="utf-8",
+        )
+        fixtures[fixture] = (
+            "application/service.py",
+            "from sample.adapters import db\n",
+        )
+    if fixture == "application_imports_wildcard_consumer":
+        # The consumer uses a wildcard, which must expand to the origin of db.
+        (package_root / "adapters" / "__init__.py").write_text(
+            "from .outbound import db\n__all__ = ['db']\n",
+            encoding="utf-8",
+        )
+        fixtures[fixture] = (
+            "application/service.py",
+            "from sample.adapters import *\n",
+        )
+    if fixture == "application_imports_empty_all_wildcard":
+        # A wildcard over __all__ = [] binds nothing beyond the module edge.
+        (package_root / "adapters" / "__init__.py").write_text(
+            "from .outbound import db\n__all__ = []\n",
+            encoding="utf-8",
+        )
+        fixtures[fixture] = (
+            "application/service.py",
+            "from sample.adapters import *\n",
+        )
+    if fixture == "application_imports_relative_barrel_adapter":
+        # A relative import through a package barrel must resolve like the
+        # absolute form; both spell the same edge.
+        (package_root / "application" / "__init__.py").write_text(
+            "from ..adapters import db\n",
+            encoding="utf-8",
+        )
+        (package_root / "adapters" / "__init__.py").write_text(
+            "from .outbound import db\n__all__ = ['db']\n",
+            encoding="utf-8",
+        )
+        fixtures[fixture] = (
+            "application/service.py",
+            "from sample.application import db\n",
+        )
+    if fixture == "application_imports_unclassified_subtree":
+        # The new subtree matches no configured group, so a non-strict run
+        # passes while still reporting the edge as unclassified.
+        (package_root / "newthing").mkdir(exist_ok=True)
+        (package_root / "newthing" / "__init__.py").write_text(
+            "", encoding="utf-8"
+        )
+        (package_root / "newthing" / "helper.py").write_text(
+            "", encoding="utf-8"
+        )
+        fixtures[fixture] = (
+            "application/service.py",
+            "from sample.newthing import helper\n",
+        )
+    if fixture == "application_imports_unresolved_symbol":
+        # The symbol does not exist, so the internal edge is unresolved.
+        fixtures[fixture] = (
+            "application/service.py",
+            "from sample.domain import missing_symbol\n",
         )
     assert fixture in fixtures, (
         f"Unknown fixture {fixture!r}, valid fixtures: {sorted(fixtures.keys())}"
