@@ -104,7 +104,6 @@ extend-ignore = [
 "hecate/output.py" = ["TC001"]
 "hecate/imports.py" = ["S101", "TC003"]
 "hecate/policy.py" = ["S101"]
-"hecate/reexports.py" = ["TC001", "TC003"]
 "**/test_*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/test_properties.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/steps/*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301"]

@@ -46,9 +46,7 @@ def render_json(
         "violations": [violation.to_dict() for violation in result.violations],
     }
     if show_coverage:
-        payload["coverage"] = [
-            diagnostic.to_dict() for diagnostic in result.coverage
-        ]
+        payload["coverage"] = [diagnostic.to_dict() for diagnostic in result.coverage]
     if show_ignored:
         payload["ignored"] = [ignored.to_dict() for ignored in result.ignored]
     return f"{json.dumps(payload, indent=2, sort_keys=True)}\n"

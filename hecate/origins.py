@@ -22,9 +22,12 @@ from __future__ import annotations
 
 import dataclasses as dc
 import enum
+import typing as typ
 
-from .config import PackageRoot
 from .namespaces import Binding, Definition, Imported, ModuleNamespace
+
+if typ.TYPE_CHECKING:
+    from .config import PackageRoot
 
 #: Separator between a module name and a symbol looked up inside that module.
 SYMBOL_SEPARATOR = "."
@@ -57,8 +60,7 @@ class OriginIndex:
     def is_internal(self, target: str) -> bool:
         """Return whether ``target`` names or sits under a package root."""
         return any(
-            target == package
-            or target.startswith(f"{package}{SYMBOL_SEPARATOR}")
+            target == package or target.startswith(f"{package}{SYMBOL_SEPARATOR}")
             for package in self.package_names
         )
 
@@ -148,20 +150,16 @@ class OriginIndex:
         that actually defines the name.
         """
         qualified = f"{module}{SYMBOL_SEPARATOR}{symbol}"
-        return tuple(
-            dict.fromkeys(self._walk_symbol(qualified, seen=seen))
-        )
+        return tuple(dict.fromkeys(self._walk_symbol(qualified, seen=seen)))
 
     def _walk_symbol(self, qualified: str, *, seen: frozenset[str]) -> list[str]:
         if qualified in seen:
             return []
         next_seen = seen | {qualified}
-        # A qualified name that is itself a scanned module is the origin; there
-        # is nothing deeper to follow.
-        if qualified in self.namespaces:
-            return [qualified]
         module, symbol = _split_symbol(qualified)
-        if module not in self.namespaces:
+        # A qualified name that is itself a scanned module is the origin, and a
+        # name whose module Hecate never analysed has nothing deeper to follow.
+        if qualified in self.namespaces or module not in self.namespaces:
             return [qualified]
         binding = self._effective_binding(module, symbol)
         if binding is None:

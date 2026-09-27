@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses as dc
+import typing as typ
 
 from .config import HecateConfig, PackageRoot
 from .diagnostics import (
@@ -14,6 +15,9 @@ from .imports import FromImport, ImportStatement, collect_import_statements
 from .namespaces import analyse_namespaces
 from .origins import OriginIndex, Resolution, build_origin_index
 from .policy import ArchitecturePolicy, EdgeState, ModuleGroup, Severity
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -42,6 +46,31 @@ class ArchitectureCheckResult:
         """Return the coverage diagnostics that fail the check."""
         return tuple(
             diagnostic for diagnostic in self.coverage if diagnostic.is_failure
+        )
+
+
+@dc.dataclass(frozen=True, slots=True)
+class _Edge:
+    """One import edge under evaluation, independent of its statement form.
+
+    Wildcard expansion produces edges that no single statement spells out, so
+    classification works from the resolved importer, target, and source site
+    rather than from the statement that led here.
+    """
+
+    importer: str
+    imported: str
+    source_path: Path
+    line: int
+
+    @classmethod
+    def from_statement(cls, statement: ImportStatement, *, imported: str) -> _Edge:
+        """Return the edge one statement contributes for ``imported``."""
+        return cls(
+            importer=statement.importer,
+            imported=imported,
+            source_path=statement.source_path,
+            line=statement.line,
         )
 
 
@@ -77,9 +106,7 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
             sorted(ctx.violations.values(), key=lambda item: item.identity())
         ),
         ignored=tuple(sorted(ctx.ignored.values(), key=lambda item: item.render())),
-        coverage=tuple(
-            sorted(ctx.coverage.values(), key=lambda item: item.identity())
-        ),
+        coverage=tuple(sorted(ctx.coverage.values(), key=lambda item: item.identity())),
         unmatched_ignores=unmatched_ignores,
     )
 
@@ -139,9 +166,7 @@ def _named_targets(statement: ImportStatement) -> tuple[str, ...]:
     """Return the dotted targets a statement imports by name."""
     if isinstance(statement, FromImport):
         return tuple(
-            f"{statement.target}.{name}"
-            for name in statement.names
-            if name != "*"
+            f"{statement.target}.{name}" for name in statement.names if name != "*"
         )
     return (statement.module,)
 
@@ -161,79 +186,73 @@ def _record_edge(
     always means the edge was permitted rather than merely unexamined.
     """
     for origin in ctx.origins.origins_for(imported):
-        _classify_origin(statement, imported=origin, ctx=ctx)
+        _classify_origin(_Edge.from_statement(statement, imported=origin), ctx=ctx)
 
 
-def _classify_origin(
-    statement: ImportStatement, *, imported: str, ctx: _CheckContext
-) -> None:
+def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
     """Classify one already-expanded origin of an import edge."""
+    imported = edge.imported
     resolution = ctx.origins.resolve(imported)
-    importer_group = ctx.policy.group_for(statement.importer)
+    importer_group = ctx.policy.group_for(edge.importer)
     imported_group = ctx.policy.group_for(imported)
     if resolution is Resolution.EXTERNAL and not ctx.policy.include_external_packages:
         # External dependencies are out of scope unless configured otherwise.
         return
     if resolution is Resolution.UNRESOLVED_INTERNAL:
         _record_coverage(
-            statement,
-            imported=imported,
+            edge,
             state=EdgeState.UNRESOLVED,
-            importer_group=importer_group,
-            imported_group=imported_group,
+            groups=(importer_group, imported_group),
             ctx=ctx,
         )
         return
     if importer_group is None or imported_group is None:
         _record_coverage(
-            statement,
-            imported=imported,
+            edge,
             state=EdgeState.UNCLASSIFIED,
-            importer_group=importer_group,
-            imported_group=imported_group,
+            groups=(importer_group, imported_group),
             ctx=ctx,
         )
         return
     if ctx.policy.is_allowed(importer_group.name, imported_group.name):
         return
-    ignored_import = ctx.policy.ignored_import_for(statement.importer, imported)
+    ignored_import = ctx.policy.ignored_import_for(edge.importer, imported)
     if ignored_import is not None:
-        ctx.ignored[statement.importer, imported] = IgnoredImportDiagnostic(
-            importer=statement.importer,
+        ctx.ignored[edge.importer, imported] = IgnoredImportDiagnostic(
+            importer=edge.importer,
             imported=imported,
             reason=ignored_import.reason,
         )
         return
     violation = ArchitectureViolation(
         rule_id=ctx.policy.default_rule_id,
-        importer=statement.importer,
+        importer=edge.importer,
         imported=imported,
         importer_group=importer_group.name,
         imported_group=imported_group.name,
-        source_path=statement.source_path,
-        line=statement.line,
+        source_path=edge.source_path,
+        line=edge.line,
     )
     ctx.violations[violation.identity()] = violation
 
 
 def _record_coverage(
-    statement: ImportStatement,
+    edge: _Edge,
     *,
-    imported: str,
     state: EdgeState,
-    importer_group: ModuleGroup | None,
-    imported_group: ModuleGroup | None,
+    groups: tuple[ModuleGroup | None, ModuleGroup | None],
     ctx: _CheckContext,
 ) -> None:
     """Record an unclassified or unresolved edge at policy-determined severity."""
+    importer_group, imported_group = groups
     diagnostic = CoverageDiagnostic(
         state=state,
         severity=coverage_severity(state, ctx.policy),
         rule_id=ctx.policy.default_rule_id,
-        importer=statement.importer,
-        imported=imported,
-        source_path=statement.source_path,
-        line=statement.line,
+        importer=edge.importer,
+        imported=edge.imported,
+        source_path=edge.source_path,
+        line=edge.line,
         importer_group=importer_group.name if importer_group else None,
         imported_group=imported_group.name if imported_group else None,
     )

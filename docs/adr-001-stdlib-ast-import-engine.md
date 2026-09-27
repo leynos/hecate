@@ -53,17 +53,17 @@ introduced later without changing the TOML policy schema.
 The separation is deliberate, because Python's binding rules and its wildcard
 rules are different rules. A module **binds** a name if it defines or imports
 that name, and `from module import name` reaches every binding regardless of
-`__all__`. A module **exports to wildcards** the names `__all__` selects, or the
-public bindings when `__all__` is absent. Conflating the two produces false
+`__all__`. A module **exports to wildcards** the names `__all__` selects, or
+the public bindings when `__all__` is absent. Conflating the two produces false
 negatives: filtering bindings through `__all__` lets an explicitly imported
 re-export lose its origin and evade a boundary rule.
 
-Policy evaluation consumes a complete analysed edge model rather than treating a
-missing edge as an allowed one. Every edge receives exactly one outcome from the
-set {permitted, forbidden, exempted, unclassified, unresolved}, so a green
-result means the relevant edges were understood and evaluated. An earlier design
-returned early when either endpoint matched no configured group, which let a new
-package subtree or a policy typo produce a green result unchecked.
+Policy evaluation consumes a complete analysed edge model rather than treating
+a missing edge as an allowed one. Every edge receives exactly one outcome from
+the set {permitted, forbidden, exempted, unclassified, unresolved}, so a green
+result means the relevant edges were understood and evaluated. An earlier
+design returned early when either endpoint matched no configured group, which
+let a new package subtree or a policy typo produce a green result unchecked.
 
 ## Goals and non-goals
 
@@ -92,8 +92,8 @@ package subtree or a policy typo produce a green result unchecked.
   statically from source. A wildcard whose export set cannot be resolved is
   reported as unresolved rather than approximated away.
 - External packages are classified by configured prefixes, not by installed
-  distribution metadata. Without `include_external_packages`, external edges are
-  out of scope by configuration rather than absent from the analysis.
+  distribution metadata. Without `include_external_packages`, external edges
+  are out of scope by configuration rather than absent from the analysis.
 - CrossHair validation is limited to bounded pure helpers and deliberately
   excludes filesystem, `ast.parse`, TOML parsing, and CLI code.
 

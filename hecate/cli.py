@@ -70,9 +70,7 @@ def _emit_check_output(
     output = (
         render_json(result, show_ignored=show_ignored, show_coverage=True)
         if output_format is OutputFormat.JSON
-        else render_text(
-            result, show_ignored=show_ignored, show_coverage=show_coverage
-        )
+        else render_text(result, show_ignored=show_ignored, show_coverage=show_coverage)
     )
     print(output, end="")
 

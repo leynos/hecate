@@ -5,15 +5,32 @@ from __future__ import annotations
 import textwrap
 from pathlib import Path
 
-from hecate.checker import check_architecture
+from hecate.checker import ArchitectureCheckResult, check_architecture
 from hecate.config import HecateConfig, PackageRoot
-from hecate.policy import ArchitecturePolicy, EdgeState, IgnoredImport, ModuleGroup
+from hecate.policy import (
+    ArchitecturePolicy,
+    EdgeState,
+    IgnoredImport,
+    ModuleGroup,
+    Severity,
+)
 
 _SAMPLE_GROUPS = (
     ModuleGroup("domain", ("pkg.domain",), ("domain",)),
     ModuleGroup("application", ("pkg.application",), ("application", "domain", "api")),
     ModuleGroup("adapter", ("pkg.adapters",), ("adapter",)),
     ModuleGroup("api", ("pkg.api",), ("api", "domain", "application", "adapter")),
+)
+
+#: An ``api`` barrel that re-exports a forbidden symbol but hides it from
+#: wildcards, which is exactly the case ``__all__`` must not be able to mask.
+_REEXPORT_HIDDEN_FROM_WILDCARDS = (
+    "from ..adapters.database import Database\n__all__ = []\n"
+)
+
+#: The same barrel with the re-export advertised to wildcard consumers.
+_REEXPORT_EXPOSED_TO_WILDCARDS = (
+    "from ..adapters.database import Database\n__all__ = ['Database']\n"
 )
 
 _STRICT_GROUPS = (
@@ -32,26 +49,34 @@ def _build_package(root: Path, files: dict[str, str]) -> None:
         target.write_text(textwrap.dedent(contents), encoding="utf-8")
 
 
-def _check(
-    root: Path,
-    files: dict[str, str],
+def _policy(
     *,
     groups: tuple[ModuleGroup, ...] = _SAMPLE_GROUPS,
     strict: bool = False,
     ignores: tuple[IgnoredImport, ...] = (),
     include_external_packages: bool = False,
-):
+) -> ArchitecturePolicy:
+    """Return a policy built from the fixtures' usual knobs."""
+    return ArchitecturePolicy(
+        groups=groups,
+        ignores=ignores,
+        strict=strict,
+        include_external_packages=include_external_packages,
+    )
+
+
+def _check(
+    root: Path,
+    files: dict[str, str],
+    *,
+    policy: ArchitecturePolicy | None = None,
+) -> ArchitectureCheckResult:
     """Build a package, check it, and return the result."""
     package_root = root / "pkg"
     _build_package(package_root, files)
     config = HecateConfig(
         packages=(PackageRoot("pkg", package_root),),
-        policy=ArchitecturePolicy(
-            groups=groups,
-            ignores=ignores,
-            strict=strict,
-            include_external_packages=include_external_packages,
-        ),
+        policy=policy if policy is not None else _policy(),
     )
     return check_architecture(config)
 
@@ -64,9 +89,11 @@ def test_external_imports_are_skipped_when_disabled(tmp_path: Path) -> None:
             "__init__.py": "",
             "domain.py": "import sqlalchemy\n",
         },
-        groups=(
-            ModuleGroup("domain", ("pkg",), ("domain",)),
-            ModuleGroup("infrastructure", ("sqlalchemy",), ("infrastructure",)),
+        policy=_policy(
+            groups=(
+                ModuleGroup("domain", ("pkg",), ("domain",)),
+                ModuleGroup("infrastructure", ("sqlalchemy",), ("infrastructure",)),
+            ),
         ),
     )
 
@@ -82,7 +109,7 @@ def test_explicit_import_keeps_origin_when_all_omits_it(tmp_path: Path) -> None:
         tmp_path,
         {
             "__init__.py": "",
-            "api/__init__.py": "from ..adapters.database import Database\n__all__ = []\n",
+            "api/__init__.py": _REEXPORT_HIDDEN_FROM_WILDCARDS,
             "api/routes.py": "",
             "application/__init__.py": "",
             "application/service.py": "from pkg.api import Database\n",
@@ -105,7 +132,7 @@ def test_wildcard_consumer_expands_to_symbol_origins(tmp_path: Path) -> None:
         tmp_path,
         {
             "__init__.py": "",
-            "api/__init__.py": "from ..adapters.database import Database\n__all__ = ['Database']\n",
+            "api/__init__.py": _REEXPORT_EXPOSED_TO_WILDCARDS,
             "api/routes.py": "",
             "application/__init__.py": "",
             "application/service.py": "from pkg.api import *\n",
@@ -127,7 +154,7 @@ def test_wildcard_over_empty_all_binds_no_symbols(tmp_path: Path) -> None:
         tmp_path,
         {
             "__init__.py": "",
-            "api/__init__.py": "from ..adapters.database import Database\n__all__ = []\n",
+            "api/__init__.py": _REEXPORT_HIDDEN_FROM_WILDCARDS,
             "api/routes.py": "",
             "application/__init__.py": "",
             "application/service.py": "from pkg.api import *\n",
@@ -181,7 +208,7 @@ def test_strict_mode_fails_on_unclassified_internal_edge(tmp_path: Path) -> None
             "newthing/__init__.py": "",
             "newthing/helper.py": "",
         },
-        strict=True,
+        policy=_policy(strict=True),
     )
 
     assert not result.ok, f"strict mode must fail an unclassified edge, got {result!r}"
@@ -200,7 +227,7 @@ def test_strict_mode_reports_unresolved_internal_distinctly(tmp_path: Path) -> N
             "application/__init__.py": "",
             "application/service.py": "from pkg.domain import missing_symbol\n",
         },
-        strict=True,
+        policy=_policy(strict=True),
     )
 
     assert not result.ok, f"strict mode must fail an unresolved edge, got {result!r}"
@@ -214,8 +241,6 @@ def test_unresolved_internal_can_be_downgraded_by_configuration(
     tmp_path: Path,
 ) -> None:
     """The unresolved-internal severity is configurable as the issue requires."""
-    from hecate.policy import Severity
-
     package_root = tmp_path / "pkg"
     _build_package(
         package_root,
@@ -255,22 +280,24 @@ def test_documented_ignore_still_exempts_and_stays_distinguishable(
             "adapters/__init__.py": "",
             "adapters/database.py": "class Database: ...\n",
         },
-        groups=_STRICT_GROUPS,
-        strict=True,
-        ignores=(
-            IgnoredImport(
-                importer="pkg.application",
-                imported="pkg.adapters",
-                reason="Legacy wiring pending migration.",
+        policy=_policy(
+            groups=_STRICT_GROUPS,
+            strict=True,
+            ignores=(
+                IgnoredImport(
+                    importer="pkg.application",
+                    imported="pkg.adapters",
+                    reason="Legacy wiring pending migration.",
+                ),
             ),
         ),
     )
 
     assert result.ok, f"a documented ignore must suppress the violation, got {result!r}"
     assert result.ignored, f"expected the exemption to be reported, got {result!r}"
-    assert all(
-        entry.state is not EdgeState.FORBIDDEN for entry in result.coverage
-    ), "an exempted edge must be distinguishable from an unclassified one"
+    assert all(entry.state is not EdgeState.FORBIDDEN for entry in result.coverage), (
+        "an exempted edge must be distinguishable from an unclassified one"
+    )
 
 
 def test_internal_import_of_unknown_module_is_unresolved(tmp_path: Path) -> None:
@@ -283,7 +310,7 @@ def test_internal_import_of_unknown_module_is_unresolved(tmp_path: Path) -> None
             "application/__init__.py": "",
             "application/service.py": "from pkg.gone import helper\n",
         },
-        strict=True,
+        policy=_policy(strict=True),
     )
 
     assert not result.ok, f"expected strict failure, got {result!r}"
