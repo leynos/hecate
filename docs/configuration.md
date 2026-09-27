@@ -117,6 +117,12 @@ Under strict mode:
   `unresolved_internal_severity` lowers it to a warning or `exempt`; and
 - documented `ignore_imports` entries continue to exempt the edges they cover.
 
+Strict mode applies to edges _within_ the scanned package roots. An external
+import is in scope only when `include_external_packages` is enabled and a group
+declares its prefix; an external prefix no group claims is skipped, so enabling
+external classification never turns a third-party dependency into a failure by
+itself. See [top-level keys](#top-level-keys).
+
 Without strict mode these edges are still reported, but as warnings that do not
 change the exit code. This lets an existing project adopt the policy without a
 flag day, then tighten later.

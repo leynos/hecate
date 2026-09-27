@@ -17,7 +17,7 @@ models two distinct views of each module:
     module pulled in by ``from origin import *``.
 
 Symbol-origin provenance and policy classification are layered on top of this
-model by :mod:`hecate.origin` and :mod:`hecate.policy` respectively.
+model by :mod:`hecate.origins` and :mod:`hecate.policy` respectively.
 """
 
 from __future__ import annotations
