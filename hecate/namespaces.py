@@ -24,10 +24,14 @@ from __future__ import annotations
 
 import ast
 import dataclasses as dc
-from pathlib import Path
+import typing as typ
 
-from .config import PackageRoot
 from .imports import compute_module_name, resolve_import_from
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
+
+    from .config import PackageRoot
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -132,10 +136,11 @@ def analyse_namespace(
     bindings: dict[str, Binding] = {}
     wildcard_origins: list[str] = []
     for node in tree.body:
-        for name, binding in _bindings_from_statement(
-            node, module=module, is_package_init=is_package_init
-        ):
-            bindings[name] = binding
+        bindings.update(
+            _bindings_from_statement(
+                node, module=module, is_package_init=is_package_init
+            )
+        )
         wildcard_origins.extend(
             _wildcard_origins_from_statement(
                 node, module=module, is_package_init=is_package_init
@@ -162,9 +167,8 @@ def _bindings_from_statement(
             if isinstance(target, ast.Name)
         )
     if isinstance(node, ast.AnnAssign):
-        if node.value is None or not isinstance(node.target, ast.Name):
-            return ()
-        return ((node.target.id, Definition()),)
+        name = _annotated_target_name(node)
+        return () if name is None else ((name, Definition()),)
     if isinstance(node, ast.Import):
         return _direct_import_bindings(node)
     if isinstance(node, ast.ImportFrom):
@@ -172,6 +176,14 @@ def _bindings_from_statement(
             node, module=module, is_package_init=is_package_init
         )
     return ()
+
+
+def _annotated_target_name(node: ast.AnnAssign) -> str | None:
+    """Return the name an annotated assignment binds, if it binds one."""
+    target = node.target
+    if node.value is None or not isinstance(target, ast.Name):
+        return None
+    return target.id
 
 
 def _direct_import_bindings(node: ast.Import) -> tuple[tuple[str, Binding], ...]:

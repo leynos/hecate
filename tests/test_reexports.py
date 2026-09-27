@@ -13,14 +13,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from hecate.config import PackageRoot
 from hecate.namespaces import analyse_namespaces
-from hecate.origins import Resolution, build_origin_index
+from hecate.origins import OriginIndex, Resolution, build_origin_index
 
 
-def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg"):
+def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> OriginIndex:
     """Build a package from ``files`` and return its origin index."""
     package_root = tmp_path / package
     package_root.mkdir(parents=True, exist_ok=True)
@@ -37,9 +35,7 @@ def test_empty_all_still_exposes_explicitly_imported_names(tmp_path: Path) -> No
     index = _index(
         tmp_path,
         {
-            "__init__.py": (
-                "from .adapter import Thing\n__all__ = []\n"
-            ),
+            "__init__.py": "from .adapter import Thing\n__all__ = []\n",
             "adapter.py": "class Thing: ...\n",
         },
     )
@@ -59,7 +55,7 @@ def test_empty_all_exports_nothing_to_wildcards(tmp_path: Path) -> None:
         },
     )
 
-    assert index.wildcard_exports("pkg") == (), (
+    assert not index.wildcard_exports("pkg"), (
         "an empty __all__ selection must not export anything to a wildcard"
     )
 
@@ -195,7 +191,12 @@ def test_later_named_reexport_shadows_earlier_origin(tmp_path: Path) -> None:
 
 
 def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None:
-    """A name arriving by wildcard is still bound and keeps an origin."""
+    """A name arriving by wildcard resolves, though it is not a literal binding.
+
+    A star import binds no name that Hecate can write down, because the names
+    depend on the exporting module. The namespace therefore records the star
+    origin, and provenance resolves the name through it on demand.
+    """
     index = _index(
         tmp_path,
         {
@@ -204,10 +205,16 @@ def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None
             "nested.py": "class Thing: ...\n",
         },
     )
+    namespaces = analyse_namespaces((PackageRoot("pkg", tmp_path / "pkg"),))
 
-    assert "Thing" in dict(analyse_namespaces((
-        PackageRoot("pkg", tmp_path / "pkg"),
-    ))["pkg"].binding_map) or index.origins_for("pkg.Thing") == (
+    assert not namespaces["pkg"].bindings, (
+        "a star import must not fabricate a literal binding for a name it "
+        f"cannot know: {namespaces['pkg'].bindings!r}"
+    )
+    assert namespaces["pkg"].wildcard_origins == ("pkg.barrel",), (
+        f"the star origin must be recorded: {namespaces['pkg'].wildcard_origins!r}"
+    )
+    assert index.origins_for("pkg.Thing") == (
         "pkg.Thing",
         "pkg.barrel.Thing",
         "pkg.nested.Thing",

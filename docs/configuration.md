@@ -47,16 +47,16 @@ reason = "Composition root wiring."
 
 ## Top-level keys
 
-| Key                           | Type             | Required                                     | Description                                                                                                |
-| ----------------------------- | ---------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `root_packages`               | array of strings | Required unless `package` tables are present | Package names whose roots use the same relative path as the package name.                                  |
-| `include_external_packages`   | boolean          | Optional                                     | Enables classification of external module prefixes such as `sqlalchemy` when matching groups declare them. |
-| `default_rule_id`             | string           | Optional                                     | Rule identifier used in diagnostics. Defaults to `HEC001`.                                                 |
-| `strict`                      | boolean          | Optional                                     | Fails on unclassified and unresolved internal edges. Defaults to `false`.                                  |
-| `unresolved_internal_severity` | string          | Optional                                     | Severity for unresolved internal edges under `strict`. One of `error`, `warning`, `exempt`. Defaults to `error`. |
-| `package`                     | array of tables  | Optional                                     | Explicit package name and root mappings.                                                                   |
-| `groups`                      | array of tables  | Required                                     | Ordered architecture groups.                                                                               |
-| `ignore_imports`              | array of tables  | Optional                                     | Documented import edges to suppress.                                                                       |
+| Key                            | Type             | Required                                     | Description                                                                                                      |
+| ------------------------------ | ---------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `root_packages`                | array of strings | Required unless `package` tables are present | Package names whose roots use the same relative path as the package name.                                        |
+| `include_external_packages`    | boolean          | Optional                                     | Enables classification of external module prefixes such as `sqlalchemy` when matching groups declare them.       |
+| `default_rule_id`              | string           | Optional                                     | Rule identifier used in diagnostics. Defaults to `HEC001`.                                                       |
+| `strict`                       | boolean          | Optional                                     | Fails on unclassified and unresolved internal edges. Defaults to `false`.                                        |
+| `unresolved_internal_severity` | string           | Optional                                     | Severity for unresolved internal edges under `strict`. One of `error`, `warning`, `exempt`. Defaults to `error`. |
+| `package`                      | array of tables  | Optional                                     | Explicit package name and root mappings.                                                                         |
+| `groups`                       | array of tables  | Required                                     | Ordered architecture groups.                                                                                     |
+| `ignore_imports`               | array of tables  | Optional                                     | Documented import edges to suppress.                                                                             |
 
 _Table 1: Top-level `[tool.hecate]` keys._
 
@@ -117,9 +117,9 @@ Under strict mode:
   `unresolved_internal_severity` lowers it to a warning or `exempt`; and
 - documented `ignore_imports` entries continue to exempt the edges they cover.
 
-Without strict mode these edges are still reported, but as warnings that do
-not change the exit code. This lets an existing project adopt the policy
-without a flag day, then tighten later.
+Without strict mode these edges are still reported, but as warnings that do not
+change the exit code. This lets an existing project adopt the policy without a
+flag day, then tighten later.
 
 ## Validation rules
 

@@ -109,7 +109,13 @@ class CoverageDiagnostic:
 
     def identity(self) -> tuple[str, str, str, str, int]:
         """Return the stable identity used for sorting and de-duplication."""
-        return (self.state.value, self.importer, self.imported, str(self.source_path), self.line)
+        return (
+            self.state.value,
+            self.importer,
+            self.imported,
+            str(self.source_path),
+            self.line,
+        )
 
     def render(self) -> str:
         """Render a deterministic single-line diagnostic."""
@@ -132,12 +138,8 @@ class CoverageDiagnostic:
         return payload
 
 
-def _describe_groups(
-    importer_group: str | None, imported_group: str | None
-) -> str:
+def _describe_groups(importer_group: str | None, imported_group: str | None) -> str:
     """Render whichever endpoint groups were resolved, if any."""
     if importer_group is None and imported_group is None:
         return ""
-    return (
-        f" ({importer_group or '?'} -> {imported_group or '?'})"
-    )
+    return f" ({importer_group or '?'} -> {imported_group or '?'})"

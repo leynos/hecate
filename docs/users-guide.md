@@ -48,17 +48,17 @@ or package-root validation failed.
 
 ## Import outcome states
 
-Hecate evaluates every import edge it finds and records exactly one outcome.
-A green result therefore means each edge was understood and permitted, not that
+Hecate evaluates every import edge it finds and records exactly one outcome. A
+green result therefore means each edge was understood and permitted, not that
 some edges were quietly skipped. The states are:
 
 | State          | Meaning                                                                          |
 | -------------- | -------------------------------------------------------------------------------- |
-| `permitted`    | Both endpoints are classified, and the importer group may import the target.       |
-| `forbidden`    | Both endpoints are classified, and the importer group may not import the target.   |
-| `exempted`     | Forbidden in principle, but covered by a documented `ignore_imports` entry.        |
-| `unclassified` | At least one endpoint matched no configured group.                                 |
-| `unresolved`   | The import target resolved to no known internal module.                            |
+| `permitted`    | Both endpoints are classified, and the importer group may import the target.     |
+| `forbidden`    | Both endpoints are classified, and the importer group may not import the target. |
+| `exempted`     | Forbidden in principle, but covered by a documented `ignore_imports` entry.      |
+| `unclassified` | At least one endpoint matched no configured group.                               |
+| `unresolved`   | The import target resolved to no known internal module.                          |
 
 `permitted` and `forbidden` edges are the normal case. The other three are
 reported through the coverage section described below.
