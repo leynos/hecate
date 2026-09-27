@@ -194,14 +194,17 @@ allowed = ["domain"]
 def test_cli_strict_flag_overrides_configuration(tmp_path: Path) -> None:
     """``--strict`` on the command line overrides a non-strict config.
 
-    The policy here classifies only ``pkg.domain``, so the consumer is
-    unclassified. A non-strict run passes with a warning, and ``--strict``
+    The policy here classifies only ``pkg.domain``, so the consumer matches no
+    group. ``domain/model.py`` exists, so the target resolves: the edge fails
+    strictly because the consumer is unclassified, not because the import is
+    unresolved. A non-strict run passes with a warning, and ``--strict``
     promotes that warning to a failure.
     """
     package_root = tmp_path / "pkg"
     (package_root / "domain").mkdir(parents=True)
     (package_root / "__init__.py").write_text("", encoding="utf-8")
     (package_root / "domain" / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "domain" / "model.py").write_text("", encoding="utf-8")
     (package_root / "consumer.py").write_text(
         "from pkg.domain import model\n", encoding="utf-8"
     )

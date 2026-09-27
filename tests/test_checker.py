@@ -333,12 +333,17 @@ def test_documented_ignore_exempts_unclassified_edge_in_strict_mode(
     adopter needs the documented-ignore escape hatch for those too. An exemption
     that only covered forbidden edges would leave no way to accept a known
     unclassified edge while the policy is being tightened.
+
+    ``domain/model.py`` exists, so the import resolves: the only reason this
+    edge is reportable is that the consumer matches no group, which is the
+    unclassified case under test rather than an unresolved one.
     """
     result = _check(
         tmp_path,
         {
             "__init__.py": "",
             "domain/__init__.py": "",
+            "domain/model.py": "",
             "consumer.py": "from pkg.domain import model\n",
         },
         policy=_policy(
