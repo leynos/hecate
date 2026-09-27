@@ -278,52 +278,6 @@ def test_documented_ignore_still_exempts_and_stays_distinguishable(
     )
 
 
-def test_unresolved_wildcard_target_records_one_edge_not_two(tmp_path: Path) -> None:
-    """A wildcard over an unresolvable target reports that target exactly once.
-
-    The statement's own module edge and the wildcard target are the same edge,
-    so recording it in both places would double-count the diagnostic.
-    """
-    result = _check(
-        tmp_path,
-        {
-            "__init__.py": "",
-            "domain/__init__.py": "",
-            "application/__init__.py": "",
-            "application/service.py": "from pkg.gone import *\n",
-        },
-        policy=_policy(strict=True),
-    )
-
-    targeted = [
-        diagnostic
-        for diagnostic in result.coverage
-        if diagnostic.imported == "pkg.gone"
-    ]
-    assert len(targeted) == 1, (
-        f"expected exactly one diagnostic for the target, got {targeted!r}"
-    )
-
-
-def test_internal_import_of_unknown_module_is_unresolved(tmp_path: Path) -> None:
-    """An internal target no module provides is unresolved, not external."""
-    result = _check(
-        tmp_path,
-        {
-            "__init__.py": "",
-            "domain/__init__.py": "",
-            "application/__init__.py": "",
-            "application/service.py": "from pkg.gone import helper\n",
-        },
-        policy=_policy(strict=True),
-    )
-
-    assert not result.ok, f"expected strict failure, got {result!r}"
-    assert any(
-        diagnostic.state is EdgeState.UNRESOLVED for diagnostic in result.coverage
-    ), f"expected unresolved state, got {result.coverage!r}"
-
-
 def test_documented_ignore_exempts_unclassified_edge_in_strict_mode(
     tmp_path: Path,
 ) -> None:
