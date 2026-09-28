@@ -46,6 +46,17 @@ The retired `installer-checksum` input, the `CODESCENE_CLI_SHA256` variable,
 and the `get-codescene-sha.yml` refresher are gone; the shared uploader
 verifies the `cs-coverage` archive from its own manifest.
 
+The token lives in the `codescene` GitHub environment, whose deployment branch
+policy admits `main` alone, and `coverage-upload` declares
+`environment: codescene`. The environment is the boundary: branch code cannot
+be given the token, whatever a workflow says, so no other job may declare it
+and nothing a pull request can start may declare it either. A consequence is
+that a `workflow_dispatch` aimed at a branch is refused for the whole job
+rather than running and skipping the upload; dispatch the publisher on `main`.
+The check step, the ref guard and `access-token` stay as described above,
+because a repository whose token has not yet moved into the environment still
+reads it as a repository secret.
+
 `tests/workflow_contracts/` holds this shape as plain `pytest` contracts over
 the parsed workflows, without `act`. `loading.py` parses workflows through a
 loader that refuses duplicate keys, and `reading.py` reads the `on:` triggers
@@ -57,15 +68,18 @@ refuses any key or value in that closure naming the CodeScene host, the
 credential, the client, or the uploader, and any read of the whole `secrets`
 context or of a computed secret name. `codescene_publisher.py`,
 `codescene_token.py`, and `coverage_lanes.py` hold the publisher and the lanes
-to the rules above. Each rule returns its findings as text, so the rule tests
-beside them can drive it over a constructed tree; every refusal case changes
-one thing in the compliant tree in `fixtures.py`. Keep a new rule to that
-pattern: a pure reading, a repository assertion, and a refusal case that fails
-when the rule's clause is deleted. `test_bounded_properties.py` checks the pure
-readings exhaustively over small domains instead of sampling: the closure
-against Warshall reachability for every call graph over three workflows, the
-condition reader over every conjunction of up to three terms, and the document
-walk with a key or value planted at every depth up to three.
+to the rules above. `codescene_environment_rules.py` holds the environment
+placement: every job invoking the uploader declares `codescene`, no other job
+does, and no job in the `codescene_reach.py` closure does. Each rule returns
+its findings as text, so the rule tests beside them can drive it over a
+constructed tree; every refusal case changes one thing in the compliant tree in
+`fixtures.py`. Keep a new rule to that pattern: a pure reading, a repository
+assertion, and a refusal case that fails when the rule's clause is deleted.
+`test_bounded_properties.py` checks the pure readings exhaustively over small
+domains instead of sampling: the closure against Warshall reachability for
+every call graph over three workflows, the condition reader over every
+conjunction of up to three terms, and the document walk with a key or value
+planted at every depth up to three.
 
 ## TL;DR
 
