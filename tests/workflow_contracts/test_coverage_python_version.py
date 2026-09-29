@@ -36,13 +36,24 @@ from .coverage_python_sources import (
     CoverageCall,
     coverage_calls,
     python_version_entry,
+    read_text_if_present,
     rejected_versions,
     requires_python,
     verdict,
 )
+from .loading import WorkflowReadingError
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
+    from pathlib import Path
+
+# mutmut copies the tests into a `mutants/` sandbox without `.github/`, so the
+# tests that read this repository's own workflows cannot run there. The
+# synthetic reader tests below need no repository and stay active.
+in_repository = pytest.mark.skipif(
+    ROOT.name == "mutants" and not WORKFLOWS.exists(),
+    reason="inside mutmut's sandbox, which does not copy .github/",
+)
 
 #: Minimal steps for the fixture workflows the selection tests build.
 SETUP: typ.Final[dict[str, object]] = {"uses": f"{SETUP_PYTHON}{'0' * 40}"}
@@ -51,11 +62,15 @@ COVERAGE: typ.Final[dict[str, object]] = {
 }
 AGREE: typ.Final[str] = "3.14"
 CONFLICT: typ.Final[str] = "3.13"
+#: The one interpreter both coverage lanes are pinned to.
+PINNED: typ.Final[str] = "3.14"
 
 
 def _lane_calls() -> dict[str, list[CoverageCall]]:
     """Return both lanes' coverage calls, keyed by workflow file name."""
-    python_version = python_version_entry(ROOT / ".python-version")
+    python_version = python_version_entry(
+        read_text_if_present(ROOT / ".python-version")
+    )
     return {
         lane: coverage_calls(
             (WORKFLOWS / lane).read_text(encoding="utf-8"), python_version
@@ -64,11 +79,13 @@ def _lane_calls() -> dict[str, list[CoverageCall]]:
     }
 
 
+@in_repository
 def test_both_lanes_call_generate_coverage() -> None:
     """The pull-request lane and the publisher each measure coverage."""
     assert all(_lane_calls().values()), f"{LANES} must each call generate-coverage"
 
 
+@in_repository
 def test_every_call_declares_one_accepted_python() -> None:
     """Each call names a Python, every source agrees, and the project accepts it."""
     accepted = requires_python((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
@@ -81,11 +98,14 @@ def test_every_call_declares_one_accepted_python() -> None:
             )
 
 
+@in_repository
 def test_both_lanes_measure_on_one_python() -> None:
     """Both lanes measure on one Python, as the pull-request ratchet assumes."""
     effective = {call.effective for calls in _lane_calls().values() for call in calls}
 
-    assert len(effective) == 1, f"coverage lanes measure on {sorted(effective)}"
+    assert effective == {PINNED}, (
+        f"coverage lanes measure on {sorted(effective)}, not only {PINNED}"
+    )
 
 
 def _workflow(
@@ -134,7 +154,9 @@ def test_each_call_reads_the_latest_setup_before_it_in_its_job(
     """A call's setup-python source is its own job's latest setup before it."""
     calls = coverage_calls(_workflow(jobs))
 
-    assert [call.sources["setup-python"] for call in calls] == expected
+    assert [call.sources["setup-python"] for call in calls] == expected, (
+        f"setup-python sources {[call.sources['setup-python'] for call in calls]}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -156,7 +178,9 @@ def test_the_innermost_uv_python_is_read(
     job = {**_steps(call), "env": job_env}
     (read,) = coverage_calls(_workflow({"cov": job}, workflow_env))
 
-    assert read.sources["UV_PYTHON"] == expected
+    assert read.sources["UV_PYTHON"] == expected, (
+        f"UV_PYTHON read as {read.sources['UV_PYTHON']!r}, expected {expected!r}"
+    )
 
 
 class SourceCombination(typ.NamedTuple):
@@ -221,11 +245,70 @@ def test_every_source_combination_is_read_and_judged(
     declared = combination.expected_declared()
     versions = set(declared.values())
 
-    assert call.declared == declared
-    assert call.effective == next(iter(declared.values()), "")
+    assert call.declared == declared, f"declared {call.declared}, expected {declared}"
+    assert call.effective == next(iter(declared.values()), ""), (
+        f"effective {call.effective!r} is not the highest-priority declared source"
+    )
     assert verdict(call) == (
         "undeclared" if not versions else "conflicting" if len(versions) > 1 else ""
+    ), f"verdict {verdict(call)!r} for declared {declared}"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (None, ""),
+        ("", ""),
+        ("3.13\n", "3.13"),
+        ("# pinned\n\n  3.13  \n3.12\n", "3.13"),
+        ("# comments only\n", ""),
+    ],
+    ids=["absent", "empty", "one-entry", "first-entry-after-comments", "comments-only"],
+)
+def test_the_python_version_entry_is_the_first_non_comment_line(
+    text: str | None, expected: str
+) -> None:
+    """Parsing is pure: the first non-comment entry, or nothing."""
+    assert python_version_entry(text) == expected, f"{text!r} should read {expected!r}"
+
+
+def test_a_python_version_file_is_read_from_the_tree(tmp_path: Path) -> None:
+    """A real ``.python-version`` feeds the parser; a missing one reads as absent."""
+    present = tmp_path / ".python-version"
+    present.write_text("# pinned\n3.12\n", encoding="utf-8")
+
+    assert python_version_entry(read_text_if_present(present)) == "3.12", (
+        "a present file is read and parsed"
     )
+    assert read_text_if_present(tmp_path / "missing" / ".python-version") is None, (
+        "a missing file reads as absent, not as empty text"
+    )
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    ["jobs: scalar\n", "jobs:\n  cov: scalar\n", "jobs:\n  cov: [x]\n"],
+    ids=["scalar-jobs", "scalar-job", "list-job"],
+)
+def test_a_wrongly_shaped_jobs_level_reads_as_no_calls(workflow: str) -> None:
+    """The traversal treats a wrongly shaped jobs mapping or job as empty."""
+    assert coverage_calls(workflow) == [], f"{workflow!r} should hold no coverage calls"
+
+
+@pytest.mark.parametrize(
+    "workflow",
+    [
+        "",
+        "- a list\n",
+        "jobs:\n  cov:\n    steps: []\n    steps: []\n",
+        "jobs:\n  cov:\n    steps:\n      - with: {a: 1}\n        with: {a: 2}\n",
+    ],
+    ids=["empty", "list-top-level", "duplicate-steps", "duplicate-with"],
+)
+def test_a_workflow_the_strict_loader_refuses_is_refused(workflow: str) -> None:
+    """A duplicate key or a non-mapping document cannot hide a call or input."""
+    with pytest.raises(WorkflowReadingError):
+        coverage_calls(workflow)
 
 
 @pytest.mark.parametrize(
@@ -241,4 +324,6 @@ def test_the_check_rejects_exactly_the_versions_outside_the_range(
     specifier: str, requested: list[str], rejected: list[str]
 ) -> None:
     """The comparison is by version, in both directions of the range."""
-    assert rejected_versions(SpecifierSet(specifier), requested) == rejected
+    assert rejected_versions(SpecifierSet(specifier), requested) == rejected, (
+        f"{requested} against {specifier} should reject {rejected}"
+    )

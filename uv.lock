@@ -138,7 +138,7 @@ requires-dist = [{ name = "cyclopts" }]
 dev = [
     { name = "crosshair-tool" },
     { name = "hypothesis" },
-    { name = "packaging", specifier = ">=26.2" },
+    { name = "packaging", specifier = ">=26.2,<27" },
     { name = "pyright" },
     { name = "pytest" },
     { name = "pytest-bdd" },

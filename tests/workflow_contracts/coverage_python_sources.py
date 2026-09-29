@@ -12,9 +12,10 @@ import tomllib
 import typing as typ
 from pathlib import Path
 
-import yaml
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
+
+from .loading import load_workflow
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -32,7 +33,17 @@ SOURCES: typ.Final[tuple[str, ...]] = (
 
 
 class CoverageCall(typ.NamedTuple):
-    """One generate-coverage call and the versions each source declares for it."""
+    """One generate-coverage call and the versions each source declares for it.
+
+    Parameters
+    ----------
+    job : str
+        The name of the job that contains the call.
+    sources : dict[str, str]
+        The version each resolver source declares, in priority order, with an
+        empty string where a source declares nothing.
+
+    """
 
     job: str
     sources: dict[str, str]
@@ -55,6 +66,18 @@ def verdict(call: CoverageCall) -> str:
     measure on whatever Python the runner happens to have; ``"conflicting"``
     means two sources name different versions, so a higher-priority value
     silently overrides a lower one.
+
+    Parameters
+    ----------
+    call : CoverageCall
+        The call to judge.
+
+    Returns
+    -------
+    str
+        ``"undeclared"``, ``"conflicting"``, or ``""`` when every declared
+        source agrees.
+
     """
     declared = set(call.declared.values())
     if not declared:
@@ -79,11 +102,44 @@ def requires_python(pyproject: str) -> SpecifierSet:
     return SpecifierSet(tomllib.loads(pyproject)["project"]["requires-python"])
 
 
-def python_version_entry(path: Path) -> str:
-    """Return the first non-comment entry of a ``.python-version`` file, or empty."""
-    if not path.is_file():
-        return ""
-    entries = (line.strip() for line in path.read_text(encoding="utf-8").splitlines())
+def read_text_if_present(path: Path) -> str | None:
+    """Return a file's text, or ``None`` when the file does not exist.
+
+    The only file access in this module. A file that exists but cannot be read
+    raises, which fails the contract loudly rather than reading as absent.
+
+    Parameters
+    ----------
+    path : Path
+        The file to read.
+
+    Returns
+    -------
+    str or None
+        The file's text, or ``None`` when it is absent.
+
+    """
+    return path.read_text(encoding="utf-8") if path.is_file() else None
+
+
+def python_version_entry(text: str | None) -> str:
+    """Return the first non-comment entry of ``.python-version`` text, or empty.
+
+    Pure: the caller reads the file (see :func:`read_text_if_present`), so the
+    parsing is tested on text alone. ``None`` means the file is absent.
+
+    Parameters
+    ----------
+    text : str or None
+        The file's text, or ``None`` when the file is absent.
+
+    Returns
+    -------
+    str
+        The first entry that is not blank or a comment, or ``""``.
+
+    """
+    entries = (line.strip() for line in (text or "").splitlines())
     return next((entry for entry in entries if entry and not entry.startswith("#")), "")
 
 
@@ -157,12 +213,18 @@ def coverage_calls(workflow: str, python_version: str = "") -> list[CoverageCall
         One entry per call, in workflow order, with every source's version in
         the resolver's priority order (empty where a source declares nothing).
 
+    Raises
+    ------
+    WorkflowReadingError
+        If the text is not YAML, repeats a mapping key, or is not a mapping,
+        so a duplicated ``steps:`` or ``with:`` cannot hide a call or input.
+
     """
-    document = yaml.safe_load(workflow) or {}
+    document = _mapping(load_workflow(workflow))
     return [
         call
-        for name, job in (document.get("jobs") or {}).items()
-        for call in _job_calls(name, job, document, python_version)
+        for name, job in _mapping(document.get("jobs")).items()
+        for call in _job_calls(name, _mapping(job), document, python_version)
     ]
 
 
