@@ -32,6 +32,7 @@ locale = "en-gb"
 extend-ignore-re = [
     "(?s)```.*?```",
     "--[a-zA-Z0-9-]*color[a-zA-Z0-9*-]*",
+    "--artifact-server-path",
     "Azure\\s+Architecture\\s+Center\\s*\\|\\s*Microsoft\\s+Learn\\b",
     "GitHub\\s+Flavored\\s+Markdown\\b(?:\\s\\(GFM\\))?",
     "HashiCorp",
