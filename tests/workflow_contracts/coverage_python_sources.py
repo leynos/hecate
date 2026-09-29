@@ -15,7 +15,7 @@ from pathlib import Path
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
-from .loading import load_workflow
+from .loading import WorkflowReadingError, load_workflow
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -105,8 +105,9 @@ def requires_python(pyproject: str) -> SpecifierSet:
 def read_text_if_present(path: Path) -> str | None:
     """Return a file's text, or ``None`` when the file does not exist.
 
-    The only file access in this module. A file that exists but cannot be read
-    raises, which fails the contract loudly rather than reading as absent.
+    The only file access in this module. Only a missing file reads as absent:
+    a directory, a permission failure or undecodable bytes raise, which fails
+    the contract loudly rather than reading as absent.
 
     Parameters
     ----------
@@ -118,8 +119,20 @@ def read_text_if_present(path: Path) -> str | None:
     str or None
         The file's text, or ``None`` when it is absent.
 
+    Raises
+    ------
+    WorkflowReadingError
+        If the file exists but cannot be read or decoded; the message names the
+        path and the ``OSError`` or ``UnicodeDecodeError`` is the cause.
+
     """
-    return path.read_text(encoding="utf-8") if path.is_file() else None
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as error:
+        message = f"{path} could not be read: {error}"
+        raise WorkflowReadingError(message) from error
 
 
 def python_version_entry(text: str | None) -> str:
@@ -156,11 +169,16 @@ def _declared_by_setup(step: dict[str, object]) -> str:
 
 
 def _uv_python(*scopes: dict[str, object]) -> str:
-    """Return the innermost ``UV_PYTHON`` among step, job and workflow scopes."""
+    """Return the innermost ``UV_PYTHON`` among step, job and workflow scopes.
+
+    The first scope that defines the key wins even when its value is empty: an
+    empty step value replaces the outer one, and the action then falls through
+    to ``.python-version`` or ``PATH`` rather than to the outer value.
+    """
     for scope in scopes:
-        value = _mapping(scope.get("env")).get("UV_PYTHON")
-        if value:
-            return str(value)
+        env = _mapping(scope.get("env"))
+        if "UV_PYTHON" in env:
+            return str(env["UV_PYTHON"] or "")
     return ""
 
 
