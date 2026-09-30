@@ -10,6 +10,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    env:
+      MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
+      MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -24,7 +27,16 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
-      
+      - name: Install Makefile parser
+        run: |
+          rustup toolchain install "${MAKEUTIL_TOOLCHAIN}" --profile minimal
+          RUSTFLAGS="-Zpolonius=next" cargo +"${MAKEUTIL_TOOLCHAIN}" install \
+            --git https://github.com/leynos/makeutil \
+            --rev "${MAKEUTIL_REVISION}" \
+            --locked \
+            --force \
+            makeutil
+
       - name: Install CLI tools
         run: |
           for tool in mbake; do uv tool install ${tool}; done
@@ -42,7 +54,7 @@ jobs:
       - name: Check spelling
         run: make spelling
 
-      - name: Run ruff
+      - name: Run lint gate, including Skylos dead-code detection
         run: make lint
 
       - name: Run typechecker
