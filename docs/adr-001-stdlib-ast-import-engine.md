@@ -43,18 +43,36 @@ _Table 1: Import analysis options considered for Hecate v1._
 
 ## Decision outcome / proposed direction
 
-Use stdlib `ast` for Hecate v1. Keep parsing in `hecate/imports.py`, re-export
-expansion in `hecate/reexports.py`, policy in `hecate/policy.py`, and rendering
-in `hecate/output.py`. This keeps parser, policy, and output layers separate
-enough for another engine to be introduced later without changing the TOML
-policy schema.
+Use stdlib `ast` for Hecate v1. Keep parsing in `hecate/imports.py`, module
+namespace and wildcard-export modelling in `hecate/namespaces.py`,
+symbol-origin provenance in `hecate/origins.py`, policy in `hecate/policy.py`,
+and rendering in `hecate/output.py`. This keeps parser, namespace model,
+provenance, policy, and output layers separate enough for another engine to be
+introduced later without changing the TOML policy schema.
+
+The separation is deliberate, because Python's binding rules and its wildcard
+rules are different rules. A module **binds** a name if it defines or imports
+that name, and `from module import name` reaches every binding regardless of
+`__all__`. A module **exports to wildcards** the names `__all__` selects, or
+the public bindings when `__all__` is absent. Conflating the two produces false
+negatives: filtering bindings through `__all__` lets an explicitly imported
+re-export lose its origin and evade a boundary rule.
+
+Policy evaluation consumes a complete analysed edge model rather than treating
+a missing edge as an allowed one. Every edge receives exactly one outcome from
+the set {permitted, forbidden, exempted, unclassified, unresolved}, so a green
+result means the relevant edges were understood and evaluated. An earlier
+design returned early when either endpoint matched no configured group, which
+let a new package subtree or a policy typo produce a green result unchecked.
 
 ## Goals and non-goals
 
 - Goals:
   - Parse direct and `from` imports using stdlib `ast`.
   - Resolve relative imports against the importing module.
+  - Model module bindings and wildcard export selection separately.
   - Expand explicit and statically resolvable star re-exports.
+  - Classify every import edge into exactly one outcome state.
   - Emit stable text and JSON diagnostics.
   - Keep project policy in TOML rather than Python code.
 - Non-goals:
@@ -67,11 +85,15 @@ policy schema.
 ## Known risks and limitations
 
 - Dynamic imports are invisible to v1.
-- Non-literal `__all__` falls back to public symbols instead of evaluating code.
+- Non-literal `__all__` falls back to the default public-name rule instead of
+  evaluating code. Explicit imports are unaffected, because `__all__` does not
+  govern them.
 - Star exports are expanded only when the exporting module can be resolved
-  statically from source.
+  statically from source. A wildcard whose export set cannot be resolved is
+  reported as unresolved rather than approximated away.
 - External packages are classified by configured prefixes, not by installed
-  distribution metadata.
+  distribution metadata. Without `include_external_packages`, external edges
+  are out of scope by configuration rather than absent from the analysis.
 - CrossHair validation is limited to bounded pure helpers and deliberately
   excludes filesystem, `ast.parse`, TOML parsing, and CLI code.
 

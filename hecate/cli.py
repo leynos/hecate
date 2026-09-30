@@ -34,6 +34,7 @@ class _SourceArgs:
     package: str | None = None
     root: Path | None = None
     include_external_packages: bool | None = None
+    strict: bool | None = None
 
 
 @cyclopts.Parameter(name="*")
@@ -45,6 +46,7 @@ class _OutputArgs:
         OutputFormat.TEXT
     )
     show_ignored: bool = False
+    show_coverage: bool = False
     fail_on_unmatched_ignore: bool = False
 
 
@@ -57,12 +59,18 @@ def _emit_check_output(
     *,
     output_format: OutputFormat,
     show_ignored: bool,
+    show_coverage: bool,
 ) -> None:
-    """Render and print the architecture-check result to stdout."""
+    """Render and print the architecture-check result to stdout.
+
+    JSON always carries the coverage section, so machine consumers can see
+    unclassified and unresolved edges without a second invocation. Text keeps
+    coverage behind an explicit flag to preserve existing snapshot output.
+    """
     output = (
-        render_json(result, show_ignored=show_ignored)
+        render_json(result, show_ignored=show_ignored, show_coverage=True)
         if output_format is OutputFormat.JSON
-        else render_text(result, show_ignored=show_ignored)
+        else render_text(result, show_ignored=show_ignored, show_coverage=show_coverage)
     )
     print(output, end="")
 
@@ -108,7 +116,9 @@ def check(
                 package=src.package,
                 root=src.root,
                 include_external_packages=src.include_external_packages,
+                strict=src.strict,
                 show_ignored=out.show_ignored,
+                show_coverage=out.show_coverage,
                 fail_on_unmatched_ignore=out.fail_on_unmatched_ignore,
             ),
         )
@@ -121,7 +131,10 @@ def check(
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
     _emit_check_output(
-        result, output_format=out.output_format, show_ignored=out.show_ignored
+        result,
+        output_format=out.output_format,
+        show_ignored=out.show_ignored,
+        show_coverage=out.show_coverage,
     )
     return 0 if result.ok else 1
 

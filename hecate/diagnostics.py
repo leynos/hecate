@@ -5,6 +5,8 @@ from __future__ import annotations
 import dataclasses as dc
 from pathlib import Path
 
+from .policy import EdgeState, Severity
+
 
 @dc.dataclass(frozen=True, slots=True)
 class ArchitectureViolation:
@@ -35,6 +37,8 @@ class ArchitectureViolation:
         payload = diagnostic_identity_to_dict(
             self.rule_id, self.importer, self.imported, self.line
         )
+        payload["state"] = EdgeState.FORBIDDEN.value
+        payload["severity"] = Severity.ERROR.value
         payload["importer_group"] = self.importer_group
         payload["imported_group"] = self.imported_group
         payload["source_path"] = str(self.source_path)
@@ -72,7 +76,70 @@ class IgnoredImportDiagnostic:
     def to_dict(self) -> dict[str, str]:
         """Return a JSON-safe ignored-import mapping."""
         return {
+            "state": EdgeState.EXEMPTED.value,
+            "severity": Severity.EXEMPT.value,
             "importer": self.importer,
             "imported": self.imported,
             "reason": self.reason,
         }
+
+
+@dc.dataclass(frozen=True, slots=True)
+class CoverageDiagnostic:
+    """An import edge that Hecate could not fully evaluate.
+
+    These cover the states that previously vanished silently: an endpoint that
+    matched no configured group, or a target that resolved to no known module.
+    """
+
+    state: EdgeState
+    severity: Severity
+    rule_id: str
+    importer: str
+    imported: str
+    source_path: Path
+    line: int
+    importer_group: str | None = None
+    imported_group: str | None = None
+
+    @property
+    def is_failure(self) -> bool:
+        """Return whether this diagnostic fails the check."""
+        return self.severity is Severity.ERROR
+
+    def identity(self) -> tuple[str, str, str, str, int]:
+        """Return the stable identity used for sorting and de-duplication."""
+        return (
+            self.state.value,
+            self.importer,
+            self.imported,
+            str(self.source_path),
+            self.line,
+        )
+
+    def render(self) -> str:
+        """Render a deterministic single-line diagnostic."""
+        detail = _describe_groups(self.importer_group, self.imported_group)
+        return (
+            f"{self.rule_id}: {self.importer}:{self.line} {self.state.value} "
+            f"import of {self.imported}{detail}"
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-safe diagnostic mapping."""
+        payload = diagnostic_identity_to_dict(
+            self.rule_id, self.importer, self.imported, self.line
+        )
+        payload["state"] = self.state.value
+        payload["severity"] = self.severity.value
+        payload["importer_group"] = self.importer_group
+        payload["imported_group"] = self.imported_group
+        payload["source_path"] = str(self.source_path)
+        return payload
+
+
+def _describe_groups(importer_group: str | None, imported_group: str | None) -> str:
+    """Render whichever endpoint groups were resolved, if any."""
+    if importer_group is None and imported_group is None:
+        return ""
+    return f" ({importer_group or '?'} -> {imported_group or '?'})"

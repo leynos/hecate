@@ -10,8 +10,9 @@ from hypothesis import strategies as st
 from hecate.config import PackageRoot
 from hecate.diagnostics import ArchitectureViolation
 from hecate.imports import compute_module_name, relative_import_base
+from hecate.namespaces import analyse_namespaces
+from hecate.origins import build_origin_index
 from hecate.policy import ModuleGroup, first_matching_group
-from hecate.reexports import build_reexport_index
 
 IDENTIFIER = st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True)
 
@@ -61,7 +62,7 @@ def test_group_classification_is_first_match_deterministic(suffix: str) -> None:
     )
 
 
-def test_reexport_indexing_is_idempotent_for_unchanged_package(tmp_path: Path) -> None:
+def test_origin_index_is_idempotent_for_unchanged_package(tmp_path: Path) -> None:
     """Repeated indexing over unchanged files returns the same mapping."""
     package_root = tmp_path / "pkg"
     package_root.mkdir()
@@ -71,11 +72,11 @@ def test_reexport_indexing_is_idempotent_for_unchanged_package(tmp_path: Path) -
     (package_root / "adapter.py").write_text("class Adapter: ...\n", encoding="utf-8")
     package = (PackageRoot("pkg", package_root),)
 
-    first = build_reexport_index(package)
-    second = build_reexport_index(package)
+    first = build_origin_index(package, analyse_namespaces(package))
+    second = build_origin_index(package, analyse_namespaces(package))
 
     assert first == second, (
-        f"expected unchanged package re-export index to be idempotent, "
+        f"expected unchanged package origin index to be idempotent, "
         f"got {first!r} then {second!r}"
     )
 
