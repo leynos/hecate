@@ -59,7 +59,7 @@ jobs:
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Generate coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@3822201c597078a5ed1939bdf067fe06a3d78a9d
+        uses: leynos/shared-actions/.github/actions/generate-coverage@b7d70b5d3ff0ac0199416b9678ea7af25bb3254e
         with:
           language: python
           python-source: ./hecate
