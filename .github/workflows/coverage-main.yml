@@ -53,13 +53,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
-          python-version: '3.13'
+          python-version: '3.14'
 
       - name: Install uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
 
       - name: Generate coverage
-        uses: leynos/shared-actions/.github/actions/generate-coverage@3822201c597078a5ed1939bdf067fe06a3d78a9d
+        uses: leynos/shared-actions/.github/actions/generate-coverage@774cc5a01e457714aede66e14a97b3e257812fc2
         with:
           language: python
           python-source: ./hecate
@@ -81,7 +81,7 @@ jobs:
         # The token goes in only as the input: the uploader is a composite
         # action, and a step `env` would reach every action nested in it.
         if: steps.codescene-token.outputs.available == 'true' && github.ref == 'refs/heads/main'
-        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@3822201c597078a5ed1939bdf067fe06a3d78a9d
+        uses: leynos/shared-actions/.github/actions/upload-codescene-coverage@774cc5a01e457714aede66e14a97b3e257812fc2
         with:
           format: cobertura
           path: coverage.xml
