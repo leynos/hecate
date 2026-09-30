@@ -309,16 +309,30 @@ def test_a_python_version_file_is_read_from_the_tree(tmp_path: Path) -> None:
     )
 
 
-def test_an_optional_file_that_cannot_be_read_fails_loudly(tmp_path: Path) -> None:
-    """Only absence reads as absent; a directory or undecodable file raises."""
-    undecodable = tmp_path / "bytes"
-    undecodable.write_bytes(b"\xff\xfe")
-    directory = tmp_path / "directory"
-    directory.mkdir()
+@pytest.mark.parametrize(
+    ("kind", "cause"),
+    [("undecodable", UnicodeDecodeError), ("directory", OSError)],
+    ids=["undecodable", "directory"],
+)
+def test_an_optional_file_that_cannot_be_read_fails_loudly(
+    tmp_path: Path, kind: str, cause: type[Exception]
+) -> None:
+    """Only absence reads as absent; a directory or undecodable file raises.
 
-    for path in (undecodable, directory):
-        with pytest.raises(WorkflowReadingError, match=path.name):
-            read_text_if_present(path)
+    The typed error names the path and keeps the original failure as its cause.
+    """
+    path = tmp_path / kind
+    if kind == "directory":
+        path.mkdir()
+    else:
+        path.write_bytes(b"\xff\xfe")
+
+    with pytest.raises(WorkflowReadingError, match=kind) as raised:
+        read_text_if_present(path)
+
+    assert isinstance(raised.value.__cause__, cause), (
+        f"{kind} should chain {cause.__name__}, got {raised.value.__cause__!r}"
+    )
 
 
 @pytest.mark.parametrize(
