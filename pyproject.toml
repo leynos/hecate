@@ -24,7 +24,7 @@ dev = [
     "pytest-timeout",
     "pytest-xdist",
     "pyyaml>=6.0.3",
-    "packaging>=26.2,<27",
+    "packaging>=26.3,<27",
 ]
 
 [tool.ruff]
