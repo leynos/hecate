@@ -20,4 +20,6 @@ one version. A `setup-python` step guarded by `if:` or allowed to fail with
 the interpreter (`ratchet-baseline-<os>-py<major.minor>-`), so a lane on
 another Python would miss its baseline rather than compare against the wrong
 one; the contract turns that silent restart into a failure. It uses
-`packaging`, a development dependency.
+`packaging`, a development dependency, and stays a local contract: the shared
+CV-005 library holds the interpreter only through an opt-in `UV_PYTHON` pin
+that these lanes do not use.

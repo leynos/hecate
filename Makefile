@@ -16,6 +16,15 @@ USER_BIN_PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(HOME)/.bun/bin
 TOOLS = $(MDLINT)
 VENV_TOOLS = pytest
 UV_ENV = PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
+
+# The CV-005 CodeScene contracts live in shared-actions and run from a full
+# commit, so a fix is a pin bump. `.github/cv005.toml` holds this repository's
+# only parameters.
+CV005_CONTRACTS_REF ?= 88977798a5c3bae1549afb99642529488c665276
+CV005_CONTRACTS = $(UV_ENV) $(UV) tool run --python 3.13 \
+	--from 'git+https://github.com/leynos/shared-actions@$(CV005_CONTRACTS_REF)\#subdirectory=packages/cv005-contracts' \
+	cv005-contracts
+
 PYTEST_XDIST_WORKERS ?= auto
 RUFF_VERSION ?= 0.15.12
 TYPOS_VERSION ?= 1.48.0
@@ -28,11 +37,14 @@ PYLINT = $(UV_ENV) $(UV) tool run --managed-python --python $(PYLINT_PYTHON) --f
 
 .PHONY: help all clean build build-release lint lint-python fmt check-fmt \
         markdownlint nixie spelling spelling-helper-test test typecheck \
-        crosshair $(TOOLS) $(VENV_TOOLS)
+        crosshair $(TOOLS) $(VENV_TOOLS) test-workflow-contracts
 
 .DEFAULT_GOAL := all
 
-all: build check-fmt lint typecheck test spelling
+test-workflow-contracts: ## Check the CV-005 CodeScene workflow contracts
+	$(CV005_CONTRACTS) check --repository .
+
+all: build check-fmt lint typecheck test spelling test-workflow-contracts
 
 define ensure_uv
 	@command -v $(UV) >/dev/null 2>&1 || { \
