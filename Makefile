@@ -149,7 +149,7 @@ nixie: ## Validate Mermaid diagrams
 	$(call ensure_tool,$(NIXIE))
 	$(NIXIE) --no-sandbox
 
-test: build $(VENV_TOOLS) ## Run tests
+test: build $(VENV_TOOLS) test-workflow-contracts ## Run tests
 	$(UV_ENV) $(UV) run pytest -v -n $(PYTEST_XDIST_WORKERS)
 
 crosshair: build ## Run bounded CrossHair contracts

@@ -8,7 +8,7 @@ repository calls it: that the Makefile names a full commit, runs
 target, and that CI runs it. Each of those is read here by running ``make -n``
 and parsing the workflow, so removing or misspelling any of them fails a test.
 
-Run via ``make test-workflow-contracts``.
+Run via ``make test``.
 """
 
 from __future__ import annotations
@@ -108,15 +108,16 @@ def test_make_all_includes_the_target() -> None:
 
 
 def test_ci_runs_the_target_unconditionally() -> None:
-    """Require a CI step that runs the target with no condition on it."""
+    """Require a CI step that runs the target, with no condition on it or its job."""
     workflow = yaml.safe_load(
         (ROOT / ".github" / "workflows" / "ci.yml").read_text("utf-8")
     )
-    steps = [
-        step
+    holders = [
+        (job, step)
         for job in workflow["jobs"].values()
         for step in job.get("steps", [])
         if f"make {TARGET}" in str(step.get("run", ""))
     ]
-    assert steps, f"ci.yml must run `make {TARGET}` in a step"
-    assert all("if" not in step for step in steps), steps
+    assert holders, f"ci.yml must run `make {TARGET}` in a step"
+    assert all("if" not in step for _, step in holders), holders
+    assert all("if" not in job for job, _ in holders), holders

@@ -49,7 +49,7 @@ Accepted.
 through `uv tool run`, from the full commit named by `CV005_CONTRACTS_REF` in
 the `Makefile`. `.github/cv005.toml` holds this repository's parameters. CI
 runs the target in its own step and `make all` includes it.
-`tests/workflow_contracts/cv005_wiring_test.py` holds the local wiring: it
+`tests/workflow_contracts/test_cv005_wiring.py` holds the local wiring: it
 fails if the pin is not a full commit, if the target stops running the pinned
 checker with `check --repository .` under Python 3.13, if the repository
 parameter is wrong, if `make all` drops the target, or if CI stops running it.
