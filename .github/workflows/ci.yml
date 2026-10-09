@@ -50,8 +50,8 @@ jobs:
         run: make build
 
       - name: Install mdtablefix
-        # `make check-fmt` runs `mdtablefix --check --git`; 0.6.1 is the
-        # first release with `--check` and `--git`.
+        # `make check-fmt` runs `mdtablefix --check --git --include-untracked`;
+        # this pins the version the estate formats with.
         uses: leynos/shared-actions/.github/actions/install-mdtablefix@2f47859bcf82ae8b5bc10b457683fbd589ca2e41
         with:
           version: "0.6.1"
