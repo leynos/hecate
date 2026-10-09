@@ -34,6 +34,7 @@ one; the contract turns that silent restart into a failure. It uses
 `packaging`, a development dependency, and stays a local contract: the shared
 CV-005 library holds the interpreter only through an opt-in `UV_PYTHON` pin
 that these lanes do not use.
+
 ## Linting
 
 Run the complete local lint gate with:
@@ -74,12 +75,12 @@ make skylos-allow SYMBOL=handler REASON="Loaded by plugin registry"
 ```
 
 The target requires both values to contain at least one non-whitespace
-character. Use `SYMBOL`, not `NAME`: Windows Subsystem for Linux injects
-`NAME` with the hostname. It dispatches `skylos whitelist` before the symbol
-and reason, then records the reason in Skylos's documented allow list. Do not
-add broad exceptions or baselines; retain the verified runtime caller's
-evidence in the reviewing change and remove an exception when its runtime
-boundary no longer exists. The helper holds an ignored repository-local
+character. Use `SYMBOL`, not `NAME`: Windows Subsystem for Linux injects `NAME`
+with the hostname. It dispatches `skylos whitelist` before the symbol and
+reason, then records the reason in Skylos's documented allow list. Do not add
+broad exceptions or baselines; retain the verified runtime caller's evidence in
+the reviewing change and remove an exception when its runtime boundary no
+longer exists. The helper holds an ignored repository-local
 `.skylos-whitelist.lock` with `flock` while Skylos updates the allow list, so
 concurrent contributors cannot interleave its read-modify-write operation.
 

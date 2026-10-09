@@ -35,8 +35,8 @@ Investigate every finding and remove genuine dead code. When a verified runtime
 caller is not statically visible, record a precise typed entry point with its
 fully qualified symbol, kind and caller-specific reason. Use the documented
 allow list only when an entry-point rule cannot model the boundary. The
-`skylos-allow` helper requires non-whitespace `SYMBOL` and `REASON` values
-and dispatches the `whitelist` subcommand before its arguments.
+`skylos-allow` helper requires non-whitespace `SYMBOL` and `REASON` values and
+dispatches the `whitelist` subcommand before its arguments.
 
 ## Consequences
 
