@@ -65,6 +65,41 @@ result means the relevant edges were understood and evaluated. An earlier
 design returned early when either endpoint matched no configured group, which
 let a new package subtree or a policy typo produce a green result unchecked.
 
+For screen readers: The following sequence diagram shows one import statement
+travelling from collection through resolution to a single policy outcome. The
+checker asks the origin index to resolve the written target, which consults the
+namespace model for bindings and wildcard exports. An explicit import then goes
+straight to policy classification, while a wildcard import first asks for its
+exported origins and classifies each one in turn. Policy returns one of
+permitted, forbidden, exempted, unclassified, or unresolved for every edge.
+
+```mermaid
+sequenceDiagram
+    participant Source as Import source
+    participant Checker
+    participant Namespaces
+    participant Origins
+    participant Policy
+
+    Source->>Checker: collect_import_statements()
+    Checker->>Origins: resolve(target)
+    Origins->>Namespaces: lookup bindings and wildcard exports
+    Namespaces-->>Origins: namespace model
+    Origins-->>Checker: origins_for(target)
+    alt explicit import
+        Checker->>Policy: classify origin edge
+    else wildcard import
+        Checker->>Origins: wildcard_exports(target)
+        Origins-->>Checker: exported origins
+        loop each exported origin
+            Checker->>Policy: classify origin edge
+        end
+    end
+    Policy-->>Checker: permitted, forbidden, exempted, unclassified, or unresolved
+```
+
+_Figure 1: Import edge evaluation from statement collection to policy outcome._
+
 ## Goals and non-goals
 
 - Goals:
