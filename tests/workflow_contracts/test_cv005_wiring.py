@@ -107,6 +107,12 @@ def test_make_all_includes_the_target() -> None:
     assert "cv005-contracts check --repository ." in commands, commands
 
 
+def test_make_test_includes_the_target() -> None:
+    """Run the checker from the standard test gate as well."""
+    commands = _make_n("test")
+    assert "cv005-contracts check --repository ." in commands, commands
+
+
 def test_ci_runs_the_target_unconditionally() -> None:
     """Require a CI step that runs the target, with no condition on it or its job."""
     workflow = yaml.safe_load(
@@ -121,3 +127,8 @@ def test_ci_runs_the_target_unconditionally() -> None:
     assert holders, f"ci.yml must run `make {TARGET}` in a step"
     assert all("if" not in step for _, step in holders), holders
     assert all("if" not in job for job, _ in holders), holders
+    assert all("continue-on-error" not in step for _, step in holders), holders
+    assert all("continue-on-error" not in job for job, _ in holders), holders
+    assert all(
+        str(step.get("run", "")).strip() == f"make {TARGET}" for _, step in holders
+    ), holders
