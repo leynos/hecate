@@ -57,29 +57,21 @@ The check step, the ref guard and `access-token` stay as described above,
 because a repository whose token has not yet moved into the environment still
 reads it as a repository secret.
 
-`tests/workflow_contracts/` holds this shape as plain `pytest` contracts over
-the parsed workflows, without `act`. `loading.py` parses workflows through a
-loader that refuses duplicate keys, and `reading.py` reads the `on:` triggers
-in scalar, sequence, and mapping form under either key. `codescene_reach.py`
-follows local reusable-workflow calls (`./` and `$/`) from every workflow a
-pull request can start (its own events, reviews, comments, the merge queue,
-`workflow_run` chains, and pushes not confined to `main` or to tags) and
-refuses any key or value in that closure naming the CodeScene host, the
-credential, the client, or the uploader, and any read of the whole `secrets`
-context or of a computed secret name. `codescene_publisher.py`,
-`codescene_token.py`, and `coverage_lanes.py` hold the publisher and the lanes
-to the rules above. `codescene_environment_rules.py` holds the environment
-placement: every job invoking the uploader declares `codescene`, no other job
-does, and no job in the `codescene_reach.py` closure does. Each rule returns
-its findings as text, so the rule tests beside them can drive it over a
-constructed tree; every refusal case changes one thing in the compliant tree in
-`fixtures.py`. Keep a new rule to that pattern: a pure reading, a repository
-assertion, and a refusal case that fails when the rule's clause is deleted.
-`test_bounded_properties.py` checks the pure readings exhaustively over small
-domains instead of sampling: the closure against Warshall reachability for
-every call graph over three workflows, the condition reader over every
-conjunction of up to three terms, and the document walk with a key or value
-planted at every depth up to three.
+`make test-workflow-contracts` holds this shape by running
+`cv005-contracts check`, the shared contract library in `leynos/shared-actions`
+(`packages/cv005-contracts`), from the full commit named by
+`CV005_CONTRACTS_REF` in the Makefile, without `act`. The library follows local
+reusable-workflow calls from every workflow a pull request can start, refuses
+the CodeScene host, credential, client and uploader in that closure, and holds
+the publisher, the lanes and the environment placement to the rules above. A
+fix to a rule reaches this repository as a pin bump. The target needs `uv`,
+which fetches the Python 3.13 the library runs under; `.github/cv005.toml`
+holds the repository's parameters. The decision is recorded in
+[ADR 002](adr-002-adopt-the-shared-cv005-contract-library.md). What stays in
+`tests/workflow_contracts/` is the Python-version contract and its strict
+loader, plus `test_cv005_wiring.py`, which fails if the pin is not a full
+commit, the target stops running the pinned checker, the repository parameter
+is wrong, `make all` drops the target or CI stops running it.
 
 ## TL;DR
 
