@@ -119,10 +119,16 @@ class CoverageDiagnostic:
 
     def render(self) -> str:
         """Render a deterministic single-line diagnostic."""
-        detail = _describe_groups(self.importer_group, self.imported_group)
+        groups = ""
+        if self.importer_group is not None or self.imported_group is not None:
+            # An unresolved side is shown as "?" so a one-sided match stays
+            # readable without pretending the other endpoint was classified.
+            importer_label = self.importer_group or "?"
+            imported_label = self.imported_group or "?"
+            groups = f" ({importer_label} -> {imported_label})"
         return (
             f"{self.rule_id}: {self.importer}:{self.line} {self.state.value} "
-            f"import of {self.imported}{detail}"
+            f"import of {self.imported}{groups}"
         )
 
     def to_dict(self) -> dict[str, object]:
@@ -136,10 +142,3 @@ class CoverageDiagnostic:
         payload["imported_group"] = self.imported_group
         payload["source_path"] = str(self.source_path)
         return payload
-
-
-def _describe_groups(importer_group: str | None, imported_group: str | None) -> str:
-    """Render whichever endpoint groups were resolved, if any."""
-    if importer_group is None and imported_group is None:
-        return ""
-    return f" ({importer_group or '?'} -> {imported_group or '?'})"

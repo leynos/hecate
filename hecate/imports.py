@@ -8,16 +8,6 @@ from pathlib import Path
 
 
 @dc.dataclass(frozen=True, slots=True)
-class ImportReference:
-    """One import edge found in a Python module."""
-
-    importer: str
-    imported: str
-    line: int
-    source_path: Path
-
-
-@dc.dataclass(frozen=True, slots=True)
 class DirectImport:
     """An ``import a.b`` statement binding ``a`` in the importing module."""
 
@@ -70,54 +60,6 @@ def relative_import_base(module_name: str, *, is_package_init: bool, level: int)
     if drop_count:
         module_parts = module_parts[:-drop_count]
     return ".".join(module_parts)
-
-
-def collect_imports(
-    source_path: Path,
-    *,
-    root: Path,
-    package: str,
-) -> tuple[ImportReference, ...]:
-    """Collect direct imports from a Python source file.
-
-    This is the flat edge view of :func:`collect_import_statements`: each
-    statement contributes one module-level edge plus, for ``from`` imports, one
-    edge per explicitly named symbol. Wildcard entries contribute only the
-    module-level edge; callers that must honour Python's wildcard semantics
-    should use :func:`collect_import_statements` instead.
-    """
-    module_name = compute_module_name(root, package, source_path)
-    imports: list[ImportReference] = []
-    for statement in collect_import_statements(source_path, root=root, package=package):
-        if isinstance(statement, DirectImport):
-            imports.append(
-                ImportReference(
-                    importer=statement.importer,
-                    imported=statement.module,
-                    line=statement.line,
-                    source_path=statement.source_path,
-                )
-            )
-            continue
-        imports.append(
-            ImportReference(
-                importer=module_name,
-                imported=statement.target,
-                line=statement.line,
-                source_path=statement.source_path,
-            )
-        )
-        imports.extend(
-            ImportReference(
-                importer=module_name,
-                imported=f"{statement.target}.{name}",
-                line=statement.line,
-                source_path=statement.source_path,
-            )
-            for name in statement.names
-            if name != "*"
-        )
-    return tuple(imports)
 
 
 ImportStatement = DirectImport | FromImport

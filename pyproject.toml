@@ -337,8 +337,16 @@ reason = "hecate.output invokes these methods when rendering and serializing ign
 
 [[tool.skylos.dead_code.entrypoints]]
 type = "method"
-full_name = ["hecate.reexports.ReexportIndex.expand_import"]
-reason = "hecate.checker invokes this method while resolving imported modules."
+full_name = ["hecate.origins.OriginIndex.origins_for"]
+reason = "hecate.checker invokes this method while expanding each import target into the origins it could reach."
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+full_name = [
+    "hecate.diagnostics.CoverageDiagnostic.render",
+    "hecate.diagnostics.CoverageDiagnostic.to_dict",
+]
+reason = "hecate.output invokes these methods when rendering and serializing coverage diagnostics."
 
 [tool.skylos.whitelist]
 names = []

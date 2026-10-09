@@ -53,10 +53,6 @@ class OriginIndex:
     namespaces: dict[str, ModuleNamespace]
     package_names: tuple[str, ...]
 
-    def is_known_module(self, module: str) -> bool:
-        """Return whether ``module`` is a module Hecate analysed."""
-        return module in self.namespaces
-
     def is_internal(self, target: str) -> bool:
         """Return whether ``target`` names or sits under a package root."""
         return any(
