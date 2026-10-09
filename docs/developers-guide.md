@@ -4,6 +4,17 @@ This guide records internal conventions for maintaining hecate.
 
 ## Coverage workflow contract
 
+`make test-workflow-contracts` runs `cv005-contracts check`, the shared
+contract library in `leynos/shared-actions`, from the full commit named by
+`CV005_CONTRACTS_REF` in the Makefile; `make test` and `make all` depend on it
+and CI runs it in its own step. It needs `uv`, which fetches the Python 3.13
+the library runs under, and `.github/cv005.toml` holds the repository's
+parameters. A fix to a rule reaches this repository as a pin bump. The
+local-validation guide and
+[ADR 002](adr-002-adopt-the-shared-cv005-contract-library.md) record the rules
+and the decision, and `tests/workflow_contracts/test_cv005_wiring.py` holds the
+local wiring.
+
 Both coverage lanes set up Python 3.14 with `actions/setup-python`, inside the
 project's `requires-python` (`>=3.14`). generate-coverage chooses its
 interpreter from its `python-version` input, then `UV_PYTHON`, then
