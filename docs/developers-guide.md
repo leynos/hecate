@@ -89,21 +89,37 @@ export set so normal resolution reports it unresolved, matching the
 
 ### Required data flow
 
-Every run follows this order, and later stages assume it:
+`check_architecture` in `checker.py` fixes this order, and later stages assume
+it:
 
-1. Read and parse scanned source (`source.py`), then collect import statements
-   from it (`imports.py`).
-2. Analyse module namespaces, bindings, and wildcard selection
-   (`module_scope.py`, `all_sequence.py`, `namespaces.py`).
-3. Resolve origins and wildcard exports (`origins.py`).
+1. Analyse the scanned modules' namespaces, bindings, and wildcard selection
+   (`namespaces.py`, over `module_scope.py` and `all_sequence.py`). This pass
+   is what reads and parses each file, through `source.py`.
+2. Build the origin index over those namespaces (`origins.py`), so provenance
+   is derived from the model rather than from a second parse of the tree.
+3. Walk each package root, collect import statements from each scanned file
+   (`imports.py`, parsing through `source.py` again), and resolve named and
+   wildcard edges against the index.
 4. Classify each edge against policy, honouring ignores first (`policy.py`).
-5. Record diagnostics and render them (`diagnostics.py`, `output.py`).
+5. Assemble `ArchitectureCheckResult`, then render it (`diagnostics.py`,
+   `output.py`).
 
-`checker.py` owns this order: skipping or reordering a stage leaves edges
-unexamined, which the coverage model reports rather than hides. Each in-scope
-edge receives exactly one of `permitted`, `forbidden`, `exempted`,
-`unclassified`, or `unresolved`, so a green result means the relevant edges
-were understood and evaluated rather than merely absent.
+Source parsing supports both the namespace pass and the import-collection pass,
+so parsing is not a step that must happen before namespace analysis; the same
+`parse_source` boundary serves each caller.
+
+Skipping or reordering a stage leaves edges unexamined, which the coverage
+model reports rather than hides: each in-scope edge receives exactly one of
+`permitted`, `forbidden`, `exempted`, `unclassified`, or `unresolved`. A green
+result means no forbidden violation was found and no coverage diagnostic
+carried error severity — not that every edge was understood.
+`coverage_severity` reports unclassified and unresolved edges as warnings
+outside strict mode, and as errors under it (with unresolved internal edges
+using the configured `unresolved_internal_severity`). A non-strict run can
+therefore pass while those warnings are still recorded; JSON always carries the
+coverage section, and text output shows the warnings under `--show-coverage`
+(entries that fail the check are always shown). An unmatched ignore fails the
+run separately at exit code 2, but only under `--fail-on-unmatched-ignore`.
 
 `hecate/reexports.py` no longer exists. Its responsibilities are now split
 between `namespaces.py` (bindings and wildcard selection) and `origins.py`
