@@ -104,9 +104,10 @@ extend-ignore = [
 "hecate/output.py" = ["TC001"]
 "hecate/imports.py" = ["S101", "TC003"]
 "hecate/policy.py" = ["S101"]
-"hecate/reexports.py" = ["TC001", "TC003"]
 "**/test_*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/test_properties.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
+"tests/test_origin_properties.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
+"tests/test_origin_totality.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/steps/*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301"]
 
 [tool.ruff.lint.flake8-import-conventions]
@@ -338,8 +339,16 @@ reason = "hecate.output invokes these methods when rendering and serializing ign
 
 [[tool.skylos.dead_code.entrypoints]]
 type = "method"
-full_name = ["hecate.reexports.ReexportIndex.expand_import"]
-reason = "hecate.checker invokes this method while resolving imported modules."
+full_name = ["hecate.origins.OriginIndex.origins_for"]
+reason = "hecate.checker invokes this method while expanding each import target into the origins it could reach."
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "method"
+full_name = [
+    "hecate.diagnostics.CoverageDiagnostic.render",
+    "hecate.diagnostics.CoverageDiagnostic.to_dict",
+]
+reason = "hecate.output invokes these methods when rendering and serializing coverage diagnostics."
 
 [tool.skylos.whitelist]
 names = []

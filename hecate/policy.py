@@ -3,8 +3,41 @@
 from __future__ import annotations
 
 import dataclasses as dc
+import enum
 
 from .imports import is_module_prefix
+
+
+class Severity(enum.StrEnum):
+    """How a diagnostic affects the overall check result."""
+
+    ERROR = "error"
+    """Fails the check and sets a non-zero exit code."""
+
+    WARNING = "warning"
+    """Reported but does not fail the check."""
+
+    EXEMPT = "exempt"
+    """Deliberately accepted, usually through a configured ignore entry."""
+
+
+class EdgeState(enum.StrEnum):
+    """The outcome of evaluating one import edge against policy."""
+
+    PERMITTED = "permitted"
+    """Both endpoints classified, and the importer group may import the target."""
+
+    FORBIDDEN = "forbidden"
+    """Both endpoints classified, and the importer group may not import it."""
+
+    EXEMPTED = "exempted"
+    """Forbidden in principle, but covered by a documented ignore entry."""
+
+    UNCLASSIFIED = "unclassified"
+    """At least one endpoint matched no configured group."""
+
+    UNRESOLVED = "unresolved"
+    """The import target could not be resolved to a known module."""
 
 
 def module_prefix_contains(prefix: str, module: str) -> bool:
@@ -46,6 +79,11 @@ class ArchitecturePolicy:
     ignores: tuple[IgnoredImport, ...] = ()
     default_rule_id: str = "HEC001"
     include_external_packages: bool = False
+    strict: bool = False
+    """Whether unclassified and unresolved internal edges fail the check."""
+
+    unresolved_internal_severity: Severity = Severity.ERROR
+    """Severity applied to unresolved internal edges under strict mode."""
 
     def group_for(self, module: str) -> ModuleGroup | None:
         """Return the first matching group for ``module``."""
@@ -88,3 +126,18 @@ def ignore_matches(ignored_import: IgnoredImport, importer: str, imported: str) 
     return module_prefix_contains(
         ignored_import.importer, importer
     ) and module_prefix_contains(ignored_import.imported, imported)
+
+
+def coverage_severity(state: EdgeState, policy: ArchitecturePolicy) -> Severity:
+    """Return the severity to apply to one coverage state.
+
+    Outside strict mode these states are reported as warnings so that a green
+    result can be tightened into a failing one without a second code path. In
+    strict mode unclassified internal edges always fail, and unresolved
+    internal edges use the configured severity.
+    """
+    if not policy.strict:
+        return Severity.WARNING
+    if state is EdgeState.UNRESOLVED:
+        return policy.unresolved_internal_severity
+    return Severity.ERROR

@@ -1,4 +1,4 @@
-"""Unit tests for config loading, output, and CLI exits."""
+"""Unit tests for config loading and CLI exits."""
 
 from __future__ import annotations
 
@@ -8,11 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from hecate.checker import ArchitectureCheckResult
 from hecate.cli import main
 from hecate.config import ConfigError, load_config
-from hecate.diagnostics import ArchitectureViolation
-from hecate.output import render_json, render_text
+from hecate.policy import Severity
 
 if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
@@ -146,36 +144,92 @@ allowed = ["domain"]
     )
 
 
-def test_text_and_json_output_include_violation_identity(tmp_path: Path) -> None:
-    """Diagnostic renderers preserve the same violation identity."""
-    violation = ArchitectureViolation(
-        rule_id="HEC001",
-        importer="pkg.domain.model",
-        imported="pkg.adapters.db",
-        importer_group="domain",
-        imported_group="adapter",
-        source_path=tmp_path / "pkg/domain/model.py",
-        line=1,
-    )
-    result = ArchitectureCheckResult(violations=(violation,))
+def test_config_rejects_unknown_unresolved_severity(tmp_path: Path) -> None:
+    """An unknown severity name is a configuration error."""
+    _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+unresolved_internal_severity = "loud"
 
-    text_output = render_text(result)
-    json_output = json.loads(render_json(result))
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+""",
+        "unresolved_internal_severity",
+    )
 
-    assert "pkg.domain.model:1" in text_output, (
-        f"expected text output to include violation location, got {text_output!r}"
+
+def test_config_loads_strict_and_severity_options(tmp_path: Path) -> None:
+    """Strict mode and the unresolved severity are read from TOML."""
+    (tmp_path / "pkg").mkdir()
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+strict = true
+unresolved_internal_severity = "warning"
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+""",
+        encoding="utf-8",
     )
-    assert json_output["violations"][0]["rule_id"] == "HEC001", (
-        f"expected JSON rule_id HEC001, got {json_output!r}"
+
+    hecate_config = load_config(config)
+
+    assert hecate_config.policy.strict is True, (
+        f"expected strict mode from TOML, got {hecate_config.policy!r}"
     )
-    assert json_output["violations"][0]["importer"] == "pkg.domain.model", (
-        f"expected JSON importer pkg.domain.model, got {json_output!r}"
+    assert hecate_config.policy.unresolved_internal_severity is Severity.WARNING, (
+        f"expected the configured severity, got {hecate_config.policy!r}"
     )
-    assert json_output["violations"][0]["imported"] == "pkg.adapters.db", (
-        f"expected JSON imported pkg.adapters.db, got {json_output!r}"
+
+
+def test_cli_strict_flag_overrides_configuration(tmp_path: Path) -> None:
+    """``--strict`` on the command line overrides a non-strict config.
+
+    The policy here classifies only ``pkg.domain``, so the consumer matches no
+    group. ``domain/model.py`` exists, so the target resolves: the edge fails
+    strictly because the consumer is unclassified, not because the import is
+    unresolved. A non-strict run passes with a warning, and ``--strict``
+    promotes that warning to a failure.
+    """
+    package_root = tmp_path / "pkg"
+    (package_root / "domain").mkdir(parents=True)
+    (package_root / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "domain" / "__init__.py").write_text("", encoding="utf-8")
+    (package_root / "domain" / "model.py").write_text("", encoding="utf-8")
+    (package_root / "consumer.py").write_text(
+        "from pkg.domain import model\n", encoding="utf-8"
     )
-    assert json_output["violations"][0]["line"] == 1, (
-        f"expected JSON line 1, got {json_output!r}"
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg.domain"]
+allowed = ["domain"]
+""",
+        encoding="utf-8",
+    )
+
+    lenient_exit = main(["check", "--config", str(config)])
+    strict_exit = main(["check", "--config", str(config), "--strict"])
+
+    assert lenient_exit == 0, (
+        f"an unclassified edge must not fail a non-strict run, got {lenient_exit}"
+    )
+    assert strict_exit == 1, (
+        f"expected --strict to override the config and fail, got {strict_exit}"
     )
 
 

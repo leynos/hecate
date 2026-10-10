@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses as dc
+import json
 import typing as typ
 from pathlib import Path
 
@@ -97,6 +98,45 @@ def when_run_hecate_default(
     fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
 
 
+@when("I run Hecate against the fixture with JSON output")
+def when_run_hecate_json(
+    fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
+) -> None:
+    """Run the checker with machine-readable output for coverage assertions."""
+    _run_checker(fixture_ctx, capsys, "--format", "json")
+
+
+@when("I run Hecate against the fixture in strict mode")
+def when_run_hecate_strict(
+    fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
+) -> None:
+    """Run the checker in strict mode with coverage reporting enabled."""
+    _run_checker(fixture_ctx, capsys, "--strict", "--show-coverage")
+
+
+def _run_checker(
+    fixture_ctx: FixtureContext,
+    capsys: CaptureFixture[str],
+    *extra_args: str,
+) -> None:
+    """Run the CLI against the fixture config and record the captured result.
+
+    Every ``when`` step drives the same command and differs only in the flags,
+    so the invocation and capture live here and each step names its flags.
+    """
+    exit_code = main(["check", "--config", str(fixture_ctx.config), *extra_args])
+    captured = capsys.readouterr()
+    fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
+
+
+@then(parsers.parse('the coverage report contains "{text}"'))
+def then_coverage_contains(fixture_ctx: FixtureContext, text: str) -> None:
+    """Assert the JSON coverage report mentions an expected edge state."""
+    payload = json.loads(_result(fixture_ctx).stdout)
+    states = [entry["state"] for entry in payload["coverage"]]
+    assert text in states, f"expected coverage state {text!r}, got {states!r}"
+
+
 @when("I run Hecate with the override config")
 def when_run_hecate_override(
     fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
@@ -125,6 +165,13 @@ def then_diagnostics_contain(fixture_ctx: FixtureContext, text: str) -> None:
     """Assert stdout contains expected diagnostic text."""
     stdout = _result(fixture_ctx).stdout
     assert text in stdout, f"expected stdout to contain {text!r}, got {stdout!r}"
+
+
+@then(parsers.parse('the diagnostics omit "{text}"'))
+def then_diagnostics_omit(fixture_ctx: FixtureContext, text: str) -> None:
+    """Assert stdout does not mention an origin that must not be expanded."""
+    stdout = _result(fixture_ctx).stdout
+    assert text not in stdout, f"expected stdout to omit {text!r}, got {stdout!r}"
 
 
 @then(parsers.parse('stderr contains "{text}"'))
@@ -160,66 +207,127 @@ def _write_base_package(package_root: Path) -> None:
     (package_root / "adapters" / "outbound" / "db.py").write_text("", encoding="utf-8")
 
 
+@dc.dataclass(frozen=True, slots=True)
+class FixtureVariant:
+    """One named fixture: the edge to check plus any barrel files it needs.
+
+    ``extra`` holds package-barrel sources written before the import site, so
+    variants that exercise re-export semantics declare their barrels as data
+    rather than as branching setup code.
+    """
+
+    target: str
+    contents: str
+    extra: tuple[tuple[str, str], ...] = ()
+
+
+_EXPOSED_BARREL = (
+    "adapters/__init__.py",
+    "from .outbound import db\n__all__ = ['db']\n",
+)
+
+_HIDDEN_BARREL = (
+    "adapters/__init__.py",
+    "from .outbound import db\n__all__ = []\n",
+)
+
+_FIXTURE_VARIANTS: dict[str, FixtureVariant] = {
+    "clean_package": FixtureVariant(
+        "application/service.py", "from sample.domain import model\n"
+    ),
+    "domain_imports_adapter": FixtureVariant(
+        "domain/model.py", "from sample.adapters.outbound import db\n"
+    ),
+    "application_imports_adapter": FixtureVariant(
+        "application/service.py", "from sample.adapters.outbound import db\n"
+    ),
+    "application_imports_domain_port": FixtureVariant(
+        "application/service.py", "from sample.domain import port\n"
+    ),
+    "composition_root_wires_adapters": FixtureVariant(
+        "config.py", "from sample.adapters.outbound import db\n"
+    ),
+    "inbound_cli_imports_config": FixtureVariant(
+        "cli.py", "from sample import config\n"
+    ),
+    "inbound_cli_imports_outbound_adapter": FixtureVariant(
+        "cli.py", "from sample.adapters.outbound import db\n"
+    ),
+    "domain_imports_external_infrastructure": FixtureVariant(
+        "domain/model.py", "import sqlalchemy\n"
+    ),
+    # A barrel advertising a re-export to wildcards and to explicit imports.
+    "application_imports_reexported_adapter": FixtureVariant(
+        "application/service.py",
+        "from sample.adapters import db\n",
+        extra=(_EXPOSED_BARREL,),
+    ),
+    # A barrel that reaches its re-export through a star import.
+    "application_imports_star_reexported_adapter": FixtureVariant(
+        "application/service.py",
+        "from sample.adapters import db\n",
+        extra=(
+            ("adapters/__init__.py", "from .outbound import *\n"),
+            ("adapters/outbound/__init__.py", "from . import db\n__all__ = ['db']\n"),
+        ),
+    ),
+    # __all__ hides db from wildcards but cannot unbind it, so this explicit
+    # re-export must still resolve to the outbound adapter.
+    "application_imports_all_hidden_adapter": FixtureVariant(
+        "application/service.py",
+        "from sample.adapters import db\n",
+        extra=(_HIDDEN_BARREL,),
+    ),
+    # A wildcard consumer, which must expand to the origin of db.
+    "application_imports_wildcard_consumer": FixtureVariant(
+        "application/service.py",
+        "from sample.adapters import *\n",
+        extra=(_EXPOSED_BARREL,),
+    ),
+    # A wildcard over __all__ = [] binds nothing beyond the module edge.
+    "application_imports_empty_all_wildcard": FixtureVariant(
+        "application/service.py",
+        "from sample.adapters import *\n",
+        extra=(_HIDDEN_BARREL,),
+    ),
+    # A relative import through a package barrel must resolve like the absolute
+    # form; both spell the same edge.
+    "application_imports_relative_barrel_adapter": FixtureVariant(
+        "application/service.py",
+        "from sample.application import db\n",
+        extra=(
+            ("application/__init__.py", "from ..adapters import db\n"),
+            _EXPOSED_BARREL,
+        ),
+    ),
+    # The new subtree matches no configured group, so a non-strict run passes
+    # while still reporting the edge as unclassified.
+    "application_imports_unclassified_subtree": FixtureVariant(
+        "application/service.py",
+        "from sample.newthing import helper\n",
+        extra=(
+            ("newthing/__init__.py", ""),
+            ("newthing/helper.py", ""),
+        ),
+    ),
+    # The symbol does not exist, so the internal edge is unresolved.
+    "application_imports_unresolved_symbol": FixtureVariant(
+        "application/service.py", "from sample.domain import missing_symbol\n"
+    ),
+}
+
+
 def _write_fixture(package_root: Path, fixture: str) -> None:
     """Write one predefined fixture variant into the sample package root."""
-    fixtures = {
-        "clean_package": (
-            "application/service.py",
-            "from sample.domain import model\n",
-        ),
-        "domain_imports_adapter": (
-            "domain/model.py",
-            "from sample.adapters.outbound import db\n",
-        ),
-        "application_imports_adapter": (
-            "application/service.py",
-            "from sample.adapters.outbound import db\n",
-        ),
-        "application_imports_domain_port": (
-            "application/service.py",
-            "from sample.domain import port\n",
-        ),
-        "composition_root_wires_adapters": (
-            "config.py",
-            "from sample.adapters.outbound import db\n",
-        ),
-        "inbound_cli_imports_config": ("cli.py", "from sample import config\n"),
-        "inbound_cli_imports_outbound_adapter": (
-            "cli.py",
-            "from sample.adapters.outbound import db\n",
-        ),
-        "domain_imports_external_infrastructure": (
-            "domain/model.py",
-            "import sqlalchemy\n",
-        ),
-    }
-    if fixture == "application_imports_reexported_adapter":
-        (package_root / "adapters" / "__init__.py").write_text(
-            "from .outbound import db\n__all__ = ['db']\n",
-            encoding="utf-8",
-        )
-        fixtures[fixture] = (
-            "application/service.py",
-            "from sample.adapters import db\n",
-        )
-    if fixture == "application_imports_star_reexported_adapter":
-        (package_root / "adapters" / "__init__.py").write_text(
-            "from .outbound import *\n",
-            encoding="utf-8",
-        )
-        (package_root / "adapters" / "outbound" / "__init__.py").write_text(
-            "from . import db\n__all__ = ['db']\n",
-            encoding="utf-8",
-        )
-        fixtures[fixture] = (
-            "application/service.py",
-            "from sample.adapters import db\n",
-        )
-    assert fixture in fixtures, (
-        f"Unknown fixture {fixture!r}, valid fixtures: {sorted(fixtures.keys())}"
+    assert fixture in _FIXTURE_VARIANTS, (
+        f"Unknown fixture {fixture!r}, valid fixtures: {sorted(_FIXTURE_VARIANTS)}"
     )
-    relative_path, contents = fixtures[fixture]
-    (package_root / relative_path).write_text(contents, encoding="utf-8")
+    variant = _FIXTURE_VARIANTS[fixture]
+    for relative_path, contents in variant.extra:
+        path = package_root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents, encoding="utf-8")
+    (package_root / variant.target).write_text(variant.contents, encoding="utf-8")
 
 
 def _policy_toml(*, allow_everything: bool = False) -> str:

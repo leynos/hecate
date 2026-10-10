@@ -1,226 +1,378 @@
-"""Unit tests for static package-barrel re-export expansion."""
+"""Unit tests for module namespaces and symbol-origin provenance.
+
+These tests separate two views that Python keeps separate:
+
+* what a module *binds*, which is what explicit ``from module import name``
+  reaches; and
+* what a module *exports to wildcards*, which ``__all__`` governs.
+
+``__all__`` never removes a binding, so the binding view must stay complete.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 from hecate.config import PackageRoot
-from hecate.reexports import build_reexport_index
+from hecate.namespaces import analyse_namespaces
+from hecate.origins import OriginIndex, Resolution, build_origin_index
 
 
-def test_explicit_all_uses_last_literal_assignment(tmp_path: Path) -> None:
-    """The final literal ``__all__`` assignment controls exported names."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from .adapter import First, Second\n"
-        "__all__ = ['First']\n"
-        "__all__ = ['Second']\n",
-        encoding="utf-8",
+def _write(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> Path:
+    """Write ``files`` under a package root and return that root."""
+    package_root = tmp_path / package
+    for relative_path, contents in files.items():
+        target = package_root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(contents, encoding="utf-8")
+    return package_root
+
+
+def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> OriginIndex:
+    """Build a package from ``files`` and return its origin index."""
+    packages = _packages(tmp_path, files, package=package)
+    return build_origin_index(packages, analyse_namespaces(packages))
+
+
+def _packages(
+    tmp_path: Path, files: dict[str, str], package: str = "pkg"
+) -> tuple[PackageRoot, ...]:
+    """Write a package from ``files`` and return its package root."""
+    return (PackageRoot(package, _write(tmp_path, files, package=package)),)
+
+
+def test_empty_all_still_exposes_explicitly_imported_names(tmp_path: Path) -> None:
+    """``__all__ = []`` hides a name from wildcards, not from explicit imports."""
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .adapter import Thing\n__all__ = []\n",
+            "adapter.py": "class Thing: ...\n",
+        },
     )
-    (package_root / "adapter.py").write_text(
-        "class First: ...\nclass Second: ...\n", encoding="utf-8"
-    )
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
-
-    assert index.expand_import("pkg.Second") == (
-        "pkg.Second",
-        "pkg.adapter.Second",
-    ), "expand_import('pkg.Second') returned unexpected explicit __all__ result"
-    assert index.expand_import("pkg.First") == ("pkg.First",), (
-        "expand_import('pkg.First') should not include a stale __all__ export"
+    assert index.origins_for("pkg.Thing") == ("pkg.Thing", "pkg.adapter.Thing"), (
+        "explicit import of a name omitted from __all__ must keep its origin"
     )
 
 
-def test_unresolved_all_falls_back_to_public_symbols(tmp_path: Path) -> None:
-    """Non-literal ``__all__`` falls back to public imported symbols."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from .adapter import Adapter\n__all__ = tuple(['Adapter'])\n",
-        encoding="utf-8",
+def test_empty_all_exports_nothing_to_wildcards(tmp_path: Path) -> None:
+    """A wildcard over ``__all__ = []`` binds nothing, and says so."""
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .adapter import Thing\n__all__ = []\n",
+            "adapter.py": "class Thing: ...\n",
+        },
     )
-    (package_root / "adapter.py").write_text("class Adapter: ...\n", encoding="utf-8")
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
+    assert not index.wildcard_exports("pkg"), (
+        "an empty __all__ selection must not export anything to a wildcard"
+    )
 
-    assert index.expand_import("pkg.Adapter") == (
+
+def test_last_literal_all_assignment_controls_wildcard_selection(
+    tmp_path: Path,
+) -> None:
+    """The final literal ``__all__`` assignment governs wildcard export."""
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": (
+                "from .adapter import First, Second\n"
+                "__all__ = ['First']\n"
+                "__all__ = ['Second']\n"
+            ),
+            "adapter.py": "class First: ...\nclass Second: ...\n",
+        },
+    )
+
+    assert index.wildcard_exports("pkg") == ("pkg.Second", "pkg.adapter.Second"), (
+        "wildcard exports must follow the last literal __all__ assignment"
+    )
+
+
+def test_later_all_assignment_does_not_unbind_earlier_names(
+    tmp_path: Path,
+) -> None:
+    """Rebinding ``__all__`` leaves both imported names bound on the module."""
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": (
+                "from .adapter import First, Second\n"
+                "__all__ = ['First']\n"
+                "__all__ = ['Second']\n"
+            ),
+            "adapter.py": "class First: ...\nclass Second: ...\n",
+        },
+    )
+
+    assert index.origins_for("pkg.First") == ("pkg.First", "pkg.adapter.First"), (
+        "a name dropped from a later __all__ is still bound on the module"
+    )
+    assert index.origins_for("pkg.Second") == ("pkg.Second", "pkg.adapter.Second"), (
+        "a name added by a later __all__ keeps its origin"
+    )
+
+
+def test_non_literal_all_falls_back_to_public_symbols(tmp_path: Path) -> None:
+    """A non-literal ``__all__`` cannot be enumerated, so defaults apply."""
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": (
+                "from .adapter import Adapter\n__all__ = tuple(['Adapter'])\n"
+            ),
+            "adapter.py": "class Adapter: ...\n",
+        },
+    )
+
+    assert index.origins_for("pkg.Adapter") == (
         "pkg.Adapter",
         "pkg.adapter.Adapter",
-    ), "expand_import('pkg.Adapter') returned unexpected fallback export"
+    ), "explicit import must resolve regardless of __all__ evaluation"
+
+
+def test_underscore_name_listed_in_all_is_exported(tmp_path: Path) -> None:
+    """``__all__`` may select underscore-prefixed names for wildcards."""
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .adapter import _Hidden\n__all__ = ['_Hidden']\n",
+            "adapter.py": "class _Hidden: ...\n",
+        },
+    )
+
+    assert index.wildcard_exports("pkg") == (
+        "pkg._Hidden",
+        "pkg.adapter._Hidden",
+    ), "an explicit __all__ may export underscore-prefixed names"
 
 
 def test_star_reexport_expands_static_origin(tmp_path: Path) -> None:
     """Star re-exports expand when the origin module exposes public names."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from .adapter import *\n", encoding="utf-8"
-    )
-    (package_root / "adapter.py").write_text(
-        "__all__ = ['Adapter']\nclass Adapter: ...\n", encoding="utf-8"
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .adapter import *\n",
+            "adapter.py": "__all__ = ['Adapter']\nclass Adapter: ...\n",
+        },
     )
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
-
-    assert index.expand_import("pkg.Adapter") == (
+    assert index.wildcard_exports("pkg") == (
         "pkg.Adapter",
         "pkg.adapter.Adapter",
-    ), "expand_import('pkg.Adapter') returned unexpected star export"
+    ), "wildcard export must resolve through the origin's __all__"
 
 
-def test_multiple_star_reexports_preserve_all_origins(tmp_path: Path) -> None:
-    """Multiple star re-exports from one module are all indexed."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from .first import *\nfrom .second import *\n",
-        encoding="utf-8",
-    )
-    (package_root / "first.py").write_text(
-        "__all__ = ['First']\nclass First: ...\n",
-        encoding="utf-8",
-    )
-    (package_root / "second.py").write_text(
-        "__all__ = ['Second']\nclass Second: ...\n",
-        encoding="utf-8",
+def test_multiple_star_reexports_union_their_exports(tmp_path: Path) -> None:
+    """Multiple star re-exports from one module all contribute exports."""
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .first import *\nfrom .second import *\n",
+            "first.py": "__all__ = ['First']\nclass First: ...\n",
+            "second.py": "__all__ = ['Second']\nclass Second: ...\n",
+        },
     )
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
-
-    assert index.expand_import("pkg.First") == (
+    assert index.wildcard_exports("pkg") == (
         "pkg.First",
         "pkg.first.First",
-    ), "expand_import('pkg.First') returned unexpected first star origin"
-    assert index.expand_import("pkg.Second") == (
         "pkg.Second",
         "pkg.second.Second",
-    ), "expand_import('pkg.Second') returned unexpected second star origin"
+    ), "each star re-export must contribute its own origins"
 
 
-def test_later_named_reexport_shadows_earlier_origin(tmp_path: Path) -> None:
-    """Duplicate named imports follow Python's last-binding semantics."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from .first import Thing\nfrom .second import Thing\n",
-        encoding="utf-8",
+def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None:
+    """A name arriving by wildcard resolves, though it is not a literal binding.
+
+    A star import binds no name that Hecate can write down, because the names
+    depend on the exporting module. The namespace therefore records the star
+    origin, and provenance resolves the name through it on demand.
+    """
+    packages = _packages(
+        tmp_path,
+        {
+            "__init__.py": "from .barrel import *\n",
+            "barrel.py": "from .nested import Thing\n",
+            "nested.py": "class Thing: ...\n",
+        },
     )
-    (package_root / "first.py").write_text("class Thing: ...\n", encoding="utf-8")
-    (package_root / "second.py").write_text("class Thing: ...\n", encoding="utf-8")
+    namespaces = analyse_namespaces(packages)
+    index = build_origin_index(packages, namespaces)
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
-
-    assert index.expand_import("pkg.Thing") == (
+    assert not namespaces["pkg"].bindings, (
+        "a star import must not fabricate a literal binding for a name it "
+        f"cannot know: {namespaces['pkg'].bindings!r}"
+    )
+    assert namespaces["pkg"].wildcard_origins == ("pkg.barrel",), (
+        f"the star origin must be recorded: {namespaces['pkg'].wildcard_origins!r}"
+    )
+    assert index.origins_for("pkg.Thing") == (
         "pkg.Thing",
-        "pkg.second.Thing",
-    ), "expand_import('pkg.Thing') should use the final named import origin"
+        "pkg.barrel.Thing",
+        "pkg.nested.Thing",
+    ), "a wildcard-supplied name must resolve to its defining module"
 
 
-def test_annotated_assignment_exports_public_symbol(tmp_path: Path) -> None:
-    """Public annotated assignments are collected as module exports."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text("value: int = 1\n", encoding="utf-8")
+def test_augmented_all_appends_to_the_earlier_selection(tmp_path: Path) -> None:
+    """``__all__ += [...]`` extends the sequence rather than replacing it.
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
+    Python evaluates the augmented assignment as a concatenation, so a module
+    that builds its export list in two steps exports both halves.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": (
+                "from .adapter import First, Second\n"
+                "__all__ = ['First']\n"
+                "__all__ += ['Second']\n"
+            ),
+            "adapter.py": "class First: ...\nclass Second: ...\n",
+        },
+    )
 
-    assert index.exports["pkg.value"] == ("pkg.value",), (
-        f"expected annotated assignment export, got {index.exports!r}"
+    assert index.wildcard_exports("pkg") == (
+        "pkg.First",
+        "pkg.adapter.First",
+        "pkg.Second",
+        "pkg.adapter.Second",
+    ), "an augmented __all__ must extend, not replace, the earlier selection"
+
+
+def test_augmented_all_without_a_known_prefix_stays_unknowable(
+    tmp_path: Path,
+) -> None:
+    """An append to an unknown ``__all__`` cannot be enumerated.
+
+    Extending a sequence Hecate never saw means the resulting set is unknown,
+    so the default public-name rule must apply rather than an empty selection.
+    """
+    packages = _packages(
+        tmp_path,
+        {
+            "__init__.py": "from .adapter import First\n__all__ += ['First']\n",
+            "adapter.py": "class First: ...\n",
+        },
+    )
+    namespaces = analyse_namespaces(packages)
+    index = build_origin_index(packages, namespaces)
+
+    assert namespaces["pkg"].all_names is None, (
+        f"an append to an unknown sequence must stay unknown, "
+        f"got {namespaces['pkg'].all_names!r}"
+    )
+    assert index.wildcard_exports("pkg") == (
+        "pkg.First",
+        "pkg.adapter.First",
+    ), "an unknowable __all__ must fall back to the public-name rule"
+
+
+def test_unresolved_star_reexport_is_not_a_known_module(tmp_path: Path) -> None:
+    """A star import of an unscanned module is reported, not silently dropped."""
+    index = _index(tmp_path, {"__init__.py": "from missing import *\n"})
+
+    assert index.resolve("missing") is Resolution.EXTERNAL, (
+        "an unscanned star origin outside the package roots is external"
+    )
+    assert index.wildcard_exports("pkg") == ("missing",), (
+        "an unenumerable star origin must surface in the wildcard export set"
     )
 
 
 def test_star_reexport_flattens_transitive_wildcard_origin(tmp_path: Path) -> None:
-    """Star re-export chains flatten to concrete symbols."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from .barrel import *\n",
-        encoding="utf-8",
-    )
-    (package_root / "barrel.py").write_text(
-        "from .nested import *\n",
-        encoding="utf-8",
-    )
-    (package_root / "nested.py").write_text(
-        "__all__ = ['Thing']\nclass Thing: ...\n",
-        encoding="utf-8",
+    """Star re-export chains flatten to the symbol's defining module.
+
+    Each barrel in the chain re-exports by wildcard, so the origin has to be
+    followed through every hop rather than stopping at the first.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .barrel import *\n",
+            "barrel.py": "from .nested import *\n",
+            "nested.py": "__all__ = ['Thing']\nclass Thing: ...\n",
+        },
     )
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
-
-    assert index.expand_import("pkg.Thing") == (
+    assert index.wildcard_exports("pkg") == (
         "pkg.Thing",
+        "pkg.barrel.Thing",
         "pkg.nested.Thing",
-    ), "expand_import('pkg.Thing') returned unexpected transitive star origin"
+    ), "a wildcard chain must record every hop so policy can evaluate each one"
 
 
 def test_star_reexport_cycle_is_short_circuited(tmp_path: Path) -> None:
-    """Recursive star re-export cycles do not overflow the call stack."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from .barrel import *\n",
-        encoding="utf-8",
-    )
-    (package_root / "barrel.py").write_text(
-        "from .nested import *\n",
-        encoding="utf-8",
-    )
-    (package_root / "nested.py").write_text(
-        "from .barrel import *\n",
-        encoding="utf-8",
-    )
+    """Recursive star re-export cycles terminate instead of recursing forever.
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
-
-    assert not index.exports, f"expected cyclic star exports to be skipped: {index}"
-
-
-def test_unresolved_star_reexport_is_not_indexed(tmp_path: Path) -> None:
-    """Unresolved wildcard origins are dropped instead of indexed as ``*``."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text(
-        "from missing import *\n",
-        encoding="utf-8",
+    ``barrel`` and ``nested`` star-import each other and neither defines
+    anything, so the expansion has no finite endpoint. The cycle guard must
+    stop the walk rather than overflow the stack.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .barrel import *\n",
+            "barrel.py": "from .nested import *\n",
+            "nested.py": "from .barrel import *\n",
+        },
     )
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
-
-    assert "pkg.*" not in index.exports, (
-        f"expected unresolved wildcard to be absent, got {index.exports!r}"
-    )
-    assert index.expand_import("pkg.*") == ("pkg.*",), (
-        "expand_import('pkg.*') should return only the unresolved wildcard"
-    )
+    exports = index.wildcard_exports("pkg")
+    assert not exports, f"a cyclic star export defines nothing, got {exports!r}"
 
 
 def test_chained_reexport_expands_transitive_origin(tmp_path: Path) -> None:
-    """Package barrels expand through intermediate package barrels."""
-    package_root = tmp_path / "pkg"
-    adapters_root = package_root / "adapters"
-    outbound_root = adapters_root / "outbound"
-    outbound_root.mkdir(parents=True)
-    (package_root / "__init__.py").write_text(
-        "from .adapters import db\n__all__ = ['db']\n",
-        encoding="utf-8",
-    )
-    (adapters_root / "__init__.py").write_text(
-        "from .outbound import db\n__all__ = ['db']\n",
-        encoding="utf-8",
-    )
-    (outbound_root / "__init__.py").write_text(
-        "from . import db\n__all__ = ['db']\n",
-        encoding="utf-8",
-    )
-    (outbound_root / "db.py").write_text("class Database: ...\n", encoding="utf-8")
+    """A named re-export chain follows every intermediate barrel.
 
-    index = build_reexport_index((PackageRoot("pkg", package_root),))
+    Each module re-exports ``db`` by name, so the name resolves hop by hop
+    down to the module that defines it. Stopping at the first hop would
+    attribute the import to a barrel instead of the database adapter.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .adapters import db\n__all__ = ['db']\n",
+            "adapters/__init__.py": "from .outbound import db\n__all__ = ['db']\n",
+            "adapters/outbound/__init__.py": "from . import db\n__all__ = ['db']\n",
+            "adapters/outbound/db.py": "class Database: ...\n",
+        },
+    )
 
-    assert index.expand_import("pkg.db") == (
+    assert index.origins_for("pkg.db") == (
         "pkg.db",
         "pkg.adapters.db",
         "pkg.adapters.outbound.db",
-    ), "expand_import('pkg.db') returned unexpected chained package-barrel origins"
+    ), "a named re-export chain must follow every intermediate barrel"
+
+
+def test_all_name_never_bound_stays_visible_as_unresolved(tmp_path: Path) -> None:
+    """``__all__`` naming a symbol the module lacks is reported, not dropped.
+
+    Python raises ``AttributeError`` when the star import runs, because the
+    selection names something the module never bound. Dropping the name from the
+    export set would let the import look clean, so the selected name is emitted
+    and normal resolution classifies it unresolved.
+    """
+    packages = _packages(
+        tmp_path,
+        {
+            "__init__.py": (
+                "from .adapter import Adapter\n__all__ = ['Adapter', 'Gone']\n"
+            ),
+            "adapter.py": "class Adapter: ...\n",
+        },
+    )
+    index = build_origin_index(packages, analyse_namespaces(packages))
+
+    assert index.wildcard_exports("pkg") == (
+        "pkg.Adapter",
+        "pkg.adapter.Adapter",
+        "pkg.Gone",
+    ), "a selected name the module never binds must stay in the export set"
+    assert index.resolve("pkg.Gone") is Resolution.UNRESOLVED_INTERNAL, (
+        "the unbound selection must classify as unresolved, not resolve silently"
+    )

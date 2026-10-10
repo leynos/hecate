@@ -85,9 +85,11 @@ _SKYLOS_WHITELIST_RECIPE_TOKENS: typ.Final = (
     "9>$(SKYLOS_ALLOW_LOCK)",
 )
 _RUNTIME_METHOD_ENTRY_POINTS: typ.Final = frozenset({
+    "hecate.diagnostics.CoverageDiagnostic.render",
+    "hecate.diagnostics.CoverageDiagnostic.to_dict",
     "hecate.diagnostics.IgnoredImportDiagnostic.render",
     "hecate.diagnostics.IgnoredImportDiagnostic.to_dict",
-    "hecate.reexports.ReexportIndex.expand_import",
+    "hecate.origins.OriginIndex.origins_for",
 })
 _DOCUMENTED_WHITELIST_NAMES: typ.Final = frozenset[str]()
 

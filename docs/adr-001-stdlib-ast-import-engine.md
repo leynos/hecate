@@ -43,18 +43,86 @@ _Table 1: Import analysis options considered for Hecate v1._
 
 ## Decision outcome / proposed direction
 
-Use stdlib `ast` for Hecate v1. Keep parsing in `hecate/imports.py`, re-export
-expansion in `hecate/reexports.py`, policy in `hecate/policy.py`, and rendering
-in `hecate/output.py`. This keeps parser, policy, and output layers separate
-enough for another engine to be introduced later without changing the TOML
-policy schema.
+Use stdlib `ast` for Hecate v1. Keep parsing in `hecate/imports.py`, module
+namespace and wildcard-export modelling in `hecate/namespaces.py` with the
+`__all__` sequence evaluator in `hecate/all_sequence.py`, symbol-origin
+provenance in `hecate/origins.py`, policy in `hecate/policy.py`, and rendering
+in `hecate/output.py`. This keeps parser, namespace model, provenance, policy,
+and output layers separate enough for another engine to be introduced later
+without changing the TOML policy schema.
+
+The separation is deliberate, because Python's binding rules and its wildcard
+rules are different rules. A module **binds** a name if it defines or imports
+that name, and `from module import name` reaches every binding regardless of
+`__all__`. A module **exports to wildcards** the names `__all__` selects, or
+the public bindings when `__all__` is absent. Conflating the two produces false
+negatives: filtering bindings through `__all__` lets an explicitly imported
+re-export lose its origin and evade a boundary rule.
+
+A name may hold more than one binding, and which one is live depends on how it
+was written. A binding executed unconditionally runs on every import, so it
+supersedes every earlier candidate for its name; a binding written inside a
+control-flow block, or a `for` target that may never iterate, only adds a
+candidate. The namespace model therefore records bindings as a multi-map keyed
+by name rather than a single winner, and provenance reports every origin a name
+may hold. Keeping only the syntactically last binding would let a forbidden
+origin go unreported whenever the allowed branch happened to be written second.
+
+`__all__` may also select a name the module never binds, which raises
+`AttributeError` when a wildcard import runs. Hecate keeps such a selection in
+the export set so normal resolution classifies it unresolved, rather than
+dropping the name and letting the import look clean.
+
+Policy evaluation consumes a complete analysed edge model rather than treating
+a missing edge as an allowed one. Every edge receives exactly one outcome from
+the set {permitted, forbidden, exempted, unclassified, unresolved}, so a green
+result means the relevant edges were understood and evaluated. An earlier
+design returned early when either endpoint matched no configured group, which
+let a new package subtree or a policy typo produce a green result unchecked.
+
+For screen readers: The following sequence diagram shows one import statement
+travelling from collection through resolution to a single policy outcome. The
+checker asks the origin index to resolve the written target, which consults the
+namespace model for bindings and wildcard exports. An explicit import then goes
+straight to policy classification, while a wildcard import first asks for its
+exported origins and classifies each one in turn. Policy returns one of
+permitted, forbidden, exempted, unclassified, or unresolved for every edge.
+
+```mermaid
+sequenceDiagram
+    participant Source as Import source
+    participant Checker
+    participant Namespaces
+    participant Origins
+    participant Policy
+
+    Source->>Checker: collect_import_statements()
+    Checker->>Origins: resolve(target)
+    Origins->>Namespaces: lookup bindings and wildcard exports
+    Namespaces-->>Origins: namespace model
+    Origins-->>Checker: origins_for(target)
+    alt explicit import
+        Checker->>Policy: classify origin edge
+    else wildcard import
+        Checker->>Origins: wildcard_exports(target)
+        Origins-->>Checker: exported origins
+        loop each exported origin
+            Checker->>Policy: classify origin edge
+        end
+    end
+    Policy-->>Checker: permitted, forbidden, exempted, unclassified, or unresolved
+```
+
+_Figure 1: Import edge evaluation from statement collection to policy outcome._
 
 ## Goals and non-goals
 
 - Goals:
   - Parse direct and `from` imports using stdlib `ast`.
   - Resolve relative imports against the importing module.
+  - Model module bindings and wildcard export selection separately.
   - Expand explicit and statically resolvable star re-exports.
+  - Classify every import edge into exactly one outcome state.
   - Emit stable text and JSON diagnostics.
   - Keep project policy in TOML rather than Python code.
 - Non-goals:
@@ -67,11 +135,19 @@ policy schema.
 ## Known risks and limitations
 
 - Dynamic imports are invisible to v1.
-- Non-literal `__all__` falls back to public symbols instead of evaluating code.
+- Non-literal `__all__` falls back to the default public-name rule instead of
+  evaluating code. Explicit imports are unaffected, because `__all__` does not
+  govern them. The evaluator reads plain and augmented assignments of literal
+  string sequences, and treats any other operation on `__all__` — a method call
+  such as `__all__.extend(...)`, a subscript store such as `__all__[0] = ...`,
+  a deletion, or an unpacking target — as making the selection unknowable,
+  because a stale literal would hide names the mutation added.
 - Star exports are expanded only when the exporting module can be resolved
-  statically from source.
+  statically from source. A wildcard whose export set cannot be resolved is
+  reported as unresolved rather than approximated away.
 - External packages are classified by configured prefixes, not by installed
-  distribution metadata.
+  distribution metadata. Without `include_external_packages`, external edges
+  are out of scope by configuration rather than absent from the analysis.
 - CrossHair validation is limited to bounded pure helpers and deliberately
   excludes filesystem, `ast.parse`, TOML parsing, and CLI code.
 

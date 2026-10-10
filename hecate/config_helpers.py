@@ -5,6 +5,8 @@ from __future__ import annotations
 import dataclasses as dc
 import typing as typ
 
+from .policy import Severity
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
@@ -88,3 +90,23 @@ def _read_bool(data: dict[str, object], key: str, *, default: bool, path: Path) 
         msg = f"{path}: tool.hecate.{key} must be a boolean"
         raise ConfigError(msg)
     return value
+
+
+def _read_severity(
+    data: dict[str, object],
+    key: str,
+    *,
+    default: Severity,
+    path: Path,
+) -> Severity:
+    """Read a severity value, rejecting unknown names with a clear error."""
+    value = data.get(key, default.value)
+    if not isinstance(value, str):
+        msg = f"{path}: tool.hecate.{key} must be a string"
+        raise ConfigError(msg)
+    try:
+        return Severity(value)
+    except ValueError as error:
+        allowed = ", ".join(severity.value for severity in Severity)
+        msg = f"{path}: tool.hecate.{key} must be one of: {allowed}"
+        raise ConfigError(msg) from error
