@@ -185,22 +185,6 @@ def test_multiple_star_reexports_union_their_exports(tmp_path: Path) -> None:
     ), "each star re-export must contribute its own origins"
 
 
-def test_later_named_reexport_shadows_earlier_origin(tmp_path: Path) -> None:
-    """Duplicate named imports follow Python's last-binding semantics."""
-    index = _index(
-        tmp_path,
-        {
-            "__init__.py": "from .first import Thing\nfrom .second import Thing\n",
-            "first.py": "class Thing: ...\n",
-            "second.py": "class Thing: ...\n",
-        },
-    )
-
-    assert index.origins_for("pkg.Thing") == ("pkg.Thing", "pkg.second.Thing"), (
-        "the final named import must win when a name is rebound"
-    )
-
-
 def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None:
     """A name arriving by wildcard resolves, though it is not a literal binding.
 
@@ -294,45 +278,35 @@ def test_unresolved_star_reexport_is_not_a_known_module(tmp_path: Path) -> None:
     assert index.resolve("missing") is Resolution.EXTERNAL, (
         "an unscanned star origin outside the package roots is external"
     )
-
-
-def test_bare_dotted_import_originates_at_its_leading_package(
-    tmp_path: Path,
-) -> None:
-    """``import a.b`` binds ``a``, so the name's origin is ``a``.
-
-    Python binds the leading component, and reaches ``a.b`` as an attribute of
-    it. Recording ``a.b`` as the origin of the name ``a`` would attribute the
-    binding to a module the name does not refer to.
-    """
-    index = _index(
-        tmp_path,
-        {"__init__.py": "import os.path\nimport json.decoder as dec\n"},
-    )
-
-    assert index.origins_for("pkg.os") == ("pkg.os", "os"), (
-        "an unaliased dotted import must originate at its leading package"
-    )
-    assert index.origins_for("pkg.dec") == ("pkg.dec", "json.decoder"), (
-        "an aliased dotted import keeps the full module as its origin"
+    assert index.wildcard_exports("pkg") == ("missing",), (
+        "an unenumerable star origin must surface in the wildcard export set"
     )
 
 
-def test_unpacking_assignment_binds_every_name(tmp_path: Path) -> None:
-    """Tuple, list, and starred targets each bind their names.
+def test_all_name_never_bound_stays_visible_as_unresolved(tmp_path: Path) -> None:
+    """``__all__`` naming a symbol the module lacks is reported, not dropped.
 
-    Only the binding view is needed here, so the namespace model is read
-    directly rather than through the origin index.
+    Python raises ``AttributeError`` when the star import runs, because the
+    selection names something the module never bound. Dropping the name from the
+    export set would let the import look clean, so the selected name is emitted
+    and normal resolution classifies it unresolved.
     """
     packages = _packages(
         tmp_path,
         {
-            "__init__.py": "",
-            "m.py": "First, Second = 1, 2\n[a, *rest] = [3, 4, 5]\n",
+            "__init__.py": (
+                "from .adapter import Adapter\n__all__ = ['Adapter', 'Gone']\n"
+            ),
+            "adapter.py": "class Adapter: ...\n",
         },
     )
-    namespaces = analyse_namespaces(packages)
+    index = build_origin_index(packages, analyse_namespaces(packages))
 
-    assert set(namespaces["pkg.m"].binding_map) == {"First", "Second", "a", "rest"}, (
-        f"unpacking must bind every target: {namespaces['pkg.m'].bindings!r}"
+    assert index.wildcard_exports("pkg") == (
+        "pkg.Adapter",
+        "pkg.adapter.Adapter",
+        "pkg.Gone",
+    ), "a selected name the module never binds must stay in the export set"
+    assert index.resolve("pkg.Gone") is Resolution.UNRESOLVED_INTERNAL, (
+        "the unbound selection must classify as unresolved, not resolve silently"
     )

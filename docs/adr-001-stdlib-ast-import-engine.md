@@ -44,11 +44,12 @@ _Table 1: Import analysis options considered for Hecate v1._
 ## Decision outcome / proposed direction
 
 Use stdlib `ast` for Hecate v1. Keep parsing in `hecate/imports.py`, module
-namespace and wildcard-export modelling in `hecate/namespaces.py`,
-symbol-origin provenance in `hecate/origins.py`, policy in `hecate/policy.py`,
-and rendering in `hecate/output.py`. This keeps parser, namespace model,
-provenance, policy, and output layers separate enough for another engine to be
-introduced later without changing the TOML policy schema.
+namespace and wildcard-export modelling in `hecate/namespaces.py` with the
+`__all__` sequence evaluator in `hecate/all_sequence.py`, symbol-origin
+provenance in `hecate/origins.py`, policy in `hecate/policy.py`, and rendering
+in `hecate/output.py`. This keeps parser, namespace model, provenance, policy,
+and output layers separate enough for another engine to be introduced later
+without changing the TOML policy schema.
 
 The separation is deliberate, because Python's binding rules and its wildcard
 rules are different rules. A module **binds** a name if it defines or imports
@@ -57,6 +58,20 @@ that name, and `from module import name` reaches every binding regardless of
 the public bindings when `__all__` is absent. Conflating the two produces false
 negatives: filtering bindings through `__all__` lets an explicitly imported
 re-export lose its origin and evade a boundary rule.
+
+A name may hold more than one binding, and which one is live depends on how it
+was written. A binding executed unconditionally runs on every import, so it
+supersedes every earlier candidate for its name; a binding written inside a
+control-flow block, or a `for` target that may never iterate, only adds a
+candidate. The namespace model therefore records bindings as a multi-map keyed
+by name rather than a single winner, and provenance reports every origin a name
+may hold. Keeping only the syntactically last binding would let a forbidden
+origin go unreported whenever the allowed branch happened to be written second.
+
+`__all__` may also select a name the module never binds, which raises
+`AttributeError` when a wildcard import runs. Hecate keeps such a selection in
+the export set so normal resolution classifies it unresolved, rather than
+dropping the name and letting the import look clean.
 
 Policy evaluation consumes a complete analysed edge model rather than treating
 a missing edge as an allowed one. Every edge receives exactly one outcome from
@@ -122,7 +137,11 @@ _Figure 1: Import edge evaluation from statement collection to policy outcome._
 - Dynamic imports are invisible to v1.
 - Non-literal `__all__` falls back to the default public-name rule instead of
   evaluating code. Explicit imports are unaffected, because `__all__` does not
-  govern them.
+  govern them. The evaluator reads plain and augmented assignments of literal
+  string sequences, and treats any other operation on `__all__` — a method call
+  such as `__all__.extend(...)`, a subscript store such as `__all__[0] = ...`,
+  a deletion, or an unpacking target — as making the selection unknowable,
+  because a stale literal would hide names the mutation added.
 - Star exports are expanded only when the exporting module can be resolved
   statically from source. A wildcard whose export set cannot be resolved is
   reported as unresolved rather than approximated away.

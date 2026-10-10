@@ -17,7 +17,9 @@ models two distinct views of each module:
     module pulled in by ``from origin import *``.
 
 Symbol-origin provenance and policy classification are layered on top of this
-model by :mod:`hecate.origins` and :mod:`hecate.policy` respectively.
+model by :mod:`hecate.origins` and :mod:`hecate.policy` respectively. Reading
+the ``__all__`` sequence itself is :mod:`hecate.all_sequence`, which this module
+consults for the wildcard selection.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ import ast
 import dataclasses as dc
 import typing as typ
 
+from .all_sequence import literal_all_names
 from .imports import compute_module_name, resolve_import_from
 from .module_scope import module_level_statements
 
@@ -62,7 +65,14 @@ class ModuleNamespace:
 
     module: str
     bindings: tuple[tuple[str, Binding], ...]
-    """Module-level bindings in source order, so later bindings win."""
+    """Module-level bindings in source order.
+
+    A name may appear more than once. A binding written unconditionally
+    replaces every earlier candidate for its name, because no path through the
+    module can reach them; a binding inside a control-flow block only adds a
+    candidate, because which branch runs decides the name's value. Both are
+    recorded so provenance can report every origin a name may hold.
+    """
 
     all_names: tuple[str, ...] | None = None
     """Names from the last literal ``__all__`` assignment, or ``None``."""
@@ -76,9 +86,18 @@ class ModuleNamespace:
         return self.all_names is not None
 
     @property
-    def binding_map(self) -> dict[str, Binding]:
-        """Return bound names keyed by name, honouring last-binding-wins."""
-        return dict(self.bindings)
+    def bound_names(self) -> frozenset[str]:
+        """Return every name the module binds, in any way."""
+        return frozenset(name for name, _ in self.bindings)
+
+    def bindings_for(self, name: str) -> tuple[Binding, ...]:
+        """Return every binding ``name`` may hold, in source order.
+
+        More than one entry means the name's value depends on which branch of
+        the module ran, so each entry is a distinct possible origin rather than
+        a superseded one.
+        """
+        return tuple(binding for bound, binding in self.bindings if bound == name)
 
 
 def analyse_namespaces(
@@ -134,14 +153,21 @@ def analyse_namespace(
     ModuleNamespace
         Bindings in source order plus the raw wildcard export selection.
     """
-    bindings: dict[str, Binding] = {}
+    bindings: list[tuple[str, Binding]] = []
     wildcard_origins: list[str] = []
-    for node, _ in module_level_statements(tree.body):
-        bindings.update(
-            _bindings_from_statement(
-                node, module=module, is_package_init=is_package_init
-            )
+    for node, is_nested in module_level_statements(tree.body):
+        found = _bindings_from_statement(
+            node, module=module, is_package_init=is_package_init
         )
+        if is_nested or _binds_conditionally(node):
+            # A conditional binding adds a candidate; it cannot displace an
+            # earlier binding, because the branch may not have run.
+            bindings.extend(found)
+        else:
+            # An unconditional binding runs on every path, so it supersedes
+            # every earlier candidate for the names it binds.
+            _supersede(bindings, {name for name, _ in found})
+            bindings.extend(found)
         wildcard_origins.extend(
             _wildcard_origins_from_statement(
                 node, module=module, is_package_init=is_package_init
@@ -149,34 +175,82 @@ def analyse_namespace(
         )
     return ModuleNamespace(
         module=module,
-        bindings=tuple(bindings.items()),
-        all_names=_literal_all_names(tree),
+        bindings=tuple(bindings),
+        all_names=literal_all_names(tree),
         wildcard_origins=tuple(dict.fromkeys(wildcard_origins)),
     )
+
+
+def _supersede(bindings: list[tuple[str, Binding]], names: set[str]) -> None:
+    """Drop every earlier candidate for ``names``, in place.
+
+    Used for an unconditional binding, which no earlier candidate can survive
+    on any execution path.
+    """
+    bindings[:] = [(name, binding) for name, binding in bindings if name not in names]
+
+
+def _binds_conditionally(node: ast.stmt) -> bool:
+    """Return whether a module-level statement binds only if it runs to completion.
+
+    A ``for`` target is bound once per iteration, so an empty iterable leaves
+    the name unbound. The statement sits at module level, but the binding it
+    makes is as conditional as one written inside an ``if``.
+    """
+    return isinstance(node, ast.For | ast.AsyncFor)
 
 
 def _bindings_from_statement(
     node: ast.stmt, *, module: str, is_package_init: bool
 ) -> tuple[tuple[str, Binding], ...]:
-    """Return the names one top-level statement binds."""
-    if isinstance(node, ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
-        return ((node.name, Definition()),)
-    if isinstance(node, ast.Assign):
-        return tuple(
-            (name, Definition())
-            for target in node.targets
-            for name in _assigned_names(target)
-        )
-    if isinstance(node, ast.AnnAssign):
-        name = _annotated_target_name(node)
-        return () if name is None else ((name, Definition()),)
-    if isinstance(node, ast.Import):
-        return _direct_import_bindings(node)
-    if isinstance(node, ast.ImportFrom):
-        return _from_import_bindings(
-            node, module=module, is_package_init=is_package_init
-        )
-    return ()
+    """Return the names one module-scope statement binds.
+
+    ``import`` forms need the module context to resolve their origin, so they
+    are handled here; every other statement binds plain definitions, which
+    :func:`_defined_names` covers.
+    """
+    match node:
+        case ast.Import():
+            return _direct_import_bindings(node)
+        case ast.ImportFrom():
+            return _from_import_bindings(
+                node, module=module, is_package_init=is_package_init
+            )
+        case _:
+            return tuple((name, Definition()) for name in _defined_names(node))
+
+
+def _defined_names(node: ast.stmt) -> tuple[str, ...]:
+    """Return the names a non-import statement defines at module scope.
+
+    Every form here runs at import time and binds module attributes. Type
+    aliases, loop targets and ``with`` targets are easy to overlook because
+    they do not look like assignments, but a name they bind is as reachable by
+    ``from module import name`` as any other.
+    """
+    names: tuple[str, ...] = ()
+    match node:
+        case ast.ClassDef() | ast.FunctionDef() | ast.AsyncFunctionDef():
+            names = (node.name,)
+        case ast.TypeAlias():
+            names = _assigned_names(node.name)
+        case ast.Assign():
+            names = tuple(
+                name for target in node.targets for name in _assigned_names(target)
+            )
+        case ast.AnnAssign():
+            name = _annotated_target_name(node)
+            names = () if name is None else (name,)
+        case ast.For() | ast.AsyncFor():
+            names = _assigned_names(node.target)
+        case ast.With() | ast.AsyncWith():
+            names = tuple(
+                name
+                for item in node.items
+                if item.optional_vars is not None
+                for name in _assigned_names(item.optional_vars)
+            )
+    return names
 
 
 def _assigned_names(target: ast.expr) -> tuple[str, ...]:
@@ -266,82 +340,3 @@ def _resolve_from(
         level=node.level,
         imported_module=node.module,
     )
-
-
-def _literal_all_names(tree: ast.Module) -> tuple[str, ...] | None:
-    """Return the names the module's ``__all__`` ends up holding, if knowable.
-
-    A plain assignment replaces the sequence outright, while an augmented
-    assignment extends whatever the sequence held before. An operation Hecate
-    cannot evaluate leaves the sequence unknown, which the caller reads as
-    "fall back to the default public-name rule" rather than as emptiness.
-
-    An ``__all__`` assigned inside a control-flow block is conditional, so which
-    branch ran decides the result. Hecate cannot evaluate the condition, so it
-    treats such an assignment as making the sequence unknowable rather than
-    guessing from source order.
-    """
-    names: tuple[str, ...] | None = None
-    for node, is_nested in module_level_statements(tree.body):
-        assignment = _all_assignment(node)
-        if assignment is None:
-            continue
-        if is_nested:
-            return None
-        names = _apply_all_assignment(assignment, names=names)
-    return names
-
-
-def _apply_all_assignment(
-    assignment: tuple[bool, ast.expr | None], *, names: tuple[str, ...] | None
-) -> tuple[str, ...] | None:
-    """Return the ``__all__`` sequence after one assignment statement.
-
-    ``names`` is the sequence beforehand, or ``None`` when it is not statically
-    known. A ``None`` result means the sequence stays, or becomes, unknowable.
-    """
-    is_augmented, value = assignment
-    if value is None:
-        return names
-    additions = _literal_string_sequence(value)
-    if additions is None:
-        return None
-    if is_augmented:
-        # ``__all__ += [...]`` extends; it only stays knowable if it started
-        # knowable, since the prefix is whatever the earlier value held.
-        return None if names is None else (*names, *additions)
-    return additions
-
-
-def _all_assignment(node: ast.stmt) -> tuple[bool, ast.expr | None] | None:
-    """Return ``(is_augmented, value)`` when ``node`` assigns to ``__all__``.
-
-    ``value`` is ``None`` for an augmented assignment with a non-list operand,
-    which cannot extend the sequence and so clears any known value.
-    """
-    if isinstance(node, ast.Assign) and _assigns_all(node.targets):
-        return (False, node.value)
-    if isinstance(node, ast.AnnAssign) and _target_is_all(node.target):
-        return (False, node.value)
-    if isinstance(node, ast.AugAssign) and _target_is_all(node.target):
-        return (True, node.value)
-    return None
-
-
-def _assigns_all(targets: list[ast.expr]) -> bool:
-    return any(_target_is_all(target) for target in targets)
-
-
-def _target_is_all(target: ast.expr) -> bool:
-    return isinstance(target, ast.Name) and target.id == "__all__"
-
-
-def _literal_string_sequence(value: ast.expr) -> tuple[str, ...] | None:
-    if not isinstance(value, ast.List | ast.Tuple):
-        return None
-    names: list[str] = []
-    for element in value.elts:
-        if not isinstance(element, ast.Constant) or not isinstance(element.value, str):
-            return None
-        names.append(element.value)
-    return tuple(names)

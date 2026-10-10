@@ -103,25 +103,35 @@ class OriginIndex:
             return ()
         origins: list[str] = []
         for name in sorted(self._export_names(module, seen=frozenset())):
-            origins.extend(self._symbol_origins(module, name, seen=frozenset()))
+            expanded = self._symbol_origins(module, name, seen=frozenset())
+            # A name ``__all__`` selects but no binding supplies is still
+            # exported: Python raises when the star import runs, and Hecate
+            # reports the name so normal resolution classifies it unresolved
+            # instead of letting the export disappear.
+            origins.extend(expanded or (f"{module}{SYMBOL_SEPARATOR}{name}",))
         origins.extend(self._opaque_wildcard_origins(module, seen=frozenset()))
         return tuple(dict.fromkeys(origins))
 
-    def _effective_binding(self, module: str, symbol: str) -> Binding | None:
-        """Return how ``symbol`` is supplied on ``module``, if it is at all.
+    def _effective_bindings(self, module: str, symbol: str) -> tuple[Binding, ...]:
+        """Return every way ``symbol`` may be supplied on ``module``.
 
-        A name bound directly on the module wins. Otherwise the name may arrive
-        through ``from origin import *``, in which case the supplying module is
+        A name bound directly on the module is supplied by each of its bindings,
+        because a conditional rebinding leaves the name holding whichever
+        branch ran. A name the module does not bind may still arrive through
+        ``from origin import *``, in which case the supplying module is
         recorded as its origin so provenance keeps flowing.
+
+        An empty result means the name is not supplied at all.
         """
         namespace = self.namespaces[module]
-        binding = namespace.binding_map.get(symbol)
-        if binding is not None:
-            return binding
-        for wildcard_origin in namespace.wildcard_origins:
-            if symbol in self._export_names(wildcard_origin, seen=frozenset()):
-                return Imported(origin=wildcard_origin, symbol=symbol)
-        return None
+        bindings = namespace.bindings_for(symbol)
+        if bindings:
+            return bindings
+        return tuple(
+            Imported(origin=wildcard_origin, symbol=symbol)
+            for wildcard_origin in namespace.wildcard_origins
+            if symbol in self._export_names(wildcard_origin, seen=frozenset())
+        )
 
     def _export_names(self, module: str, *, seen: frozenset[str]) -> frozenset[str]:
         """Return the names ``from module import *`` would bind."""
@@ -130,7 +140,7 @@ class OriginIndex:
         namespace = self.namespaces[module]
         if namespace.has_explicit_all:
             return frozenset(namespace.all_names or ())
-        names = {name for name, _ in namespace.bindings if not name.startswith("_")}
+        names = {name for name in namespace.bound_names if not name.startswith("_")}
         next_seen = seen | {module}
         for wildcard_origin in namespace.wildcard_origins:
             names |= self._export_names(wildcard_origin, seen=next_seen)
@@ -149,6 +159,13 @@ class OriginIndex:
         return tuple(dict.fromkeys(self._walk_symbol(qualified, seen=seen)))
 
     def _walk_symbol(self, qualified: str, *, seen: frozenset[str]) -> list[str]:
+        """Return every origin reachable from the qualified name ``qualified``.
+
+        A name with several bindings has several possible origins, because
+        which one supplies it depends on what ran at import time. Each is
+        followed separately, so a forbidden origin cannot hide behind an
+        allowed one that happens to be written later.
+        """
         if qualified in seen:
             return []
         next_seen = seen | {qualified}
@@ -157,16 +174,21 @@ class OriginIndex:
         # name whose module Hecate never analysed has nothing deeper to follow.
         if qualified in self.namespaces or module not in self.namespaces:
             return [qualified]
-        binding = self._effective_binding(module, symbol)
-        if binding is None:
+        bindings = self._effective_bindings(module, symbol)
+        if not bindings:
             return []
-        if isinstance(binding, Definition):
-            return [qualified]
-        if binding.symbol is None:
-            # ``import a.b`` binds the module itself, not one of its attributes.
-            return [qualified, binding.origin]
-        child = f"{binding.origin}{SYMBOL_SEPARATOR}{binding.symbol}"
-        return [qualified, *self._walk_symbol(child, seen=next_seen)]
+        origins = [qualified]
+        for binding in bindings:
+            if isinstance(binding, Definition):
+                # The name is defined here, which the leading entry records.
+                continue
+            if binding.symbol is None:
+                # ``import a.b`` binds the module itself, not its attributes.
+                origins.append(binding.origin)
+                continue
+            child = f"{binding.origin}{SYMBOL_SEPARATOR}{binding.symbol}"
+            origins.extend(self._walk_symbol(child, seen=next_seen))
+        return origins
 
     def _opaque_wildcard_origins(
         self, module: str, *, seen: frozenset[str]

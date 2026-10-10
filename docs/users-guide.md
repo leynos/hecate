@@ -144,7 +144,14 @@ module, matching Python's own rules:
 `__all__` selects wildcard exports only. It never removes a binding, so an
 explicitly imported re-export keeps its origin even when `__all__` omits it or
 is set to `[]`. A wildcard over `__all__ = []` binds nothing beyond the module
-edge, because that is what Python does.
+edge, because that is what Python does. A name `__all__` selects but the module
+never binds still counts as exported, and is reported as unresolved, because
+the star import raises `AttributeError` when it runs.
+
+When a module binds one name more than once, Hecate reports every origin the
+name may hold. A binding written unconditionally runs on every import and
+supersedes earlier candidates; a binding inside an `if`, `try`, or loop body
+may not run, so it adds an origin instead of replacing one.
 
 Where `__all__` is absent or non-literal, the default public-name rule applies.
 Star exports are expanded when the origin module can be resolved statically. A

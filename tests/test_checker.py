@@ -279,8 +279,11 @@ def test_documented_ignore_still_exempts_and_stays_distinguishable(
 
     assert result.ok, f"a documented ignore must suppress the violation, got {result!r}"
     assert result.ignored, f"expected the exemption to be reported, got {result!r}"
-    assert all(entry.state is not EdgeState.FORBIDDEN for entry in result.coverage), (
-        "an exempted edge must be distinguishable from an unclassified one"
+    assert not result.coverage, (
+        f"an exempted edge must not also appear as coverage, got {result.coverage!r}"
+    )
+    assert not result.violations, (
+        f"an exempted edge must not appear as a violation, got {result.violations!r}"
     )
 
 
