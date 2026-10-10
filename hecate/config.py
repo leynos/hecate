@@ -12,6 +12,7 @@ from .config_helpers import (
     _Loc,
     _read_bool,
     _read_mapping,
+    _read_severity,
     _read_string,
     _read_string_tuple,
     _validate_dotted_strings,
@@ -238,26 +239,6 @@ def _parse_packages(
         _parse_package_table_item(item, index, path)
         for index, item in enumerate(configured)
     )
-
-
-def _read_severity(
-    data: dict[str, object],
-    key: str,
-    *,
-    default: Severity,
-    path: Path,
-) -> Severity:
-    """Read a severity value, rejecting unknown names with a clear error."""
-    value = data.get(key, default.value)
-    if not isinstance(value, str):
-        msg = f"{path}: tool.hecate.{key} must be a string"
-        raise ConfigError(msg)
-    try:
-        return Severity(value)
-    except ValueError as error:
-        allowed = ", ".join(severity.value for severity in Severity)
-        msg = f"{path}: tool.hecate.{key} must be one of: {allowed}"
-        raise ConfigError(msg) from error
 
 
 def _parse_group_item(

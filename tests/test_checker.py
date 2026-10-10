@@ -81,20 +81,42 @@ def _check(
     return check_architecture(config)
 
 
-def test_explicit_import_keeps_origin_when_all_omits_it(tmp_path: Path) -> None:
-    """An explicitly imported re-export stays forbidden despite ``__all__ = []``."""
-    result = _check(
-        tmp_path,
+def _check_api_consumer(
+    root: Path,
+    *,
+    barrel: str,
+    consumer: str,
+    policy: ArchitecturePolicy | None = None,
+) -> ArchitectureCheckResult:
+    """Check ``pkg.api`` re-export semantics for one consumer statement.
+
+    Each re-export scenario differs only in the barrel's ``__all__`` and in how
+    the consumer reaches through it, so the package tree lives here and each
+    test supplies just those two strings. The ``api`` group may import the
+    adapter group, which is what makes a leaked re-export a violation.
+    """
+    return _check(
+        root,
         {
             "__init__.py": "",
-            "api/__init__.py": _REEXPORT_HIDDEN_FROM_WILDCARDS,
+            "api/__init__.py": barrel,
             "api/routes.py": "",
             "application/__init__.py": "",
-            "application/service.py": "from pkg.api import Database\n",
+            "application/service.py": consumer,
             "adapters/__init__.py": "",
             "adapters/database.py": "class Database: ...\n",
             "domain/__init__.py": "",
         },
+        policy=policy,
+    )
+
+
+def test_explicit_import_keeps_origin_when_all_omits_it(tmp_path: Path) -> None:
+    """An explicitly imported re-export stays forbidden despite ``__all__ = []``."""
+    result = _check_api_consumer(
+        tmp_path,
+        barrel=_REEXPORT_HIDDEN_FROM_WILDCARDS,
+        consumer="from pkg.api import Database\n",
     )
 
     imported = {violation.imported for violation in result.violations}
@@ -106,18 +128,10 @@ def test_explicit_import_keeps_origin_when_all_omits_it(tmp_path: Path) -> None:
 
 def test_wildcard_consumer_expands_to_symbol_origins(tmp_path: Path) -> None:
     """A wildcard consumer inherits the origins its export set provides."""
-    result = _check(
+    result = _check_api_consumer(
         tmp_path,
-        {
-            "__init__.py": "",
-            "api/__init__.py": _REEXPORT_EXPOSED_TO_WILDCARDS,
-            "api/routes.py": "",
-            "application/__init__.py": "",
-            "application/service.py": "from pkg.api import *\n",
-            "adapters/__init__.py": "",
-            "adapters/database.py": "class Database: ...\n",
-            "domain/__init__.py": "",
-        },
+        barrel=_REEXPORT_EXPOSED_TO_WILDCARDS,
+        consumer="from pkg.api import *\n",
     )
 
     imported = {violation.imported for violation in result.violations}
@@ -128,18 +142,10 @@ def test_wildcard_consumer_expands_to_symbol_origins(tmp_path: Path) -> None:
 
 def test_wildcard_over_empty_all_binds_no_symbols(tmp_path: Path) -> None:
     """A wildcard over ``__all__ = []`` contributes only the module edge."""
-    result = _check(
+    result = _check_api_consumer(
         tmp_path,
-        {
-            "__init__.py": "",
-            "api/__init__.py": _REEXPORT_HIDDEN_FROM_WILDCARDS,
-            "api/routes.py": "",
-            "application/__init__.py": "",
-            "application/service.py": "from pkg.api import *\n",
-            "adapters/__init__.py": "",
-            "adapters/database.py": "class Database: ...\n",
-            "domain/__init__.py": "",
-        },
+        barrel=_REEXPORT_HIDDEN_FROM_WILDCARDS,
+        consumer="from pkg.api import *\n",
     )
 
     consumer_imports = {

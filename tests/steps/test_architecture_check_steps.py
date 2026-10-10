@@ -103,15 +103,7 @@ def when_run_hecate_json(
     fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
 ) -> None:
     """Run the checker with machine-readable output for coverage assertions."""
-    exit_code = main([
-        "check",
-        "--config",
-        str(fixture_ctx.config),
-        "--format",
-        "json",
-    ])
-    captured = capsys.readouterr()
-    fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
+    _run_checker(fixture_ctx, capsys, "--format", "json")
 
 
 @when("I run Hecate against the fixture in strict mode")
@@ -119,13 +111,20 @@ def when_run_hecate_strict(
     fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
 ) -> None:
     """Run the checker in strict mode with coverage reporting enabled."""
-    exit_code = main([
-        "check",
-        "--config",
-        str(fixture_ctx.config),
-        "--strict",
-        "--show-coverage",
-    ])
+    _run_checker(fixture_ctx, capsys, "--strict", "--show-coverage")
+
+
+def _run_checker(
+    fixture_ctx: FixtureContext,
+    capsys: CaptureFixture[str],
+    *extra_args: str,
+) -> None:
+    """Run the CLI against the fixture config and record the captured result.
+
+    Every ``when`` step drives the same command and differs only in the flags,
+    so the invocation and capture live here and each step names its flags.
+    """
+    exit_code = main(["check", "--config", str(fixture_ctx.config), *extra_args])
     captured = capsys.readouterr()
     fixture_ctx.result = CliRun(exit_code, captured.out, captured.err)
 

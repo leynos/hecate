@@ -27,9 +27,9 @@ import dataclasses as dc
 import typing as typ
 
 from .imports import compute_module_name, resolve_import_from
+from .module_scope import module_level_statements
 
 if typ.TYPE_CHECKING:
-    import collections.abc as cabc
     from pathlib import Path
 
     from .config import PackageRoot
@@ -112,56 +112,6 @@ def analyse_module(source_path: Path, *, module: str) -> ModuleNamespace:
     return analyse_namespace(
         tree, module=module, is_package_init=source_path.name == "__init__.py"
     )
-
-
-#: Nodes whose bodies run in their own local scope. Names bound inside them are
-#: not module attributes, and imports inside them are not module imports, so the
-#: traversal stops here.
-_LOCAL_SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
-
-
-def module_level_statements(
-    body: list[ast.stmt],
-) -> cabc.Iterator[tuple[ast.stmt, bool]]:
-    """Yield every statement that runs at module scope, with a nesting flag.
-
-    A module-level ``if``, ``try``, loop, ``with``, or ``match`` still executes
-    its body at import time, so a binding or import inside one is a real part of
-    the module's behaviour. Reading only the top level would miss those entirely.
-    Function and class bodies are skipped, because what they bind is local.
-
-    The flag is ``False`` for a statement written directly at module level and
-    ``True`` for one nested inside a control-flow block. Callers that need to
-    reason about execution order, such as ``__all__``, use it to tell an
-    unconditional statement from a conditional one.
-    """
-    for node in body:
-        yield node, False
-        yield from _nested_module_statements(node)
-
-
-def _nested_module_statements(node: ast.stmt) -> cabc.Iterator[tuple[ast.stmt, bool]]:
-    if isinstance(node, _LOCAL_SCOPE_NODES):
-        return
-    for child in _direct_bodies(node):
-        for nested, _ in module_level_statements([child]):
-            yield nested, True
-
-
-def _direct_bodies(node: ast.stmt) -> list[ast.stmt]:
-    """Return the statements nested one level inside ``node``."""
-    if isinstance(node, ast.If | ast.For | ast.AsyncFor | ast.While):
-        return [*node.body, *node.orelse]
-    if isinstance(node, ast.Try | ast.TryStar):
-        bodies = [*node.body, *node.orelse, *node.finalbody]
-        for handler in node.handlers:
-            bodies.extend(handler.body)
-        return bodies
-    if isinstance(node, ast.With | ast.AsyncWith):
-        return list(node.body)
-    if isinstance(node, ast.Match):
-        return [statement for case in node.cases for statement in case.body]
-    return []
 
 
 def analyse_namespace(
