@@ -86,6 +86,64 @@ def test_wildcard_inside_module_level_if_is_seen(tmp_path: Path) -> None:
     )
 
 
+def test_import_inside_while_and_match_is_seen(tmp_path: Path) -> None:
+    """``while`` and ``match`` bodies run at module scope too.
+
+    Both are compound statements whose bodies execute at import time, so a
+    binding inside one is a module attribute. Reading only ``if`` and ``try``
+    would report a valid import of either name as unresolved.
+    """
+    namespaces = _analyse(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "m.py": (
+                "while False:\n"
+                "    from . import from_while\n"
+                "match 1:\n"
+                "    case 1:\n"
+                "        from . import from_match\n"
+            ),
+            "from_while.py": "",
+            "from_match.py": "",
+        },
+    )
+
+    assert {"from_while", "from_match"} <= namespaces["pkg.m"].bound_names, (
+        f"while and match bodies must bind: {namespaces['pkg.m'].bindings!r}"
+    )
+
+
+def test_bindings_inside_function_and_class_bodies_are_not_module_names(
+    tmp_path: Path,
+) -> None:
+    """Local scopes are excluded, so their names are not module attributes.
+
+    A function or class body runs in its own namespace, so a name bound there
+    is not reachable by ``from module import name``. Reporting it as a module
+    binding would let an import that fails at runtime look resolved.
+    """
+    namespaces = _analyse(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "m.py": (
+                "def function():\n"
+                "    from . import local_helper\n"
+                "class Klass:\n"
+                "    from . import class_helper\n"
+            ),
+            "local_helper.py": "",
+            "class_helper.py": "",
+        },
+    )
+
+    assert namespaces["pkg.m"].bound_names == {"function", "Klass"}, (
+        "only the def and class names themselves are module bindings, got "
+        f"{namespaces['pkg.m'].bindings!r}"
+    )
+
+
 def test_conditional_all_is_treated_as_unknowable(tmp_path: Path) -> None:
     """An ``__all__`` set inside a branch cannot be pinned to one value.
 

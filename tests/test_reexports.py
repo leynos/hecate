@@ -283,6 +283,72 @@ def test_unresolved_star_reexport_is_not_a_known_module(tmp_path: Path) -> None:
     )
 
 
+def test_star_reexport_flattens_transitive_wildcard_origin(tmp_path: Path) -> None:
+    """Star re-export chains flatten to the symbol's defining module.
+
+    Each barrel in the chain re-exports by wildcard, so the origin has to be
+    followed through every hop rather than stopping at the first.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .barrel import *\n",
+            "barrel.py": "from .nested import *\n",
+            "nested.py": "__all__ = ['Thing']\nclass Thing: ...\n",
+        },
+    )
+
+    assert index.wildcard_exports("pkg") == (
+        "pkg.Thing",
+        "pkg.barrel.Thing",
+        "pkg.nested.Thing",
+    ), "a wildcard chain must record every hop so policy can evaluate each one"
+
+
+def test_star_reexport_cycle_is_short_circuited(tmp_path: Path) -> None:
+    """Recursive star re-export cycles terminate instead of recursing forever.
+
+    ``barrel`` and ``nested`` star-import each other and neither defines
+    anything, so the expansion has no finite endpoint. The cycle guard must
+    stop the walk rather than overflow the stack.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .barrel import *\n",
+            "barrel.py": "from .nested import *\n",
+            "nested.py": "from .barrel import *\n",
+        },
+    )
+
+    exports = index.wildcard_exports("pkg")
+    assert not exports, f"a cyclic star export defines nothing, got {exports!r}"
+
+
+def test_chained_reexport_expands_transitive_origin(tmp_path: Path) -> None:
+    """A named re-export chain follows every intermediate barrel.
+
+    Each module re-exports ``db`` by name, so the name resolves hop by hop
+    down to the module that defines it. Stopping at the first hop would
+    attribute the import to a barrel instead of the database adapter.
+    """
+    index = _index(
+        tmp_path,
+        {
+            "__init__.py": "from .adapters import db\n__all__ = ['db']\n",
+            "adapters/__init__.py": "from .outbound import db\n__all__ = ['db']\n",
+            "adapters/outbound/__init__.py": "from . import db\n__all__ = ['db']\n",
+            "adapters/outbound/db.py": "class Database: ...\n",
+        },
+    )
+
+    assert index.origins_for("pkg.db") == (
+        "pkg.db",
+        "pkg.adapters.db",
+        "pkg.adapters.outbound.db",
+    ), "a named re-export chain must follow every intermediate barrel"
+
+
 def test_all_name_never_bound_stays_visible_as_unresolved(tmp_path: Path) -> None:
     """``__all__`` naming a symbol the module lacks is reported, not dropped.
 

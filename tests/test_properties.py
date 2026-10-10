@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import ast
 from pathlib import Path
 
 from hypothesis import given
 from hypothesis import strategies as st
 
+from hecate.all_sequence import literal_all_names
 from hecate.config import PackageRoot
 from hecate.diagnostics import ArchitectureViolation
 from hecate.imports import compute_module_name, relative_import_base
@@ -132,4 +134,68 @@ def test_text_json_diagnostics_preserve_violation_identity(tmp_path: Path) -> No
     )
     assert payload["line"] == identity[3], (
         f"expected line {identity[3]!r}, got {payload['line']!r}"
+    )
+
+
+_ALL_OPERATIONS = st.one_of(
+    st.tuples(st.just("literal"), st.lists(IDENTIFIER, max_size=3)),
+    st.tuples(st.just("augmented"), st.lists(IDENTIFIER, max_size=3)),
+    st.tuples(st.just("unknown"), st.just(())),
+    st.tuples(st.just("conditional"), st.lists(IDENTIFIER, max_size=3)),
+)
+
+
+def _render_all_assignments(operations: list[tuple[str, list[str]]]) -> str:
+    """Render a generated operation sequence as module source."""
+    lines: list[str] = ["class Thing: ...\n"]
+    for kind, names in operations:
+        literal = "[" + ", ".join(f"'{name}'" for name in names) + "]"
+        if kind == "literal":
+            lines.append(f"__all__ = {literal}\n")
+        elif kind == "augmented":
+            lines.append(f"__all__ += {literal}\n")
+        elif kind == "conditional":
+            lines.append(f"if True:\n    __all__ = {literal}\n")
+        else:
+            lines.append("__all__ = tuple(__name__)\n")
+    return "".join(lines)
+
+
+def _fold_all_reference(
+    operations: list[tuple[str, list[str]]],
+) -> tuple[str, ...] | None:
+    """Return the expected ``__all__`` value, as an independent reference fold.
+
+    This restates the model in a few lines so the test compares the production
+    evaluator against a second implementation rather than against itself.
+    """
+    names: tuple[str, ...] | None = None
+    for kind, additions in operations:
+        if kind == "literal":
+            names = tuple(additions)
+        elif kind == "augmented":
+            names = None if names is None else (*names, *additions)
+        elif kind == "conditional":
+            names = None
+        else:
+            names = None
+    return names
+
+
+@given(st.lists(_ALL_OPERATIONS, max_size=6))
+def test_all_sequence_evaluation_matches_a_reference_fold(
+    operations: list[tuple[str, list[str]]],
+) -> None:
+    """The analyser's ``__all__`` result matches an independent reference fold.
+
+    Reading the sequence statically is subtle because three different
+    operations interact: a literal replaces, an augmented assignment extends
+    only what is already known, and anything unreadable or branch-scoped
+    clears the known value. Comparing against a small reference fold catches a
+    change that makes one of those overwrite the others.
+    """
+    tree = ast.parse(_render_all_assignments(operations))
+
+    assert literal_all_names(tree) == _fold_all_reference(operations), (
+        f"__all__ evaluation disagreed with the reference fold for {operations!r}"
     )
