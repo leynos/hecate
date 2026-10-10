@@ -15,7 +15,7 @@ hecate = "hecate.cli:main"
 [dependency-groups]
 dev = [
     "crosshair-tool",
-    "hypothesis>=6.0,<7",
+    "hypothesis>=6.168.3,<7",
     "pytest",
     "pytest-bdd",
     "ruff",
@@ -24,7 +24,7 @@ dev = [
     "pytest-timeout",
     "pytest-xdist",
     "pyyaml>=6.0.3",
-    "packaging>=26.2,<27",
+    "packaging>=26.3,<27",
 ]
 
 [tool.ruff]
