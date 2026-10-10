@@ -161,6 +161,23 @@ def _render_all_assignments(operations: list[tuple[str, list[str]]]) -> str:
     return "".join(lines)
 
 
+def _fold_all_step(
+    names: tuple[str, ...] | None, operation: tuple[str, list[str]]
+) -> tuple[str, ...] | None:
+    """Return the known ``__all__`` value after one generated operation.
+
+    Each operation is a rule about what survives: a literal replaces whatever
+    was known, an augmented assignment extends only a known sequence, and
+    anything unreadable or branch-scoped clears the value.
+    """
+    kind, additions = operation
+    if kind == "literal":
+        return tuple(additions)
+    if kind == "augmented":
+        return None if names is None else (*names, *additions)
+    return None
+
+
 def _fold_all_reference(
     operations: list[tuple[str, list[str]]],
 ) -> tuple[str, ...] | None:
@@ -170,15 +187,8 @@ def _fold_all_reference(
     evaluator against a second implementation rather than against itself.
     """
     names: tuple[str, ...] | None = None
-    for kind, additions in operations:
-        if kind == "literal":
-            names = tuple(additions)
-        elif kind == "augmented":
-            names = None if names is None else (*names, *additions)
-        elif kind == "conditional":
-            names = None
-        else:
-            names = None
+    for operation in operations:
+        names = _fold_all_step(names, operation)
     return names
 
 
