@@ -2,6 +2,105 @@
 
 This guide records internal conventions for maintaining hecate.
 
+## Import analysis architecture
+
+Import analysis is a pipeline of single-purpose modules, so that parser,
+namespace model, provenance, policy, and output stay separable and another
+engine could replace the parser without changing the TOML policy schema. See
+[ADR 001](adr-001-stdlib-ast-import-engine.md) for the decision and its limits.
+
+| Module            | Responsibility                                                     |
+| ----------------- | ------------------------------------------------------------------ |
+| `imports.py`      | Collect `Import` and `ImportFrom` statements from source text.     |
+| `module_scope.py` | Yield the statements that run at module scope, with nesting flags. |
+| `all_sequence.py` | Evaluate a module's `__all__` sequence, or report it unknowable.   |
+| `namespaces.py`   | Model bindings and wildcard exports per module.                    |
+| `origins.py`      | Resolve an import target to the modules that supply it.            |
+| `policy.py`       | Classify edges against groups, allow-lists, and ignores.           |
+| `checker.py`      | Orchestrate the traversal and assemble the result.                 |
+| `diagnostics.py`  | Hold the stable, ordered diagnostic dataclasses.                   |
+| `output.py`       | Render text and JSON output.                                       |
+
+`imports.py` exposes `DirectImport` and `FromImport`, plus the helpers
+`compute_module_name` (dotted name for a source path under a package root) and
+`relative_import_base` (absolute base for a relative import level).
+`collect_import_statements` returns statements in source order, so later code
+can apply Python's ordering rules; `FromImport.names` preserves `"*"` entries
+verbatim, so wildcard handling is decided downstream rather than assumed here.
+
+`module_scope.py` answers only which statements run at module scope: an `if`,
+`try`, loop, `with`, or `match` body still executes at import time, so its
+bindings count, while `def`, `async def`, and `class` bodies open a local scope
+and are not traversed. Its nesting flag separates a statement that always runs
+from one that may not, which `all_sequence.py` and `namespaces.py` read when
+deciding whether a later assignment replaces an earlier one or only adds a
+possibility.
+
+`namespaces.py` is the module namespace model. `ModuleNamespace` records
+`bindings` (a name may appear more than once, because a conditional rebinding
+adds a candidate), the literal `__all__` sequence, and the modules a wildcard
+import pulls in. `analyse_namespaces` walks every package root and
+`analyse_module` analyses one file.
+
+`origins.py` layers provenance over that model. `build_origin_index` builds an
+`OriginIndex` over already-analysed namespaces; `origins_for` maps one written
+target to every module that plausibly supplies it, following re-export chains,
+and `wildcard_exports` lists the concrete origins a star import would bind.
+`Resolution` records how far a target was resolved: `RESOLVED`,
+`UNRESOLVED_INTERNAL`, or `EXTERNAL`. An unresolved target is classified rather
+than dropped, so policy can tell "no dependency exists" from "Hecate could not
+tell".
+
+`policy.py` holds the validated policy. `ModuleGroup` is a named group matched
+by ordered dotted prefixes, and `first_matching_group` returns the first
+configured group containing a module. `IgnoredImport` is one documented ignore;
+`ignore_matches` matches both endpoints by dotted prefix. `ArchitecturePolicy`
+also carries `strict`, `include_external_packages`, and the severity for
+unresolved internal edges.
+
+`checker.py` orchestrates the run. `check_architecture` analyses namespaces,
+builds the origin index, evaluates every statement under each package root, and
+returns an `ArchitectureCheckResult` whose `ok` property is true only when
+there are no violations and no coverage diagnostic at error severity.
+`diagnostics.py` defines `ArchitectureViolation` for a forbidden classified
+edge and `CoverageDiagnostic` for an edge that could not be fully evaluated.
+
+### Bindings and wildcard exports
+
+These are separate concepts and must stay separate. A module **binds** a name
+when it defines or imports it; `from module import name` reaches every binding.
+A module **exports to wildcards** the names `__all__` selects, or its public
+bindings when `__all__` is absent. `__all__` governs only the wildcard
+selection: it never unbinds a name, so an explicitly imported re-export keeps
+its origin even when `__all__` omits it or is set to `[]`. Filtering bindings
+through `__all__` produces false negatives, letting a re-export evade a
+boundary rule. A name `__all__` selects but no binding supplies stays in the
+export set so normal resolution reports it unresolved, matching the
+`AttributeError` Python raises.
+
+### Required data flow
+
+Every run follows this order, and later stages assume it:
+
+1. Collect import statements from source (`imports.py`).
+2. Analyse module namespaces, bindings, and wildcard selection
+   (`module_scope.py`, `all_sequence.py`, `namespaces.py`).
+3. Resolve origins and wildcard exports (`origins.py`).
+4. Classify each edge against policy, honouring ignores first (`policy.py`).
+5. Record diagnostics and render them (`diagnostics.py`, `output.py`).
+
+`checker.py` owns this order: skipping or reordering a stage leaves edges
+unexamined, which the coverage model reports rather than hides. Each in-scope
+edge receives exactly one of `permitted`, `forbidden`, `exempted`,
+`unclassified`, or `unresolved`, so a green result means the relevant edges
+were understood and evaluated rather than merely absent.
+
+`hecate/reexports.py` no longer exists. Its responsibilities are now split
+between `namespaces.py` (bindings and wildcard selection) and `origins.py`
+(provenance over them). See the
+[users' guide](users-guide.md#re-export-handling) for the observable behaviour
+and [configuration](configuration.md) for the policy schema.
+
 ## Coverage workflow contract
 
 `make test-workflow-contracts` runs `cv005-contracts check`, the shared
