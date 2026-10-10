@@ -31,6 +31,7 @@ import typing as typ
 from .all_sequence import literal_all_names
 from .imports import compute_module_name, resolve_import_from
 from .module_scope import module_level_statements
+from .source import parse_source
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -127,7 +128,7 @@ def analyse_namespaces(
 
 def analyse_module(source_path: Path, *, module: str) -> ModuleNamespace:
     """Analyse one source file into its :class:`ModuleNamespace`."""
-    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    tree = parse_source(source_path)
     return analyse_namespace(
         tree, module=module, is_package_init=source_path.name == "__init__.py"
     )

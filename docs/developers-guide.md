@@ -11,6 +11,7 @@ engine could replace the parser without changing the TOML policy schema. See
 
 | Module            | Responsibility                                                     |
 | ----------------- | ------------------------------------------------------------------ |
+| `source.py`       | Read and parse one scanned file, reporting `SourceError`.          |
 | `imports.py`      | Collect `Import` and `ImportFrom` statements from source text.     |
 | `module_scope.py` | Yield the statements that run at module scope, with nesting flags. |
 | `all_sequence.py` | Evaluate a module's `__all__` sequence, or report it unknowable.   |
@@ -20,6 +21,14 @@ engine could replace the parser without changing the TOML policy schema. See
 | `checker.py`      | Orchestrate the traversal and assemble the result.                 |
 | `diagnostics.py`  | Hold the stable, ordered diagnostic dataclasses.                   |
 | `output.py`       | Render text and JSON output.                                       |
+
+`source.py` is the only place the scanner crosses the filesystem and parser
+boundary, so every failure mode of that boundary surfaces as one `SourceError`:
+a path that cannot be read, bytes that are not UTF-8, or text that is not valid
+Python. Both `imports.py` and `namespaces.py` parse through `parse_source`
+rather than calling `ast.parse` themselves, and the CLI treats `SourceError`
+like `ConfigError` and exits with its input-validation code, so a broken
+checkout is reported rather than raised as a traceback.
 
 `imports.py` exposes `DirectImport` and `FromImport`, plus the helpers
 `compute_module_name` (dotted name for a source path under a package root) and
@@ -82,7 +91,8 @@ export set so normal resolution reports it unresolved, matching the
 
 Every run follows this order, and later stages assume it:
 
-1. Collect import statements from source (`imports.py`).
+1. Read and parse scanned source (`source.py`), then collect import statements
+   from it (`imports.py`).
 2. Analyse module namespaces, bindings, and wildcard selection
    (`module_scope.py`, `all_sequence.py`, `namespaces.py`).
 3. Resolve origins and wildcard exports (`origins.py`).

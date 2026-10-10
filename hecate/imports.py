@@ -6,6 +6,8 @@ import ast
 import dataclasses as dc
 from pathlib import Path
 
+from .source import parse_source
+
 
 @dc.dataclass(frozen=True, slots=True)
 class DirectImport:
@@ -79,7 +81,7 @@ def collect_import_statements(
     is nested in a block, so the collected nodes are sorted before conversion.
     """
     module_name = compute_module_name(root, package, source_path)
-    tree = ast.parse(source_path.read_text(encoding="utf-8"), filename=str(source_path))
+    tree = parse_source(source_path)
     is_package_init = source_path.name == "__init__.py"
     statements: list[ImportStatement] = []
     for node in sorted(_import_nodes(tree), key=_source_position):

@@ -44,7 +44,10 @@ The fields are:
 
 Exit code `0` means the package passed. Exit code `1` means Hecate found
 architecture violations. Exit code `2` means configuration, command-line input,
-or package-root validation failed.
+or package-root validation failed. `2` also covers a scanned source file that
+Hecate could not read or parse: the file and the reason are reported on
+standard error, so a broken checkout is never mistaken for an architecture
+finding.
 
 ## Import outcome states
 
