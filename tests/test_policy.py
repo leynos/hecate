@@ -228,7 +228,9 @@ def test_warning_targets_do_not_become_allowed_targets() -> None:
 
 def test_policy_is_warned_matches_the_module_helper() -> None:
     """The policy method exposes the same warning predicate."""
-    group = ModuleGroup("application", ("pkg.application",), ("application",), ("legacy",))
+    group = ModuleGroup(
+        "application", ("pkg.application",), ("application",), ("legacy",)
+    )
     policy = ArchitecturePolicy(groups=(group,))
 
     assert policy.is_warned("application", "legacy")

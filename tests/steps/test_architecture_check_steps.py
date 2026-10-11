@@ -69,6 +69,27 @@ def given_unclassified_modules_config(fixture_ctx: FixtureContext, mode: str) ->
     )
 
 
+@given(
+    parsers.parse('the "{fixture}" fixture package with {warn} warned'),
+    target_fixture="fixture_ctx",
+)
+def given_warned_fixture_package(
+    tmp_path: Path, fixture: str, warn: str
+) -> FixtureContext:
+    """Create a fixture whose policy tolerates the fixture's edge as a warning.
+
+    The step reuses the same packages as the outline above and changes only the
+    configured severity, so a scenario can contrast one edge at warning level
+    against the same edge at error level.
+    """
+    package_root = tmp_path / "sample"
+    write_base_package(package_root)
+    write_fixture(package_root, fixture)
+    config = tmp_path / "pyproject.toml"
+    config.write_text(policy_toml(warn=warn), encoding="utf-8")
+    return FixtureContext(root=tmp_path, config=config)
+
+
 @given("an invalid Hecate config", target_fixture="fixture_ctx")
 def given_invalid_config(tmp_path: Path) -> FixtureContext:
     """Create a config with an undeclared allowed group."""
@@ -140,6 +161,14 @@ def when_run_hecate_strict(
     _run_checker(fixture_ctx, capsys, "--strict", "--show-coverage")
 
 
+@when("I run Hecate against the fixture failing on warnings")
+def when_run_hecate_fail_on_warnings(
+    fixture_ctx: FixtureContext, capsys: CaptureFixture[str]
+) -> None:
+    """Run the checker with warnings treated as failures."""
+    _run_checker(fixture_ctx, capsys, "--fail-on-warnings")
+
+
 def _run_checker(
     fixture_ctx: FixtureContext,
     capsys: CaptureFixture[str],
@@ -161,6 +190,32 @@ def then_coverage_contains(fixture_ctx: FixtureContext, text: str) -> None:
     payload = json.loads(_result(fixture_ctx).stdout)
     states = [entry["state"] for entry in payload["coverage"]]
     assert text in states, f"expected coverage state {text!r}, got {states!r}"
+
+
+@given("a config warning about an undeclared group", target_fixture="fixture_ctx")
+def given_config_warning_undeclared(tmp_path: Path) -> FixtureContext:
+    """Create a config whose ``warn`` list names a group that does not exist.
+
+    The target can never be reached, so accepting it would tolerate nothing
+    while reading as though a migration were in place.
+    """
+    package_root = tmp_path / "sample"
+    write_base_package(package_root)
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "application"
+prefixes = ["sample.application"]
+allowed = ["application"]
+warn = ["legacy"]
+""",
+        encoding="utf-8",
+    )
+    return FixtureContext(root=tmp_path, config=config)
 
 
 @when("I run Hecate with the override config")
