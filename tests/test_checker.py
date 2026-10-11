@@ -40,39 +40,6 @@ _STRICT_GROUPS = (
     ModuleGroup("api", ("pkg.api",), ("api", "domain", "application")),
 )
 
-#: The same groups with ``application -> adapter`` downgraded to a warning, so
-#: the one edge between them is reported without failing.
-_WARN_GROUPS = (
-    ModuleGroup("domain", ("pkg.domain",), ("domain",)),
-    ModuleGroup(
-        "application",
-        ("pkg.application",),
-        ("application", "domain"),
-        ("adapter",),
-    ),
-    ModuleGroup("adapter", ("pkg.adapters",), ("adapter",)),
-)
-
-#: A package where ``application`` imports ``adapters``, the edge the warning
-#: groups above tolerate.
-_WARNED_EDGE_FILES = {
-    "__init__.py": "",
-    "domain/__init__.py": "",
-    "application/__init__.py": "",
-    "application/service.py": "from pkg.adapters.database import Database\n",
-    "adapters/__init__.py": "",
-    "adapters/database.py": "class Database: ...\n",
-}
-
-
-def _warned_edge_result(
-    root: Path,
-    *,
-    policy: ArchitecturePolicy | None = None,
-) -> ArchitectureCheckResult:
-    """Check the shared warned-edge package against a supplied policy."""
-    return _check(root, _WARNED_EDGE_FILES, policy=policy)
-
 
 def _build_package(root: Path, files: dict[str, str]) -> None:
     """Write a scratch package tree from relative paths to source text."""
