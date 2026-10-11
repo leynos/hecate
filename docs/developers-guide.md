@@ -295,8 +295,8 @@ therefore never runs for a parse failure. That branch is only reachable when
 parse error would propagate instead and the branch would return 2. The shipped
 behaviour is Cyclopts's default, so a usage error is indistinguishable from an
 architecture violation by exit code alone, and a caller that branches on the
-code must read standard error as well. `cli.py`'s own docstring still claims
-exit 2 for this case, so the docstring and the behaviour disagree.
+code must read standard error as well. `main`'s own docstring still claims exit
+2 for this case, so there the docstring and the behaviour disagree.
 
 ### Static-analysis limits
 
