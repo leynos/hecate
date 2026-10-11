@@ -158,10 +158,21 @@ comes from the policy's `unclassified_modules` mode through
 `unclassified_module_severity`: `warn` records a warning and `error` records an
 error, and either way the mode is one a configuration author opted into.
 `ArchitectureCheckResult` carries `unclassified_modules` beside `violations`,
-`ignored`, `coverage`, and `unmatched_ignores`, and `ok` treats an
+`ignored`, `coverage`, `warnings`, and `unmatched_ignores`, and `ok` treats an
 error-severity module finding exactly like an error-severity coverage entry.
 
 ### Ordered prefix validation
+
+`policy.py` holds the validated policy. `ModuleGroup` is a named group matched
+by ordered dotted prefixes, and `first_matching_group` returns the first
+configured group containing a module. A group carries `allowed` targets, which
+pass silently, and `warn` targets, which are reported without failing; the two
+are disjoint, and configuration rejects a target listed in both.
+`IgnoredImport` is one documented ignore; `ignore_matches` matches both
+endpoints by dotted prefix. `ArchitecturePolicy` also carries `strict`,
+`include_external_packages`, the severity for unresolved internal edges, and
+`unclassified_modules`, which selects how a discovered module no group
+classifies is reported.
 
 `find_shadowed_prefixes` in `policy.py` defines the pure cross-group shadowing
 rule; `_validate_policy` in `config.py` enforces it while loading TOML.
@@ -317,8 +328,9 @@ An import statement is expanded into edges before policy sees it.
    would report one broken import twice. A symbol that resolves despite its
    parent is still reported, because it is a real dependency.
 
-Each expanded origin is then classified by `_classify_origin`, which fixes this
-decision order and applies the first match:
+Each expanded origin is then classified by `classify_origin` in
+`classification.py`, which fixes this decision order and applies the first
+match:
 
 1. Resolve the imported target, and look up the configured group for both the
    importer and the imported module.
@@ -337,20 +349,43 @@ decision order and applies the first match:
    rather than unexamined.
 6. A remaining edge is checked against the ignore list; a match records it as
    exempted.
-7. Anything still unmatched is a violation of `default_rule_id`.
+7. An edge whose importer group lists the target group under `warn` records an
+   `ArchitectureWarning` and does not fail the check.
+8. Anything still unmatched is a violation of `default_rule_id`.
 
 Ignoring is therefore applied on two branches rather than one: the coverage
 branch, so an edge the policy could not classify or resolve stays exemptible,
-and the forbidden branch, after the allowed-check and before the violation is
-recorded. An exempted edge is reported through the ignore list rather than
-discarded, which is what lets `--fail-on-unmatched-ignore` tell that an entry
-applied. Every in-scope edge receives exactly one of `permitted`, `forbidden`,
-`exempted`, `unclassified`, or `unresolved`.
+and the forbidden branch, after the allowed-check and before the warning and
+violation checks. An exempted edge is reported through the ignore list rather
+than discarded, which is what lets `--fail-on-unmatched-ignore` tell that an
+entry applied. Every in-scope edge receives exactly one of `permitted`,
+`forbidden`, `warned`, `exempted`, `unclassified`, or `unresolved`. A green
+result therefore means no forbidden violation was found and no coverage
+diagnostic carried error severity — not that every edge was understood or
+silently permitted.
+
+`allowed` must precede the ignore check, and `warn` must follow it. An allowed
+edge was never a finding, so an ignore covering it suppressed nothing;
+returning before the ignore makes that ignore read as unmatched, which is how a
+stale entry stays detectable under `--fail-on-unmatched-ignore`. A warned edge
+is still a finding of a tolerated kind, so a documented exception can suppress
+it. Warning support did not introduce this ordering: before it, `checker.py`
+already returned on `is_allowed` before consulting ignores for a classified
+edge. `tests/test_config_output_cli.py` pins that contract in
+`test_allowed_import_does_not_match_stale_ignore` and
+`test_show_ignored_omits_allowed_import_with_stale_ignore`, and both tests
+predate the warning work and are unchanged by it.
+
+Warnings accumulate in their own collection keyed by identity, and `ok`
+deliberately ignores them: a warned edge is tolerated by policy, so only
+`--fail-on-warnings` turns one into a non-zero exit. Keeping warnings out of
+`violations` is what leaves the existing violation identity, exit codes and
+`ok` semantics untouched.
 
 Deduplication keeps the report stable when several statements or several
 re-export chains reach one edge. Violations are keyed by
-`(rule_id, importer, imported, line)`, ignored imports by
-`(importer, imported)`, and coverage diagnostics by
+`(rule_id, importer, imported, line)`, warnings by the same tuple, ignored
+imports by `(importer, imported)`, and coverage diagnostics by
 `(state, importer, imported, source_path, line)`. Unclassified-module
 diagnostics are keyed by module name alone, so two roots that supply the same
 dotted name record the first one in configuration order; that tie-break matches
@@ -369,15 +404,24 @@ unclassified and unresolved edges are warnings, so a non-strict run can pass
 while recording them. Under strict mode both become failures, with unresolved
 internal edges using the configured `unresolved_internal_severity`. An
 unclassified module fails only when `unclassified_modules = "error"`, so the
-`warn` mode keeps a run green; `ignore` records nothing at all.
+`warn` mode keeps a run green; `ignore` records nothing at all. Warning-level
+edges never fail here: they are tolerated by policy, so `--fail-on-warnings` is
+the only thing that acts on them.
+
+`ok` describes the architecture result, not the command outcome. `check` sets
+`ArchitectureCheckResult.passed` to the exit-code decision, which differs from
+`ok` only under `--fail-on-warnings`; the renderers report `passed` and fall
+back to `ok` when it is `None`. That keeps both renderers' keyword-only
+signatures unchanged: the outcome travels on the result rather than as another
+argument.
 
 The process exit code follows from that outcome:
 
-| Code | Meaning                                                       |
-| ---- | ------------------------------------------------------------- |
-| 0    | The architecture check passed.                                |
-| 1    | Violations, or coverage or module diagnostics at error level. |
-| 2    | Input validation failed: configuration, discovery, or source. |
+| Code | Meaning                                                                                             |
+| ---- | --------------------------------------------------------------------------------------------------- |
+| 0    | The architecture check passed.                                                                      |
+| 1    | Violations, coverage or module diagnostics at error level, or warnings under `--fail-on-warnings`.  |
+| 2    | Input validation failed: configuration, discovery, or source.                                       |
 
 _Table 1: Process exit codes for `hecate check`._
 
@@ -453,13 +497,14 @@ modules at the top.
 | `config_validation.py` | Format the diagnostics for shadowed group prefixes.                   | none (policy types under `TYPE_CHECKING`)                                                |
 | `diagnostics.py`       | Hold the stable, ordered diagnostic dataclasses and their JSON forms. | `policy`                                                                                 |
 | `imports.py`           | Discover a root's modules, and collect import statements from them.   | `source`                                                                                 |
-| `policy.py`            | Classify edges against groups, allow-lists, and ignores.              | `imports`                                                                                |
+| `policy.py`            | Hold the validated group, allow-list, warn-list, and ignore model.    | `imports`                                                                                |
 | `namespaces.py`        | Model bindings and wildcard exports per module.                       | `all_sequence`, `imports`, `module_scope`, `source`                                      |
 | `origins.py`           | Resolve an import target to the modules that supply it.               | `namespaces`                                                                             |
+| `classification.py`    | Classify one resolved edge against the policy.                       | `diagnostics`, `origins`, `policy`                                                       |
 | `module_coverage.py`   | Report discovered modules that no configured group claims.            | `diagnostics`, `policy`                                                                  |
 | `config.py`            | Discover, parse, validate, and override the TOML configuration.       | `config_helpers`, `config_validation`, `diagnostics`, `policy`                           |
 | `output.py`            | Render text and JSON output.                                          | `checker`                                                                                |
-| `checker.py`           | Orchestrate the traversal and assemble the result.                    | `config`, `diagnostics`, `imports`, `module_coverage`, `namespaces`, `origins`, `policy` |
+| `checker.py`           | Orchestrate the traversal and assemble the result.                    | `classification`, `config`, `diagnostics`, `imports`, `module_coverage`, `namespaces`, `origins`, `policy` |
 | `cli.py`               | Define the Cyclopts application and translate failures to exit codes. | `checker`, `config`, `imports`, `output`, `source`                                       |
 | `__init__.py`          | Publish the supported public API.                                     | `checker`, `cli`, `config`, `diagnostics`                                                |
 | `__main__.py`          | Run the CLI under `python -m hecate`.                                 | `cli`                                                                                    |
@@ -482,7 +527,7 @@ cannot reuse the module pass's rule identifier for edge diagnostics.
 
 `hecate/__init__.py` declares the supported import surface through `__all__`:
 
-- `ArchitectureCheckResult`, `ArchitectureViolation`,
+- `ArchitectureCheckResult`, `ArchitectureViolation`, `ArchitectureWarning`,
   `UnclassifiedModuleDiagnostic`, and `check_architecture` are the
   embedded-checker API for callers that already hold a configuration;
 - `ConfigOverrides`, `HecateConfig`, and `load_policy` are the configuration
@@ -540,9 +585,10 @@ test layout follows the strategy in [Testing strategy](#testing-strategy).
 #### Adding a policy rule
 
 A new classification rule belongs in `policy.py` as a pure function over
-validated inputs, following `first_matching_group`, `is_group_allowed`, and
-`coverage_severity`. Wiring it into evaluation means changing
-`_classify_origin` in `checker.py`, which is also where the decision order in
+validated inputs, following `first_matching_group`, `is_group_allowed`,
+`is_group_warned`, and `coverage_severity`. Wiring it into evaluation means
+changing `classify_origin` in `classification.py`, which is also where the
+decision order in
 [Decision order for one import edge](#decision-order-for-one-import-edge) is
 fixed. A rule that changes which modules a policy _claims_ belongs beside
 `claims_module` instead, and reaches the checker through
@@ -577,6 +623,15 @@ rather than from a command-line option; a new format has to decide the same
 question, and the asymmetry described under
 [Discovery and the two passes](#discovery-and-the-two-passes) is the intended
 answer.
+
+Both renderers keep the keyword-only signatures they had before warning
+support, so existing callers are unaffected. The command outcome travels on
+`ArchitectureCheckResult.passed` instead: `check` records the exit-code
+decision there before rendering, and `render_text` and `render_json` report it,
+falling back to `ok` when it is `None`. A warning-only run failed by
+`--fail-on-warnings` therefore renders as failed without either renderer
+gaining an argument. A new format should read the outcome the same way, from
+`passed` with `ok` as the fallback, rather than taking an extra parameter.
 
 A new format must also be reachable from the command line, which means
 extending the `OutputFormat` `StrEnum` in `cli.py` and adding the branch to
