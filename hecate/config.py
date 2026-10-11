@@ -8,6 +8,7 @@ import typing as typ
 from pathlib import Path
 
 from .config_helpers import (
+    _UNCLASSIFIED_MODULES_CHOICE,
     ConfigError,
     _Loc,
     _read_bool,
@@ -19,7 +20,6 @@ from .config_helpers import (
     _validate_dotted_strings,
 )
 from .policy import (
-    UNCLASSIFIED_MODULE_MODES,
     ArchitecturePolicy,
     IgnoredImport,
     ModuleGroup,
@@ -105,13 +105,7 @@ def load_config(
     configured_strict = _read_bool(data, "strict", default=False, path=config_path)
     unclassified_modules = typ.cast(
         "UnclassifiedModules",
-        _read_choice(
-            data,
-            _Loc(path=config_path),
-            key="unclassified_modules",
-            choices=UNCLASSIFIED_MODULE_MODES,
-            default="ignore",
-        ),
+        _read_choice(data, _UNCLASSIFIED_MODULES_CHOICE, _Loc(path=config_path)),
     )
     policy = ArchitecturePolicy(
         groups=groups,

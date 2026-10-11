@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses as dc
 import typing as typ
 
-from .policy import Severity
+from .policy import UNCLASSIFIED_MODULE_MODES, Severity
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -92,23 +92,32 @@ def _read_bool(data: dict[str, object], key: str, *, default: bool, path: Path) 
     return value
 
 
-def _read_choice(
-    data: dict[str, object],
-    loc: _Loc,
-    *,
-    key: str,
-    choices: tuple[str, ...],
-    default: str,
-) -> str:
+@dc.dataclass(frozen=True, slots=True)
+class _Choice:
+    """One configuration key restricted to a documented set of values."""
+
+    key: str
+    values: tuple[str, ...]
+    default: str
+
+
+_UNCLASSIFIED_MODULES_CHOICE = _Choice(
+    key="unclassified_modules",
+    values=UNCLASSIFIED_MODULE_MODES,
+    default="ignore",
+)
+
+
+def _read_choice(data: dict[str, object], choice: _Choice, loc: _Loc) -> str:
     """Read a key restricted to a documented set of string values.
 
     The permitted values are listed in the error message, so an unsupported
     value names the alternatives instead of merely reporting a type mismatch.
     """
-    value = data.get(key, default)
-    if not isinstance(value, str) or value not in choices:
-        permitted = ", ".join(f'"{choice}"' for choice in choices)
-        msg = f"{loc.path}: {loc.context}.{key} must be one of {permitted}"
+    value = data.get(choice.key, choice.default)
+    if not isinstance(value, str) or value not in choice.values:
+        permitted = ", ".join(f'"{allowed}"' for allowed in choice.values)
+        msg = f"{loc.path}: {loc.context}.{choice.key} must be one of {permitted}"
         raise ConfigError(msg)
     return value
 
