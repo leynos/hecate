@@ -228,7 +228,7 @@ Coverage of discovered modules is broader than coverage of scanned imports:
 
 ## Warning-level directions
 
-A group may name targets it tolerates but wants kept visible:
+A group may name targets it tolerates but wants to keep visible:
 
 ```toml
 [[tool.hecate.groups]]

@@ -8,6 +8,7 @@ keep the warning visible in the output of the run it fails.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import json
 import typing as typ
 from pathlib import Path
@@ -171,6 +172,37 @@ warn = []
     )
 
 
+def _write_package(root: Path, files: dict[str, str]) -> None:
+    """Write a scratch package tree from relative paths to source text."""
+    for relative_path, contents in files.items():
+        target = root / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(contents, encoding="utf-8")
+
+
+def _write_config(tmp_path: Path, toml_text: str) -> Path:
+    """Write a TOML config into an existing scratch package directory."""
+    config = tmp_path / "pyproject.toml"
+    config.write_text(toml_text, encoding="utf-8")
+    return config
+
+
+@dc.dataclass(frozen=True, slots=True)
+class CliRun:
+    """One finished CLI invocation, as the assertions need to see it."""
+
+    exit_code: int
+    stdout: str
+    stderr: str
+
+
+def _run_checker(config: Path, capsys: CaptureFixture[str], *args: str) -> CliRun:
+    """Run the checker over one config and capture its exit code and output."""
+    exit_code = main(["check", "--config", str(config), *args])
+    captured = capsys.readouterr()
+    return CliRun(exit_code=exit_code, stdout=captured.out, stderr=captured.err)
+
+
 @pytest.fixture
 def warned_edge_config(tmp_path: Path) -> Path:
     """Create a package with one edge tolerated at warning level.
@@ -179,18 +211,18 @@ def warned_edge_config(tmp_path: Path) -> Path:
     classified, reported, and passes on its own. The policy is what the CLI
     warning tests exercise; nothing else about the package is interesting.
     """
-    package_root = tmp_path / "pkg"
-    (package_root / "application").mkdir(parents=True)
-    (package_root / "adapters").mkdir()
-    (package_root / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "application" / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "application" / "service.py").write_text(
-        "from pkg.adapters import database\n", encoding="utf-8"
+    _write_package(
+        tmp_path / "pkg",
+        {
+            "__init__.py": "",
+            "application/__init__.py": "",
+            "application/service.py": "from pkg.adapters import database\n",
+            "adapters/__init__.py": "",
+            "adapters/database.py": "",
+        },
     )
-    (package_root / "adapters" / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "adapters" / "database.py").write_text("", encoding="utf-8")
-    config = tmp_path / "pyproject.toml"
-    config.write_text(
+    return _write_config(
+        tmp_path,
         """
 [tool.hecate]
 root_packages = ["pkg"]
@@ -206,9 +238,7 @@ name = "adapter"
 prefixes = ["pkg.adapters"]
 allowed = ["adapter"]
 """,
-        encoding="utf-8",
     )
-    return config
 
 
 def test_cli_passes_with_warnings_by_default(
@@ -219,11 +249,10 @@ def test_cli_passes_with_warnings_by_default(
     The whole point of the severity is that the migration can land without a
     red build, so exit code 0 and a visible diagnostic have to hold together.
     """
-    exit_code = main(["check", "--config", str(warned_edge_config)])
+    run = _run_checker(warned_edge_config, capsys)
 
-    output = capsys.readouterr().out
-    assert exit_code == 0, f"a warning must not fail by default, got {exit_code}"
-    assert "(warning):" in output, f"expected the warned edge in stdout, got {output!r}"
+    assert run.exit_code == 0, f"a warning must not fail by default, got {run!r}"
+    assert "(warning):" in run.stdout, f"expected the warned edge, got {run!r}"
 
 
 def test_cli_fail_on_warnings_fails_a_warning_only_run(
@@ -234,17 +263,11 @@ def test_cli_fail_on_warnings_fails_a_warning_only_run(
     The output is emitted before the exit code is decided, so a run that fails
     on warnings still shows which edges caused it.
     """
-    exit_code = main([
-        "check",
-        "--config",
-        str(warned_edge_config),
-        "--fail-on-warnings",
-    ])
+    run = _run_checker(warned_edge_config, capsys, "--fail-on-warnings")
 
-    output = capsys.readouterr().out
-    assert exit_code == 1, f"expected the flag to fail the run, got {exit_code}"
-    assert "(warning):" in output, (
-        f"expected the warned edge to survive into the failing run, got {output!r}"
+    assert run.exit_code == 1, f"expected the flag to fail the run, got {run!r}"
+    assert "(warning):" in run.stdout, (
+        f"expected the warned edge to survive into the failing run, got {run!r}"
     )
 
 
@@ -252,16 +275,10 @@ def test_cli_json_reports_warning_severity_and_ok(
     warned_edge_config: Path, capsys: CaptureFixture[str]
 ) -> None:
     """JSON carries the warning with its severity while ``ok`` stays true."""
-    exit_code = main([
-        "check",
-        "--config",
-        str(warned_edge_config),
-        "--format",
-        "json",
-    ])
+    run = _run_checker(warned_edge_config, capsys, "--format", "json")
 
-    payload = json.loads(capsys.readouterr().out)
-    assert exit_code == 0, f"expected exit code 0, got {exit_code}"
+    payload = json.loads(run.stdout)
+    assert run.exit_code == 0, f"expected exit code 0, got {run!r}"
     assert payload["ok"] is True, f"a warning must not clear ok, got {payload!r}"
     assert payload["violations"] == [], (
         f"a warned edge must not appear as a violation, got {payload!r}"
@@ -282,11 +299,9 @@ def test_cli_json_reports_empty_warnings_for_unconfigured_policy(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
     """A policy without warning targets reports an empty warnings list."""
-    package_root = tmp_path / "pkg"
-    package_root.mkdir()
-    (package_root / "__init__.py").write_text("", encoding="utf-8")
-    config = tmp_path / "pyproject.toml"
-    config.write_text(
+    _write_package(tmp_path / "pkg", {"__init__.py": ""})
+    config = _write_config(
+        tmp_path,
         """
 [tool.hecate]
 root_packages = ["pkg"]
@@ -296,13 +311,12 @@ name = "pkg"
 prefixes = ["pkg"]
 allowed = ["pkg"]
 """,
-        encoding="utf-8",
     )
 
-    exit_code = main(["check", "--config", str(config), "--format", "json"])
+    run = _run_checker(config, capsys, "--format", "json")
 
-    payload = json.loads(capsys.readouterr().out)
-    assert exit_code == 0, f"expected exit code 0, got {exit_code}"
+    payload = json.loads(run.stdout)
+    assert run.exit_code == 0, f"expected exit code 0, got {run!r}"
     assert payload["warnings"] == [], (
         f"expected an empty warnings list, got {payload!r}"
     )
@@ -312,21 +326,20 @@ def test_cli_warnings_and_violations_fail_the_run(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
     """A violated edge still fails the run when warnings are also present."""
-    package_root = tmp_path / "pkg"
-    (package_root / "domain").mkdir(parents=True)
-    (package_root / "application").mkdir()
-    (package_root / "adapters").mkdir()
-    for part in ("", "domain", "application", "adapters"):
-        (package_root / part / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "domain" / "model.py").write_text(
-        "from pkg.adapters import database\n", encoding="utf-8"
+    _write_package(
+        tmp_path / "pkg",
+        {
+            "__init__.py": "",
+            "domain/__init__.py": "",
+            "domain/model.py": "from pkg.adapters import database\n",
+            "application/__init__.py": "",
+            "application/service.py": "from pkg.adapters import database\n",
+            "adapters/__init__.py": "",
+            "adapters/database.py": "",
+        },
     )
-    (package_root / "application" / "service.py").write_text(
-        "from pkg.adapters import database\n", encoding="utf-8"
-    )
-    (package_root / "adapters" / "database.py").write_text("", encoding="utf-8")
-    config = tmp_path / "pyproject.toml"
-    config.write_text(
+    config = _write_config(
+        tmp_path,
         """
 [tool.hecate]
 root_packages = ["pkg"]
@@ -347,16 +360,14 @@ name = "adapter"
 prefixes = ["pkg.adapters"]
 allowed = ["adapter"]
 """,
-        encoding="utf-8",
     )
 
-    exit_code = main(["check", "--config", str(config)])
+    run = _run_checker(config, capsys)
 
-    output = capsys.readouterr().out
-    assert exit_code == 1, f"a violation must fail the run, got {exit_code}"
-    assert "pkg.domain.model:1 imports forbidden" in output, (
-        f"expected the violation in stdout, got {output!r}"
+    assert run.exit_code == 1, f"a violation must fail the run, got {run!r}"
+    assert "pkg.domain.model:1 imports forbidden" in run.stdout, (
+        f"expected the violation in stdout, got {run!r}"
     )
-    assert "(warning):" in output, (
-        f"expected the warning beside the violation, got {output!r}"
+    assert "(warning):" in run.stdout, (
+        f"expected the warning beside the violation, got {run!r}"
     )
