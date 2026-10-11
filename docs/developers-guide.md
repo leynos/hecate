@@ -64,15 +64,27 @@ tell".
 by ordered dotted prefixes, and `first_matching_group` returns the first
 configured group containing a module. `IgnoredImport` is one documented ignore;
 `ignore_matches` matches both endpoints by dotted prefix. `ArchitecturePolicy`
-also carries `strict`, `include_external_packages`, and the severity for
-unresolved internal edges.
+also carries `strict`, `include_external_packages`, the severity for unresolved
+internal edges, and `unclassified_modules`, which selects how a discovered
+module no group classifies is reported.
 
 `checker.py` orchestrates the run. `check_architecture` analyses namespaces,
 builds the origin index, evaluates every statement under each package root, and
 returns an `ArchitectureCheckResult` whose `ok` property is true only when
-there are no violations and no coverage diagnostic at error severity.
-`diagnostics.py` defines `ArchitectureViolation` for a forbidden classified
-edge and `CoverageDiagnostic` for an edge that could not be fully evaluated.
+there are no violations and no coverage or unclassified-module diagnostic at
+error severity. `diagnostics.py` defines `ArchitectureViolation` for a
+forbidden classified edge, `CoverageDiagnostic` for an edge that could not be
+fully evaluated, and `UnclassifiedModuleDiagnostic` for a discovered module no
+group claims.
+
+Two passes run per package root, and they answer different questions. The edge
+pass covers the import graph: which edges exist, and whether policy permits
+them. The module pass covers the policy itself: whether every discovered `*.py`
+file is claimed by some group. A module no group claims is enforced over
+nothing, so its edges fall outside group-based checking until the other
+endpoint happens to expose them — which is why the module pass reports the
+module directly, including `__init__.py` and files with no imports. It runs
+under `warn` and `error` only, so the default traversal does no extra work.
 
 ### Bindings and wildcard exports
 
