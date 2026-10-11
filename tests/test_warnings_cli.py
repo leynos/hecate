@@ -22,6 +22,54 @@ if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
 
 
+def _group(
+    name: str,
+    prefix: str,
+    *,
+    allowed: str | None = None,
+    warn: str | None = None,
+) -> str:
+    """Render one ``[[tool.hecate.groups]]`` stanza as TOML text.
+
+    ``allowed`` and ``warn`` are TOML array literals written as text rather
+    than as Python sequences, so a test states the exact source a user would
+    write — including a malformed one the parser is expected to reject.
+    ``allowed`` defaults to the group's own name, which every stanza here but
+    the rejection cases does.
+    """
+    allowed_text = allowed if allowed is not None else f'["{name}"]'
+    lines = [
+        "[[tool.hecate.groups]]",
+        f'name = "{name}"',
+        f'prefixes = ["{prefix}"]',
+        f"allowed = {allowed_text}",
+    ]
+    if warn is not None:
+        lines.append(f"warn = {warn}")
+    return "\n".join(lines) + "\n"
+
+
+#: The head table every config in this module shares. Warnings are a group
+#: key, so nothing but the group stanzas varies between the cases here.
+_HEAD = """
+[tool.hecate]
+root_packages = ["pkg"]
+"""
+
+
+def _config(*groups: str) -> str:
+    """Compose a policy config from the head table and group stanzas."""
+    return _HEAD + "".join(groups)
+
+
+#: The policy under test: ``application`` tolerates ``adapter`` at warning
+#: level. Every run in this module either uses this pair or adds to it.
+_WARN_GROUPS = (
+    _group("application", "pkg.application", warn='["adapter"]'),
+    _group("adapter", "pkg.adapters"),
+)
+
+
 def _assert_config_rejects(
     tmp_path: Path,
     toml_text: str,
@@ -57,16 +105,7 @@ def test_config_validation_rejects_unknown_warn_group(tmp_path: Path) -> None:
     """
     _assert_config_rejects(
         tmp_path,
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "domain"
-prefixes = ["pkg.domain"]
-allowed = ["domain"]
-warn = ["legacy"]
-""",
+        _config(_group("domain", "pkg.domain", warn='["legacy"]')),
         "undeclared groups",
         "legacy",
     )
@@ -80,21 +119,15 @@ def test_config_validation_rejects_allowed_and_warn_overlap(tmp_path: Path) -> N
     """
     _assert_config_rejects(
         tmp_path,
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "domain"
-prefixes = ["pkg.domain"]
-allowed = ["domain", "application"]
-warn = ["application"]
-
-[[tool.hecate.groups]]
-name = "application"
-prefixes = ["pkg.application"]
-allowed = ["application"]
-""",
+        _config(
+            _group(
+                "domain",
+                "pkg.domain",
+                allowed='["domain", "application"]',
+                warn='["application"]',
+            ),
+            _group("application", "pkg.application"),
+        ),
         "group domain",
         "both allowed and warn",
         "application",
@@ -105,16 +138,7 @@ def test_config_validation_rejects_non_list_warn(tmp_path: Path) -> None:
     """A ``warn`` value that is not a string list is a configuration error."""
     _assert_config_rejects(
         tmp_path,
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "domain"
-prefixes = ["pkg.domain"]
-allowed = ["domain"]
-warn = "legacy"
-""",
+        _config(_group("domain", "pkg.domain", warn='"legacy"')),
         "must be a string list",
     )
 
@@ -123,16 +147,7 @@ def test_config_validation_rejects_blank_warn_entry(tmp_path: Path) -> None:
     """A blank warning target cannot match a group and is rejected."""
     _assert_config_rejects(
         tmp_path,
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "domain"
-prefixes = ["pkg.domain"]
-allowed = ["domain"]
-warn = ["  "]
-""",
+        _config(_group("domain", "pkg.domain", warn='["  "]')),
         "must be a string list",
     )
 
@@ -146,21 +161,10 @@ def test_config_accepts_absent_and_empty_warn_lists(tmp_path: Path) -> None:
     (tmp_path / "pkg").mkdir()
     config = tmp_path / "pyproject.toml"
     config.write_text(
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "domain"
-prefixes = ["pkg.domain"]
-allowed = ["domain"]
-
-[[tool.hecate.groups]]
-name = "legacy"
-prefixes = ["pkg.legacy"]
-allowed = ["legacy"]
-warn = []
-""",
+        _config(
+            _group("domain", "pkg.domain"),
+            _group("legacy", "pkg.legacy", warn="[]"),
+        ),
         encoding="utf-8",
     )
 
@@ -187,6 +191,17 @@ def _write_config(tmp_path: Path, toml_text: str) -> Path:
     return config
 
 
+#: The scanned package the CLI tests share: ``application`` imports the
+#: adapter, and that is the one edge the warning policies tolerate.
+_PACKAGE_FILES = {
+    "__init__.py": "",
+    "application/__init__.py": "",
+    "application/service.py": "from pkg.adapters import database\n",
+    "adapters/__init__.py": "",
+    "adapters/database.py": "",
+}
+
+
 @dc.dataclass(frozen=True, slots=True)
 class CliRun:
     """One finished CLI invocation, as the assertions need to see it."""
@@ -211,34 +226,8 @@ def warned_edge_config(tmp_path: Path) -> Path:
     classified, reported, and passes on its own. The policy is what the CLI
     warning tests exercise; nothing else about the package is interesting.
     """
-    _write_package(
-        tmp_path / "pkg",
-        {
-            "__init__.py": "",
-            "application/__init__.py": "",
-            "application/service.py": "from pkg.adapters import database\n",
-            "adapters/__init__.py": "",
-            "adapters/database.py": "",
-        },
-    )
-    return _write_config(
-        tmp_path,
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "application"
-prefixes = ["pkg.application"]
-allowed = ["application"]
-warn = ["adapter"]
-
-[[tool.hecate.groups]]
-name = "adapter"
-prefixes = ["pkg.adapters"]
-allowed = ["adapter"]
-""",
-    )
+    _write_package(tmp_path / "pkg", _PACKAGE_FILES)
+    return _write_config(tmp_path, _config(*_WARN_GROUPS))
 
 
 def test_cli_passes_with_warnings_by_default(
@@ -300,18 +289,7 @@ def test_cli_json_reports_empty_warnings_for_unconfigured_policy(
 ) -> None:
     """A policy without warning targets reports an empty warnings list."""
     _write_package(tmp_path / "pkg", {"__init__.py": ""})
-    config = _write_config(
-        tmp_path,
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "pkg"
-prefixes = ["pkg"]
-allowed = ["pkg"]
-""",
-    )
+    config = _write_config(tmp_path, _config(_group("pkg", "pkg")))
 
     run = _run_checker(config, capsys, "--format", "json")
 
@@ -329,37 +307,14 @@ def test_cli_warnings_and_violations_fail_the_run(
     _write_package(
         tmp_path / "pkg",
         {
-            "__init__.py": "",
+            **_PACKAGE_FILES,
             "domain/__init__.py": "",
             "domain/model.py": "from pkg.adapters import database\n",
-            "application/__init__.py": "",
-            "application/service.py": "from pkg.adapters import database\n",
-            "adapters/__init__.py": "",
-            "adapters/database.py": "",
         },
     )
     config = _write_config(
         tmp_path,
-        """
-[tool.hecate]
-root_packages = ["pkg"]
-
-[[tool.hecate.groups]]
-name = "domain"
-prefixes = ["pkg.domain"]
-allowed = ["domain"]
-
-[[tool.hecate.groups]]
-name = "application"
-prefixes = ["pkg.application"]
-allowed = ["application"]
-warn = ["adapter"]
-
-[[tool.hecate.groups]]
-name = "adapter"
-prefixes = ["pkg.adapters"]
-allowed = ["adapter"]
-""",
+        _config(_group("domain", "pkg.domain"), *_WARN_GROUPS),
     )
 
     run = _run_checker(config, capsys)
