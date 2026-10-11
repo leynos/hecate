@@ -114,16 +114,19 @@ class _CheckContext:
 
 def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
     """Check every package root declared in ``config``."""
-    namespaces = analyse_namespaces(config.packages)
+    discoveries = tuple(
+        discover_modules(package_root.root, package_root.name)
+        for package_root in config.packages
+    )
+    namespaces = analyse_namespaces(discoveries)
     ctx = _CheckContext(
         policy=config.policy,
         origins=build_origin_index(config.packages, namespaces),
     )
-    for package_root in config.packages:
-        discovered = discover_modules(package_root.root, package_root.name)
-        _collect_package_edges(discovered, ctx)
+    for discovery in discoveries:
+        _collect_package_edges(discovery.modules, ctx)
         collect_unclassified_modules(
-            discovered, policy=config.policy, report=ctx.unclassified
+            discovery.modules, policy=config.policy, report=ctx.unclassified
         )
     unmatched_ignores = _find_unmatched_ignores(config.policy, ctx.ignored)
     return ArchitectureCheckResult(

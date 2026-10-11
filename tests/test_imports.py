@@ -38,13 +38,16 @@ def test_discover_modules_pairs_each_file_with_its_dotted_name(
     (package_root / "domain" / "__init__.py").write_text("", encoding="utf-8")
     (package_root / "domain" / "model.py").write_text("", encoding="utf-8")
 
-    discovered = discover_modules(package_root, "pkg")
+    discovery = discover_modules(package_root, "pkg")
 
-    assert [(item.module, item.source_path) for item in discovered] == [
+    assert discovery.package == "pkg", (
+        f"a discovery must carry the root it describes: {discovery!r}"
+    )
+    assert [(item.module, item.source_path) for item in discovery.modules] == [
         ("pkg", package_root / "__init__.py"),
         ("pkg.domain", package_root / "domain" / "__init__.py"),
         ("pkg.domain.model", package_root / "domain" / "model.py"),
-    ], f"discovery must pair each file with its module: {discovered!r}"
+    ], f"discovery must pair each file with its module: {discovery!r}"
 
 
 def test_discover_modules_orders_by_source_path(tmp_path: Path) -> None:
@@ -61,13 +64,13 @@ def test_discover_modules_orders_by_source_path(tmp_path: Path) -> None:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("", encoding="utf-8")
 
-    discovered = discover_modules(package_root, "pkg")
+    discovery = discover_modules(package_root, "pkg")
 
-    assert [item.module for item in discovered] == [
+    assert [item.module for item in discovery.modules] == [
         "pkg.alpha",
         "pkg.middle",
         "pkg.zebra",
-    ], f"discovery must be sorted by source path: {discovered!r}"
+    ], f"discovery must be sorted by source path: {discovery!r}"
 
 
 def test_relative_import_base_from_module() -> None:

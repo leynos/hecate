@@ -37,11 +37,15 @@ checkout is reported rather than raised as a traceback.
 `collect_import_statements` returns statements in source order, so later code
 can apply Python's ordering rules; `FromImport.names` preserves `"*"` entries
 verbatim, so wildcard handling is decided downstream rather than assumed here.
-`discover_modules` is the one recursive walk of a package root: it returns each
-`*.py` file as a `DiscoveredModule` pairing the path with its dotted name,
-sorted by path. The edge pass, the namespace pass, and the module pass all read
-that one sequence, so a root is walked once per run rather than once per pass
-and the three cannot disagree about which files exist.
+`discover_modules` is the one recursive walk of a package root. It returns a
+`Discovery` holding the root's name and a tuple of `DiscoveredModule` records,
+each pairing one `*.py` path with its dotted name, sorted by path.
+`check_architecture` walks every root once, up front, and hands the same
+`Discovery` records to the namespace pass, the edge pass, and the module pass,
+so a root is walked once per run rather than once per pass and the three cannot
+disagree about which files exist. `Discovery` carries the root's identity
+rather than a `PackageRoot` so discovery stays a property of the tree and
+`imports.py` keeps no dependency on the configuration model.
 
 `module_scope.py` answers only which statements run at module scope: an `if`,
 `try`, loop, `with`, or `match` body still executes at import time, so its
@@ -54,8 +58,8 @@ possibility.
 `namespaces.py` is the module namespace model. `ModuleNamespace` records
 `bindings` (a name may appear more than once, because a conditional rebinding
 adds a candidate), the literal `__all__` sequence, and the modules a wildcard
-import pulls in. `analyse_namespaces` walks every package root and
-`analyse_module` analyses one file.
+import pulls in. `analyse_namespaces` analyses every module of the `Discovery`
+records it is given, and `analyse_module` analyses one file.
 
 `origins.py` layers provenance over that model. `build_origin_index` builds an
 `OriginIndex` over already-analysed namespaces; `origins_for` maps one written
@@ -120,7 +124,7 @@ export set so normal resolution reports it unresolved, matching the
 it:
 
 1. Discover each package root's modules (`imports.py`). This is the only
-   recursive walk, and every later stage reads its `DiscoveredModule` sequence.
+   recursive walk, and every later stage reads the same `Discovery` records.
 2. Analyse those modules' namespaces, bindings, and wildcard selection
    (`namespaces.py`, over `module_scope.py` and `all_sequence.py`). This pass
    is what reads and parses each file, through `source.py`.

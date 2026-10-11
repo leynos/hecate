@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from discovery_fixtures import discover_package_roots
+
 from hecate.config import PackageRoot
 from hecate.namespaces import analyse_namespaces
 from hecate.origins import OriginIndex, build_origin_index
@@ -33,7 +35,9 @@ def _packages(
 def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> OriginIndex:
     """Build a package from ``files`` and return its origin index."""
     packages = _packages(tmp_path, files, package=package)
-    return build_origin_index(packages, analyse_namespaces(packages))
+    return build_origin_index(
+        packages, analyse_namespaces(discover_package_roots(packages))
+    )
 
 
 def test_later_named_reexport_shadows_earlier_origin(tmp_path: Path) -> None:
@@ -173,7 +177,7 @@ def test_loop_and_with_targets_are_module_bindings(tmp_path: Path) -> None:
             ),
         },
     )
-    namespaces = analyse_namespaces(packages)
+    namespaces = analyse_namespaces(discover_package_roots(packages))
 
     assert {"Loop", "Entered"} <= namespaces["pkg.m"].bound_names, (
         f"loop and with targets must bind: {namespaces['pkg.m'].bindings!r}"
@@ -215,7 +219,7 @@ def test_unpacking_assignment_binds_every_name(tmp_path: Path) -> None:
             "m.py": "First, Second = 1, 2\n[a, *rest] = [3, 4, 5]\n",
         },
     )
-    namespaces = analyse_namespaces(packages)
+    namespaces = analyse_namespaces(discover_package_roots(packages))
 
     assert namespaces["pkg.m"].bound_names == {"First", "Second", "a", "rest"}, (
         f"unpacking must bind every target: {namespaces['pkg.m'].bindings!r}"

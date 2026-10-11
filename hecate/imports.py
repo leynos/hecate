@@ -59,21 +59,39 @@ class DiscoveredModule:
     source_path: Path
 
 
-def discover_modules(root: Path, package: str) -> tuple[DiscoveredModule, ...]:
+@dc.dataclass(frozen=True, slots=True)
+class Discovery:
+    """One package root's modules, walked once and shared by every pass.
+
+    Carrying the root's identity alongside its files keeps this record free of
+    any dependency on the configuration model, so discovery stays a property of
+    the tree rather than of how a caller happened to declare it.
+    """
+
+    package: str
+    root: Path
+    modules: tuple[DiscoveredModule, ...]
+
+
+def discover_modules(root: Path, package: str) -> Discovery:
     """Return every module beneath ``root``, ordered by source path.
 
-    A single walk serves both the edge pass and the module pass, so the two
-    cannot disagree about which files exist. Sorting here rather than in each
-    caller makes traversal order a property of the tree instead of the
+    One walk serves every pass that needs to know which files a root holds, so
+    the passes cannot disagree about what exists. Sorting here rather than in
+    each caller makes traversal order a property of the tree instead of the
     filesystem, and gives a caller that keys a mapping by module name
     first-record semantics from this order alone.
     """
-    return tuple(
-        DiscoveredModule(
-            module=compute_module_name(root, package, source_path),
-            source_path=source_path,
-        )
-        for source_path in sorted(root.rglob("*.py"))
+    return Discovery(
+        package=package,
+        root=root,
+        modules=tuple(
+            DiscoveredModule(
+                module=compute_module_name(root, package, source_path),
+                source_path=source_path,
+            )
+            for source_path in sorted(root.rglob("*.py"))
+        ),
     )
 
 
