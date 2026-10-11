@@ -81,6 +81,7 @@ flowchart TD
     E --> H["build_origin_index()"]
     E --> I["collect_import_statements() per file"]
     I --> J["resolve each target"]
+    H --> J
     J --> K["classify each edge against policy"]
     K --> L["ArchitectureCheckResult"]
     L --> P{"unmatched ignores under\n--fail-on-unmatched-ignore?"}
