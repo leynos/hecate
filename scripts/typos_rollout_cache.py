@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses as dc
 import pathlib
-import tempfile
 import typing as typ
 
 if typ.TYPE_CHECKING:
@@ -36,17 +35,3 @@ class RemoteResponse(typ.Protocol):
     def read(self) -> bytes:
         """Read the response body."""
         ...
-
-
-def atomic_write(path: pathlib.Path, content: bytes) -> None:
-    """Write content beside a path and atomically replace the destination."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        delete=False, dir=path.parent, prefix=f".{path.name}."
-    ) as stream:
-        stream.write(content)
-        temporary = pathlib.Path(stream.name)
-    try:
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
