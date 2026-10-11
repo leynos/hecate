@@ -33,7 +33,7 @@ if typ.TYPE_CHECKING:
 
 
 @dc.dataclass(frozen=True, slots=True)
-class _Edge:
+class Edge:
     """One import edge under evaluation, independent of its statement form.
 
     Wildcard expansion produces edges that no single statement spells out, so
@@ -47,7 +47,7 @@ class _Edge:
     line: int
 
     @classmethod
-    def from_statement(cls, statement: ImportStatement, *, imported: str) -> _Edge:
+    def from_statement(cls, statement: ImportStatement, *, imported: str) -> Edge:
         """Return the edge one statement contributes for ``imported``."""
         return cls(
             importer=statement.importer,
@@ -58,7 +58,7 @@ class _Edge:
 
 
 @dc.dataclass
-class _CheckContext:
+class CheckContext:
     """Mutable accumulator passed through the checking traversal."""
 
     policy: ArchitecturePolicy
@@ -80,7 +80,7 @@ class _CheckContext:
     )
 
 
-def classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
+def classify_origin(edge: Edge, *, ctx: CheckContext) -> None:
     """Classify one already-expanded origin of an import edge.
 
     Precedence is fixed so an edge's outcome never depends on evaluation order
@@ -104,7 +104,7 @@ def classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
 
 
 def _classified_endpoints(
-    edge: _Edge, *, ctx: _CheckContext
+    edge: Edge, *, ctx: CheckContext
 ) -> tuple[ModuleGroup, ModuleGroup] | None:
     """Resolve both endpoints, recording coverage when either is unusable.
 
@@ -141,11 +141,11 @@ def _classified_endpoints(
 
 
 def _record_classified_outcome(
-    edge: _Edge,
+    edge: Edge,
     *,
     importer_group: ModuleGroup,
     imported_group: ModuleGroup,
-    ctx: _CheckContext,
+    ctx: CheckContext,
 ) -> None:
     """Record a classified edge as a warning, or else as a violation."""
     if ctx.policy.is_warned(importer_group.name, imported_group.name):
@@ -166,11 +166,11 @@ def _record_classified_outcome(
 
 
 def _record_warning(
-    edge: _Edge,
+    edge: Edge,
     *,
     importer_group: ModuleGroup,
     imported_group: ModuleGroup,
-    ctx: _CheckContext,
+    ctx: CheckContext,
 ) -> None:
     """Record a tolerated edge the policy wants kept visible."""
     warning = ArchitectureWarning(
@@ -186,18 +186,18 @@ def _record_warning(
 
 
 def _exempt_or_record_coverage(
-    edge: _Edge,
+    edge: Edge,
     *,
     state: EdgeState,
     groups: tuple[ModuleGroup | None, ModuleGroup | None],
-    ctx: _CheckContext,
+    ctx: CheckContext,
 ) -> None:
     """Honour a documented ignore for an incomplete edge, else report it."""
     if not _record_exemption(edge, ctx=ctx):
         _record_coverage(edge, state=state, groups=groups, ctx=ctx)
 
 
-def _record_exemption(edge: _Edge, *, ctx: _CheckContext) -> bool:
+def _record_exemption(edge: Edge, *, ctx: CheckContext) -> bool:
     """Record a documented ignore covering ``edge``, if one exists.
 
     Any non-permitted outcome is exemptible, so an edge the policy could not
@@ -217,11 +217,11 @@ def _record_exemption(edge: _Edge, *, ctx: _CheckContext) -> bool:
 
 
 def _record_coverage(
-    edge: _Edge,
+    edge: Edge,
     *,
     state: EdgeState,
     groups: tuple[ModuleGroup | None, ModuleGroup | None],
-    ctx: _CheckContext,
+    ctx: CheckContext,
 ) -> None:
     """Record an unclassified or unresolved edge at policy-determined severity."""
     importer_group, imported_group = groups
@@ -240,7 +240,7 @@ def _record_coverage(
 
 
 def _policy_claims_external(
-    imported_group: ModuleGroup | None, *, ctx: _CheckContext
+    imported_group: ModuleGroup | None, *, ctx: CheckContext
 ) -> bool:
     """Return whether the policy takes a position on an external dependency.
 

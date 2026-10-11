@@ -206,6 +206,13 @@ flowchart LR
 _Figure 2: Ordered prefix validation from group order to rejection or
 acceptance._
 
+`classification.py` owns the per-edge decision, so the precedence order below is
+readable without following the filesystem walk that produced the edge. It holds
+the accumulator (`CheckContext`), the edge under evaluation (`Edge`), and
+`classify_origin`, which every resolved origin passes through exactly once.
+`checker.py` keeps the walk, the per-statement expansion of wildcards, and the
+assembly of the result.
+
 ### The stdlib `ast` import-analysis engine
 
 `imports.py` owns both the recursive walk that discovers a root's modules and
