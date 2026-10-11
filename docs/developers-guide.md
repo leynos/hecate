@@ -985,12 +985,13 @@ tool CI does not install.
 
 Coverage is the one gate that does not run `make test` in CI. The pull-request
 lane calls the shared `generate-coverage` composite action, which sets up
-Python, installs the dependencies, runs the suite with pytest-cov, applies the
-ratchet against the baseline written by `main`, and uploads no artefact. Pushes
-to `main` run `coverage-main.yml` instead, which regenerates the measurement,
-advances the ratchet, and uploads to CodeScene in explicit `mode: upload`. The
-pull-request step is guarded to `github.event_name == 'pull_request'`, so a
-push to `main` does not duplicate the suite or race the baseline save.
+Python, installs the dependencies, runs the whole suite under Slipcover with
+branch coverage, applies the ratchet against the baseline written by `main`,
+and uploads no artefact. Pushes to `main` run `coverage-main.yml` instead,
+which regenerates the measurement, advances the ratchet, and uploads to
+CodeScene in explicit `mode: upload`. The pull-request step is guarded to
+`github.event_name == 'pull_request'`, so a push to `main` does not duplicate
+the suite or race the baseline save.
 
 ### Linting
 
