@@ -6,7 +6,22 @@ import dataclasses as dc
 import typing as typ
 from pathlib import Path
 
-from .policy import EdgeState, Severity
+from .policy import EdgeState, Severity, UnclassifiedModules
+
+#: Rule identifier for a module that no configured group classified.
+UNCLASSIFIED_MODULE_RULE_ID = "HEC002"
+
+#: Severity carried by each reporting :data:`UnclassifiedModules` mode. The
+#: ``ignore`` mode never produces a diagnostic, so it has no entry here.
+_UNCLASSIFIED_MODULE_SEVERITIES: dict[UnclassifiedModules, Severity] = {
+    "warn": Severity.WARNING,
+    "error": Severity.ERROR,
+}
+
+
+def unclassified_module_severity(mode: UnclassifiedModules) -> Severity:
+    """Return the severity applied to unclassified modules under ``mode``."""
+    return _UNCLASSIFIED_MODULE_SEVERITIES.get(mode, Severity.WARNING)
 
 
 class _ClassifiedEdge(typ.Protocol):
@@ -180,3 +195,55 @@ class CoverageDiagnostic:
     def to_dict(self) -> dict[str, object]:
         """Return a JSON-safe diagnostic mapping."""
         return _classified_payload(self, state=self.state, severity=self.severity)
+
+
+@dc.dataclass(frozen=True, slots=True)
+class UnclassifiedModuleDiagnostic:
+    """A discovered module that matched no configured architecture group.
+
+    This describes the module itself rather than one import edge, so it names no
+    importer, imported module, or line. Its rule identifier is always
+    :data:`UNCLASSIFIED_MODULE_RULE_ID` and never the configured
+    ``default_rule_id``, because a consumer telling the two apart needs an
+    identifier the edge diagnostics cannot also carry.
+    """
+
+    module: str
+    source_path: Path
+    severity: Severity
+
+    @property
+    def rule_id(self) -> str:
+        """Return the fixed module-coverage rule identifier."""
+        return UNCLASSIFIED_MODULE_RULE_ID
+
+    @property
+    def is_failure(self) -> bool:
+        """Return whether this diagnostic fails the check."""
+        return self.severity is Severity.ERROR
+
+    def identity(self) -> tuple[str, str]:
+        """Return the stable identity used for sorting and de-duplication."""
+        return (self.module, str(self.source_path))
+
+    def render(self) -> str:
+        """Render a deterministic single-line diagnostic.
+
+        The shape follows a violation so both read as one family, but the slot
+        a violation uses for ``importer:line`` carries the module name here,
+        which is the whole point of the finding.
+        """
+        return (
+            f"{self.rule_id} {self.severity.value} {self.module}: "
+            "no architecture group matched this module"
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-safe diagnostic mapping."""
+        return {
+            "rule_id": self.rule_id,
+            "severity": self.severity.value,
+            "module": self.module,
+            "source_path": str(self.source_path),
+            "message": "no architecture group matched this module",
+        }

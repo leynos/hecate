@@ -4,8 +4,15 @@ from __future__ import annotations
 
 import dataclasses as dc
 import enum
+import typing as typ
 
 from .imports import is_module_prefix
+
+UnclassifiedModules = typ.Literal["ignore", "warn", "error"]
+"""How an internal module no configured group classifies is reported."""
+
+UNCLASSIFIED_MODULE_MODES: tuple[str, ...] = ("ignore", "warn", "error")
+"""Permitted :data:`UnclassifiedModules` values, in documented order."""
 
 
 class Severity(enum.StrEnum):
@@ -84,6 +91,15 @@ class ArchitecturePolicy:
 
     unresolved_internal_severity: Severity = Severity.ERROR
     """Severity applied to unresolved internal edges under strict mode."""
+
+    unclassified_modules: UnclassifiedModules = "ignore"
+    """How a discovered module no configured group classifies is reported.
+
+    ``ignore`` preserves the historical behaviour of saying nothing about a
+    module no group claims. ``warn`` and ``error`` make the policy's coverage
+    gap visible by naming each such module rather than waiting for an import
+    edge to expose it.
+    """
 
     def group_for(self, module: str) -> ModuleGroup | None:
         """Return the first matching group for ``module``."""

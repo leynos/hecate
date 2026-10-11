@@ -92,6 +92,27 @@ def _read_bool(data: dict[str, object], key: str, *, default: bool, path: Path) 
     return value
 
 
+def _read_choice(
+    data: dict[str, object],
+    loc: _Loc,
+    *,
+    key: str,
+    choices: tuple[str, ...],
+    default: str,
+) -> str:
+    """Read a key restricted to a documented set of string values.
+
+    The permitted values are listed in the error message, so an unsupported
+    value names the alternatives instead of merely reporting a type mismatch.
+    """
+    value = data.get(key, default)
+    if not isinstance(value, str) or value not in choices:
+        permitted = ", ".join(f'"{choice}"' for choice in choices)
+        msg = f"{loc.path}: {loc.context}.{key} must be one of {permitted}"
+        raise ConfigError(msg)
+    return value
+
+
 def _read_severity(
     data: dict[str, object],
     key: str,

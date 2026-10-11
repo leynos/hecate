@@ -11,13 +11,21 @@ from .config_helpers import (
     ConfigError,
     _Loc,
     _read_bool,
+    _read_choice,
     _read_mapping,
     _read_severity,
     _read_string,
     _read_string_tuple,
     _validate_dotted_strings,
 )
-from .policy import ArchitecturePolicy, IgnoredImport, ModuleGroup, Severity
+from .policy import (
+    UNCLASSIFIED_MODULE_MODES,
+    ArchitecturePolicy,
+    IgnoredImport,
+    ModuleGroup,
+    Severity,
+    UnclassifiedModules,
+)
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -95,6 +103,16 @@ def load_config(
         data, "include_external_packages", default=False, path=config_path
     )
     configured_strict = _read_bool(data, "strict", default=False, path=config_path)
+    unclassified_modules = typ.cast(
+        "UnclassifiedModules",
+        _read_choice(
+            data,
+            _Loc(path=config_path),
+            key="unclassified_modules",
+            choices=UNCLASSIFIED_MODULE_MODES,
+            default="ignore",
+        ),
+    )
     policy = ArchitecturePolicy(
         groups=groups,
         ignores=ignores,
@@ -107,6 +125,7 @@ def load_config(
             else ov.include_external_packages
         ),
         strict=configured_strict if ov.strict is None else ov.strict,
+        unclassified_modules=unclassified_modules,
         unresolved_internal_severity=_read_severity(
             data,
             "unresolved_internal_severity",

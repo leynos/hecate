@@ -10,14 +10,23 @@ from .diagnostics import (
     ArchitectureViolation,
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
+    UnclassifiedModuleDiagnostic,
+    unclassified_module_severity,
 )
-from .imports import FromImport, ImportStatement, collect_import_statements
+from .imports import (
+    FromImport,
+    ImportStatement,
+    collect_import_statements,
+    compute_module_name,
+)
 from .namespaces import analyse_namespaces
 from .origins import OriginIndex, Resolution, build_origin_index
 from .policy import (
+    UNCLASSIFIED_MODULE_MODES,
     ArchitecturePolicy,
     EdgeState,
     ModuleGroup,
+    Severity,
     coverage_severity,
 )
 
@@ -33,6 +42,7 @@ class ArchitectureCheckResult:
     ignored: tuple[IgnoredImportDiagnostic, ...] = ()
     coverage: tuple[CoverageDiagnostic, ...] = ()
     unmatched_ignores: tuple[str, ...] = ()
+    unclassified_modules: tuple[UnclassifiedModuleDiagnostic, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -40,10 +50,14 @@ class ArchitectureCheckResult:
 
         Coverage diagnostics only fail the check when they carry error
         severity, which happens for unclassified and unresolved internal edges
-        under strict mode.
+        under strict mode. Unclassified-module diagnostics fail it the same
+        way, so a warning-only run stays green.
         """
+        failures = (self.coverage, self.unclassified_modules)
         return not self.violations and not any(
-            diagnostic.is_failure for diagnostic in self.coverage
+            diagnostic.is_failure
+            for diagnostics in failures
+            for diagnostic in diagnostics
         )
 
     @property
@@ -94,6 +108,9 @@ class _CheckContext:
     coverage: dict[tuple[str, str, str, str, int], CoverageDiagnostic] = dc.field(
         default_factory=dict
     )
+    unclassified: dict[str, UnclassifiedModuleDiagnostic] = dc.field(
+        default_factory=dict
+    )
 
 
 def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
@@ -105,6 +122,7 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
     )
     for package_root in config.packages:
         _collect_package_edges(package_root, ctx)
+        _collect_unclassified_modules(package_root, ctx)
     unmatched_ignores = _find_unmatched_ignores(config.policy, ctx.ignored)
     return ArchitectureCheckResult(
         violations=tuple(
@@ -113,6 +131,9 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         ignored=tuple(sorted(ctx.ignored.values(), key=lambda item: item.render())),
         coverage=tuple(sorted(ctx.coverage.values(), key=lambda item: item.identity())),
         unmatched_ignores=unmatched_ignores,
+        unclassified_modules=tuple(
+            sorted(ctx.unclassified.values(), key=lambda item: item.identity())
+        ),
     )
 
 
@@ -124,6 +145,53 @@ def _collect_package_edges(package_root: PackageRoot, ctx: _CheckContext) -> Non
         )
         for statement in statements:
             _evaluate_statement(statement, ctx=ctx)
+
+
+def _collect_unclassified_modules(
+    package_root: PackageRoot, ctx: _CheckContext
+) -> None:
+    """Report every discovered module no configured group classifies.
+
+    Coverage of the *graph* and coverage of the *policy* are different claims.
+    An edge is checked only when both endpoints classify, so a module sitting
+    outside every group is enforced over nothing, and its imports bypass the
+    policy until an edge's other endpoint happens to expose it. This pass names
+    the module whether or not it imports anything, so a package added without a
+    matching prefix is visible on the first run rather than the first forbidden
+    import.
+
+    The mode is checked here rather than by the caller so the default traversal
+    stays a single loop: under ``ignore`` this is the only work the pass does.
+    """
+    mode = ctx.policy.unclassified_modules
+    if mode not in UNCLASSIFIED_MODULE_MODES or mode == "ignore":
+        return
+    severity = unclassified_module_severity(mode)
+    for source_path in sorted(package_root.root.rglob("*.py")):
+        _record_unclassified_module(package_root, source_path, severity, ctx=ctx)
+
+
+def _record_unclassified_module(
+    package_root: PackageRoot,
+    source_path: Path,
+    severity: Severity,
+    *,
+    ctx: _CheckContext,
+) -> None:
+    """Record one module if no configured group classifies it.
+
+    The first source path wins when two roots supply the same module name, so
+    the reported location does not depend on the order roots are declared in.
+    """
+    module = compute_module_name(package_root.root, package_root.name, source_path)
+    if ctx.policy.group_for(module) is not None:
+        return
+    ctx.unclassified.setdefault(
+        module,
+        UnclassifiedModuleDiagnostic(
+            module=module, source_path=source_path, severity=severity
+        ),
+    )
 
 
 def _evaluate_statement(statement: ImportStatement, *, ctx: _CheckContext) -> None:
