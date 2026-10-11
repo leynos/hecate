@@ -127,7 +127,9 @@ it:
 3. Walk each package root, collect import statements from each scanned file
    (`imports.py`, parsing through `source.py` again), and resolve named and
    wildcard edges against the index.
-4. Classify each edge against policy, honouring ignores first (`policy.py`).
+4. Classify each edge against policy in the fixed order given under
+   [edge classification precedence](#edge-classification-precedence)
+   (`policy.py`).
 5. Assemble `ArchitectureCheckResult`, then render it (`diagnostics.py`,
    `output.py`).
 
