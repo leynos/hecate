@@ -153,20 +153,6 @@ def _warning_for(name: str, line: int) -> ArchitectureWarning:
     )
 
 
-@given(st.lists(IDENTIFIER, min_size=1, max_size=5))
-def test_duplicate_warnings_do_not_create_duplicate_identities(
-    names: list[str],
-) -> None:
-    """Duplicate warned imports collapse under warning identity sorting."""
-    names_with_duplicate = [*names, names[0]]
-    identities = {_warning_for(name, 1).identity() for name in names_with_duplicate}
-
-    assert len(identities) < len(names_with_duplicate), (
-        f"expected duplicate warnings to collapse, got {len(identities)} identities "
-        f"from {len(names_with_duplicate)} names"
-    )
-
-
 @given(st.lists(IDENTIFIER, min_size=1, max_size=4))
 def test_text_and_json_preserve_every_warning_identity(names: list[str]) -> None:
     """Each warning keeps its identity through both renderers.

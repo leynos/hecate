@@ -174,7 +174,7 @@ of being approximated away.
 ## Migrating with warning-level directions
 
 A dependency that should eventually be forbidden, but is still widespread, does
-not have to be left undeclared while you work through it. Naming it in a group's
+not have to be left undeclared during the migration. Naming it in a group's
 `warn` list makes Hecate report the edges without failing the build:
 
 ```toml
@@ -183,6 +183,16 @@ name = "application"
 prefixes = ["sample.application"]
 allowed = ["application", "domain"]
 warn = ["legacy"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["sample.domain"]
+allowed = ["domain"]
+
+[[tool.hecate.groups]]
+name = "legacy"
+prefixes = ["sample.legacy"]
+allowed = ["legacy"]
 ```
 
 Now every edge from `sample.application` to `sample.legacy` appears in the

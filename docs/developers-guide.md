@@ -138,7 +138,7 @@ it:
    wildcard edges against the index.
 4. Classify each edge against policy in the fixed order given under
    [edge classification precedence](#edge-classification-precedence)
-   (`policy.py`).
+   (`classification.py`, over `policy.py`).
 5. Assemble `ArchitectureCheckResult`, then render it (`diagnostics.py`,
    `output.py`).
 
