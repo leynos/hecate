@@ -19,10 +19,11 @@ def render_text(
 ) -> str:
     """Render deterministic plain text for CI and snapshots.
 
-    Violations and error-severity coverage findings are always shown, because
-    both change the exit code. Warning coverage findings stay behind
-    ``--show-coverage`` so that non-strict runs keep their existing output
-    shape.
+    Violations, error-severity coverage findings, and warning-level edges are
+    always shown, because each either changes the exit code or is a dependency
+    the policy wants kept visible while it migrates. Warning coverage findings
+    stay behind ``--show-coverage`` so that non-strict runs keep their existing
+    output shape.
 
     Unclassified-module diagnostics are the exception: a mode that was asked
     for by configuration is always shown. ``warn`` and ``error`` both exist to
@@ -34,6 +35,7 @@ def render_text(
         *(violation.render() for violation in result.violations),
         *(failure.render() for failure in result.coverage_failures),
         *(diagnostic.render() for diagnostic in result.unclassified_modules),
+        *(warning.render() for warning in result.warnings),
     ]
     if show_ignored:
         lines.extend(ignored.render() for ignored in result.ignored)
@@ -71,6 +73,10 @@ def render_json(
 ) -> str:
     """Render deterministic JSON output.
 
+    The ``warnings`` list is always present, even when empty: warning-level
+    edges are visible in every run by design, so a consumer can read the key
+    unconditionally rather than inferring its absence from the flags.
+
     ``include_unclassified`` follows the ``show_ignored`` pattern: the section
     is present, and empty, whenever the mode can produce entries, so a consumer
     reads an empty array as "evaluated and fully classified" rather than as
@@ -80,6 +86,7 @@ def render_json(
     payload: dict[str, object] = {
         "ok": result.ok,
         "violations": [violation.to_dict() for violation in result.violations],
+        "warnings": [warning.to_dict() for warning in result.warnings],
     }
     if show_coverage:
         payload["coverage"] = [diagnostic.to_dict() for diagnostic in result.coverage]

@@ -53,6 +53,7 @@ class _OutputArgs:
     show_ignored: bool = False
     show_coverage: bool = False
     fail_on_unmatched_ignore: bool = False
+    fail_on_warnings: bool = False
 
 
 _DEFAULT_SOURCE_ARGS = _SourceArgs()
@@ -126,7 +127,8 @@ def check(
     1
         Architecture violations, or error-severity coverage findings, were
         found. ``unclassified_modules = "error"`` reaches this code through an
-        unclassified module.
+        unclassified module. ``--fail-on-warnings`` also reaches this code when
+        warning-level edges were reported.
     2
         Configuration, command-line, or input validation failed. This includes
         a package root that could not be walked, a scanned source file that
@@ -155,7 +157,11 @@ def check(
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
     _emit_check_output(result, out=out, policy=hecate_config.policy)
-    return 0 if result.ok else 1
+    # Warnings are rendered before this point, so an enforced run still shows
+    # the edges it is failing on.
+    if not result.ok or (out.fail_on_warnings and result.warnings):
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -7,11 +7,16 @@ from pathlib import Path
 from .checker import ArchitectureCheckResult, check_architecture
 from .cli import main
 from .config import ConfigOverrides, HecateConfig, load_policy
-from .diagnostics import ArchitectureViolation, UnclassifiedModuleDiagnostic
+from .diagnostics import (
+    ArchitectureViolation,
+    ArchitectureWarning,
+    UnclassifiedModuleDiagnostic,
+)
 
 __all__ = [
     "ArchitectureCheckResult",
     "ArchitectureViolation",
+    "ArchitectureWarning",
     "ConfigOverrides",
     "HecateConfig",
     "Path",
