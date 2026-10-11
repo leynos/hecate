@@ -85,6 +85,45 @@ class ArchitectureViolation:
         )
 
 
+@dc.dataclass(frozen=True, slots=True)
+class ArchitectureWarning:
+    """A classified import at warning level.
+
+    The edge is tolerated rather than forbidden, so it does not fail the check
+    by default. It is reported anyway, because a warning-level direction is a
+    dependency the policy wants visible while it is being migrated away from.
+    The shape deliberately mirrors :class:`ArchitectureViolation`, so a
+    consumer can read either diagnostic with the same code and tell them apart
+    by ``severity``.
+    """
+
+    rule_id: str
+    importer: str
+    imported: str
+    importer_group: str
+    imported_group: str
+    source_path: Path
+    line: int
+
+    def identity(self) -> tuple[str, str, str, int]:
+        """Return the stable identity used for sorting and de-duplication."""
+        return (self.rule_id, self.importer, self.imported, self.line)
+
+    def render(self) -> str:
+        """Render a deterministic single-line diagnostic."""
+        return (
+            f"{self.rule_id} (warning): {self.importer}:{self.line} imports "
+            f"warning-level module {self.imported} "
+            f"({self.importer_group} -> {self.imported_group})"
+        )
+
+    def to_dict(self) -> dict[str, object]:
+        """Return a JSON-safe diagnostic mapping."""
+        return _classified_payload(
+            self, state=EdgeState.WARNED, severity=Severity.WARNING
+        )
+
+
 def diagnostic_identity_to_dict(
     rule_id: str, importer: str, imported: str, line: int
 ) -> dict[str, object]:

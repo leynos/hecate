@@ -8,6 +8,7 @@ import typing as typ
 from .config import HecateConfig
 from .diagnostics import (
     ArchitectureViolation,
+    ArchitectureWarning,
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
     UnclassifiedModuleDiagnostic,
@@ -42,6 +43,7 @@ class ArchitectureCheckResult:
     coverage: tuple[CoverageDiagnostic, ...] = ()
     unmatched_ignores: tuple[str, ...] = ()
     unclassified_modules: tuple[UnclassifiedModuleDiagnostic, ...] = ()
+    warnings: tuple[ArchitectureWarning, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -50,7 +52,9 @@ class ArchitectureCheckResult:
         Coverage diagnostics only fail the check when they carry error
         severity, which happens for unclassified and unresolved internal edges
         under strict mode. Unclassified-module diagnostics fail it the same
-        way, so a warning-only run stays green.
+        way, so a warning-only run stays green, and warning-level edges never
+        fail here: they are tolerated by policy, and only
+        ``--fail-on-warnings`` acts on them.
         """
         failures = (self.coverage, self.unclassified_modules)
         return not self.violations and not any(
@@ -101,6 +105,9 @@ class _CheckContext:
     violations: dict[tuple[str, str, str, int], ArchitectureViolation] = dc.field(
         default_factory=dict
     )
+    warnings: dict[tuple[str, str, str, int], ArchitectureWarning] = dc.field(
+        default_factory=dict
+    )
     ignored: dict[tuple[str, str], IgnoredImportDiagnostic] = dc.field(
         default_factory=dict
     )
@@ -138,6 +145,9 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         unmatched_ignores=unmatched_ignores,
         unclassified_modules=tuple(
             sorted(ctx.unclassified.values(), key=lambda item: item.identity())
+        ),
+        warnings=tuple(
+            sorted(ctx.warnings.values(), key=lambda item: item.identity())
         ),
     )
 
@@ -247,9 +257,12 @@ def _record_edge(
 def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
     """Classify one already-expanded origin of an import edge.
 
-    Every path records exactly one outcome, and a documented ignore is honoured
-    before any outcome is reported, so an edge the policy could not classify or
-    resolve is exemptible just like a forbidden one.
+    Precedence is fixed so an edge's outcome never depends on evaluation order
+    further up the pipeline. Out-of-scope external edges are skipped entirely.
+    An allowed target is silent. A documented ignore is honoured next, so an
+    edge the policy could not classify or resolve is exemptible just like a
+    forbidden one. A warning-level target is reported without failing. Only
+    what remains is forbidden.
     """
     imported = edge.imported
     resolution = ctx.origins.resolve(imported)
@@ -280,6 +293,11 @@ def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
     if _record_exemption(edge, ctx=ctx):
         return
     # Both groups are known here: the unclassified case returned above.
+    if ctx.policy.is_warned(importer_group.name, imported_group.name):
+        _record_warning(
+            edge, importer_group=importer_group, imported_group=imported_group, ctx=ctx
+        )
+        return
     violation = ArchitectureViolation(
         rule_id=ctx.policy.default_rule_id,
         importer=edge.importer,
@@ -290,6 +308,26 @@ def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
         line=edge.line,
     )
     ctx.violations[violation.identity()] = violation
+
+
+def _record_warning(
+    edge: _Edge,
+    *,
+    importer_group: ModuleGroup,
+    imported_group: ModuleGroup,
+    ctx: _CheckContext,
+) -> None:
+    """Record a tolerated edge the policy wants kept visible."""
+    warning = ArchitectureWarning(
+        rule_id=ctx.policy.default_rule_id,
+        importer=edge.importer,
+        imported=edge.imported,
+        importer_group=importer_group.name,
+        imported_group=imported_group.name,
+        source_path=edge.source_path,
+        line=edge.line,
+    )
+    ctx.warnings[warning.identity()] = warning
 
 
 def _exempt_or_record_coverage(

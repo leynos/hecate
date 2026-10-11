@@ -38,6 +38,13 @@ class EdgeState(enum.StrEnum):
     PERMITTED = "permitted"
     """Both endpoints classified, and the importer group may import the target."""
 
+    WARNED = "warned"
+    """Both endpoints classified, and the importer group may import it advisably.
+
+    The dependency is permitted, but the policy wants it visible: it does not
+    fail the check unless the run asks warnings to.
+    """
+
     FORBIDDEN = "forbidden"
     """Both endpoints classified, and the importer group may not import it."""
 
@@ -64,13 +71,27 @@ def group_allowed_by_list(imported_group: str, allowed: tuple[str, ...]) -> bool
     return imported_group in allowed
 
 
+def group_warned_by_list(imported_group: str, warn: tuple[str, ...]) -> bool:
+    """Return whether ``imported_group`` appears in a configured warn-list."""
+    assert imported_group
+    return imported_group in warn
+
+
 @dc.dataclass(frozen=True, slots=True)
 class ModuleGroup:
-    """A named architecture group matched by ordered dotted prefixes."""
+    """A named architecture group matched by ordered dotted prefixes.
+
+    ``allowed`` and ``warn`` both permit the dependency the group names, and
+    differ only in what the edge reports: an allowed target is silent, while a
+    warning target stays visible without failing the check. Configuration
+    validation rejects a target listed in both, so one edge never has two
+    conflicting outcomes.
+    """
 
     name: str
     prefixes: tuple[str, ...]
     allowed: tuple[str, ...]
+    warn: tuple[str, ...] = ()
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -160,6 +181,10 @@ class ArchitecturePolicy:
         """Return whether one classified group may import another."""
         return is_group_allowed(importer_group, imported_group, self.groups)
 
+    def is_warned(self, importer_group: str, imported_group: str) -> bool:
+        """Return whether one classified group imports another at warning level."""
+        return is_group_warned(importer_group, imported_group, self.groups)
+
     def ignored_import_for(self, importer: str, imported: str) -> IgnoredImport | None:
         """Return the matching ignore for one import edge, if present."""
         for ignored_import in self.ignores:
@@ -234,6 +259,16 @@ def is_group_allowed(
     for group in groups:
         if group.name == importer_group:
             return group_allowed_by_list(imported_group, group.allowed)
+    return False
+
+
+def is_group_warned(
+    importer_group: str, imported_group: str, groups: tuple[ModuleGroup, ...]
+) -> bool:
+    """Return whether ``importer_group`` imports ``imported_group`` at warning level."""
+    for group in groups:
+        if group.name == importer_group:
+            return group_warned_by_list(imported_group, group.warn)
     return False
 
 
