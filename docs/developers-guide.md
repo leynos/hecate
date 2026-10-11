@@ -1384,7 +1384,7 @@ The gate's modules declare Python 3.14 and their pinned helper libraries in
 their own uv inline script metadata, so `make duplication` and
 `make duplication-test` run in an isolated environment with the interpreter
 selected explicitly, rather than in the application's virtualenv.
-`tests/test_toolchain_contract.py` keeps the Makefile, the CI workflow, and
+`tests/toolchain_contract/` keeps the Makefile, the CI workflow, and
 `[tool.nose]` pinned to the same version.
 
 ______________________________________________________________________

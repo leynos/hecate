@@ -50,8 +50,8 @@ SKYLOS_ALLOW_LOCK ?= .skylos-whitelist.lock
 GATE_PYTHON_TARGETS ?= scripts/atomic_write.py scripts/duplication_allowlist.py \
         scripts/duplication_gate.py scripts/nose_detector.py scripts/nose_schema.py
 
-# Keep this pin in sync with the CI nose install step and [tool.nose] version;
-# tests/test_toolchain_contract.py enforces the match.
+# Keep this pin in sync with the CI nose install step and [tool.nose]
+# version; tests/toolchain_contract/ enforces the match.
 NOSE_VERSION ?= 0.20.0
 NOSE_TOOLS_DIR ?= .tools/nose
 NOSE_BIN ?= $(NOSE_TOOLS_DIR)/nose
