@@ -119,9 +119,7 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         ignored=tuple(sorted(ctx.ignored.values(), key=lambda item: item.render())),
         coverage=tuple(sorted(ctx.coverage.values(), key=lambda item: item.identity())),
         unmatched_ignores=unmatched_ignores,
-        warnings=tuple(
-            sorted(ctx.warnings.values(), key=lambda item: item.identity())
-        ),
+        warnings=tuple(sorted(ctx.warnings.values(), key=lambda item: item.identity())),
     )
 
 

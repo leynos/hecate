@@ -159,9 +159,7 @@ def test_duplicate_warnings_do_not_create_duplicate_identities(
 ) -> None:
     """Duplicate warned imports collapse under warning identity sorting."""
     names_with_duplicate = [*names, names[0]]
-    identities = {
-        _warning_for(name, 1).identity() for name in names_with_duplicate
-    }
+    identities = {_warning_for(name, 1).identity() for name in names_with_duplicate}
 
     assert len(identities) < len(names_with_duplicate), (
         f"expected duplicate warnings to collapse, got {len(identities)} identities "
