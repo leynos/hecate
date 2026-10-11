@@ -101,9 +101,26 @@ schema: forbidden source-to-target concepts become `allowed` group lists,
 layered dependency direction becomes ordered group policy, and documented
 exceptions become ignore entries with reasons.[^1][^2]
 
+pyscn's architecture check reports modules that match no declared layer, gated
+by a `strict_mode` boolean. Hecate keeps the same concern under a three-valued
+setting, because a project may want the finding visible without failing the
+build:
+
+| pyscn `[architecture] strict_mode` | Hecate `[tool.hecate] unclassified_modules` |
+| ---------------------------------- | ------------------------------------------- |
+| `false`                            | `"ignore"`                                  |
+| `true`                             | `"error"`                                   |
+
+A project migrating from pyscn that wants the finding reported but not fatal
+has no pyscn equivalent to translate; `"warn"` is new. Hecate reports the
+module itself, naming it and its source path, rather than only the edges it
+participates in.[^3]
+
 ______________________________________________________________________
 
 [^1]: Import Linter forbidden contracts:
     <https://import-linter.readthedocs.io/en/stable/contract_types/forbidden/>.
 [^2]: Import Linter layers contracts:
     <https://import-linter.readthedocs.io/en/stable/contract_types/layers/>.
+[^3]: pyscn repository:
+    <https://github.com/ludo-technologies/pyscn>.

@@ -42,12 +42,14 @@ The fields are:
 - imported module;
 - importing group and imported group.
 
-Exit code `0` means the package passed. Exit code `1` means Hecate found
-architecture violations. Exit code `2` means configuration, command-line input,
-or package-root validation failed. `2` also covers a scanned source file that
-Hecate could not read or parse: the file and the reason are reported on
-standard error, so a broken checkout is never mistaken for an architecture
-finding.
+Exit code `0` means the package passed, including runs whose only findings are
+warnings. Exit code `1` means Hecate found architecture violations, or a
+finding at error severity such as an unclassified module under
+`unclassified_modules = "error"`. Exit code `2` means configuration,
+command-line input, or package-root validation failed. `2` also covers a
+scanned source file that Hecate could not read or parse: the file and the
+reason are reported on standard error, so a broken checkout is never mistaken
+for an architecture finding.
 
 ## Import outcome states
 
@@ -106,6 +108,92 @@ coverage section.
 
 Outside strict mode these findings are warnings, so adding a subtree does not
 break an existing build. Inside strict mode they become failures.
+
+## Unclassified-module reporting
+
+Coverage reporting watches edges. A module no configured group claims is a
+different gap: every import it makes or receives sits outside group-based
+enforcement, so a package added without a matching prefix can drift unchecked
+while each existing check still passes. `unclassified_modules` reports the
+module itself:
+
+```toml
+[tool.hecate]
+unclassified_modules = "error"
+```
+
+The setting accepts three values:
+
+| Mode     | Behaviour                                                            |
+| -------- | -------------------------------------------------------------------- |
+| `ignore` | Report nothing. This is the default and preserves earlier output.    |
+| `warn`   | Report each unclassified module as a warning; the exit code stays 0. |
+| `error`  | Report each unclassified module as an error; the check exits 1.      |
+
+A finding names the module and says why it was reported:
+
+```plaintext
+HEC002 error sample.newthing: no architecture group matched this module
+```
+
+Module findings carry the fixed rule identifier `HEC002`, so a consumer can
+tell them apart from edge diagnostics, which use the configured
+`default_rule_id`.
+
+### What counts as a discovered module
+
+- Every `*.py` file beneath a configured package root, including `__init__.py`
+  and files with no imports at all. A new package is reported on its first run,
+  before it grows its first import.
+- Classification reuses the ordered, first-match rule described under
+  [group tables](configuration.md#group-tables). A dotted prefix matches at a
+  boundary, so a group for `sample.domain` does not classify a lookalike
+  `sample.domainx`.
+- External imports are not modules for this purpose. They continue to follow
+  `include_external_packages` and the external prefixes groups declare.
+
+### Reading the output
+
+Text output shows module findings whenever the mode is `warn` or `error`,
+because the configuration already asked for them. Under `warn` the pass notice
+still appears, since warnings do not change the exit code:
+
+```plaintext
+hecate: architecture check passed
+HEC002 warning sample.newthing: no architecture group matched this module
+```
+
+Under `error` there is no pass notice, and the exit code is `1`.
+
+JSON output carries an `unclassified_modules` array in both reporting modes,
+sorted by module name. The array is present and empty when the tree is fully
+classified, which a consumer reads as "evaluated and clean" rather than as "not
+reported":
+
+```json
+{
+  "ok": false,
+  "unclassified_modules": [
+    {
+      "message": "no architecture group matched this module",
+      "module": "sample.newthing",
+      "rule_id": "HEC002",
+      "severity": "error",
+      "source_path": "/repo/sample/newthing/__init__.py"
+    }
+  ]
+}
+```
+
+Under `ignore` the key is absent entirely, so the default payload is unchanged.
+The exit code follows from the findings: `warn` leaves it at `0`, `error` makes
+it `1`.
+
+A module finding does not change how the edges around that module are
+classified. An import edge with an unclassified endpoint stays outside
+group-based enforcement in all three modes; the finding exists to make that gap
+visible. See [coverage reporting](#coverage-reporting) for how such edges are
+reported by strict mode.
 
 ## Strict mode
 
