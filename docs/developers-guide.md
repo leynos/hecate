@@ -9,18 +9,19 @@ namespace model, provenance, policy, and output stay separable and another
 engine could replace the parser without changing the TOML policy schema. See
 [ADR 001](adr-001-stdlib-ast-import-engine.md) for the decision and its limits.
 
-| Module            | Responsibility                                                     |
-| ----------------- | ------------------------------------------------------------------ |
-| `source.py`       | Read and parse one scanned file, reporting `SourceError`.          |
-| `imports.py`      | Collect `Import` and `ImportFrom` statements from source text.     |
-| `module_scope.py` | Yield the statements that run at module scope, with nesting flags. |
-| `all_sequence.py` | Evaluate a module's `__all__` sequence, or report it unknowable.   |
-| `namespaces.py`   | Model bindings and wildcard exports per module.                    |
-| `origins.py`      | Resolve an import target to the modules that supply it.            |
-| `policy.py`       | Classify edges against groups, allow-lists, and ignores.           |
-| `checker.py`      | Orchestrate the traversal and assemble the result.                 |
-| `diagnostics.py`  | Hold the stable, ordered diagnostic dataclasses.                   |
-| `output.py`       | Render text and JSON output.                                       |
+| Module               | Responsibility                                                     |
+| -------------------- | ------------------------------------------------------------------ |
+| `source.py`          | Read and parse one scanned file, reporting `SourceError`.          |
+| `imports.py`         | Collect `Import` and `ImportFrom` statements from source text.     |
+| `module_scope.py`    | Yield the statements that run at module scope, with nesting flags. |
+| `all_sequence.py`    | Evaluate a module's `__all__` sequence, or report it unknowable.   |
+| `namespaces.py`      | Model bindings and wildcard exports per module.                    |
+| `origins.py`         | Resolve an import target to the modules that supply it.            |
+| `policy.py`          | Classify edges against groups, allow-lists, and ignores.           |
+| `checker.py`         | Orchestrate the traversal and assemble the result.                 |
+| `module_coverage.py` | Report discovered modules that no configured group claims.         |
+| `diagnostics.py`     | Hold the stable, ordered diagnostic dataclasses.                   |
+| `output.py`          | Render text and JSON output.                                       |
 
 `source.py` is the only place the scanner crosses the filesystem and parser
 boundary, so every failure mode of that boundary surfaces as one `SourceError`:
@@ -85,6 +86,15 @@ nothing, so its edges fall outside group-based checking until the other
 endpoint happens to expose them — which is why the module pass reports the
 module directly, including `__init__.py` and files with no imports. It runs
 under `warn` and `error` only, so the default traversal does no extra work.
+
+`module_coverage.py` owns the second pass. It reads the policy's
+`unclassified_modules` mode, walks each package root, and records a
+`UnclassifiedModuleDiagnostic` for every module `policy.group_for` does not
+claim. Keeping it out of `checker.py` separates the two questions the passes
+ask: `checker.py` classifies edges and knows nothing about module discovery,
+while `module_coverage.py` knows only which modules policy claims. The
+accumulator is passed in rather than returned so the checker's single result
+object stays the one place diagnostics are merged and sorted.
 
 ### Bindings and wildcard exports
 

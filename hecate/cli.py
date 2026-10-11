@@ -15,6 +15,9 @@ from .config import ConfigError, ConfigOverrides, load_config
 from .output import render_json, render_text
 from .source import SourceError
 
+if typ.TYPE_CHECKING:
+    from .policy import ArchitecturePolicy
+
 
 class OutputFormat(enum.StrEnum):
     """Supported output formats."""
@@ -58,10 +61,8 @@ _DEFAULT_OUTPUT_ARGS = _OutputArgs()
 def _emit_check_output(
     result: ArchitectureCheckResult,
     *,
-    output_format: OutputFormat,
-    show_ignored: bool,
-    show_coverage: bool,
-    include_unclassified: bool,
+    out: _OutputArgs,
+    policy: ArchitecturePolicy,
 ) -> None:
     """Render and print the architecture-check result to stdout.
 
@@ -71,17 +72,21 @@ def _emit_check_output(
 
     Unclassified-module diagnostics take neither route: the configured mode
     already asked for them, so both formats carry them whenever the mode is
-    anything other than ``ignore``.
+    anything other than ``ignore``. That decision is read from ``policy``
+    rather than passed separately, so a rendered run and an exit code can never
+    disagree about which mode was in force.
     """
     output = (
         render_json(
             result,
-            show_ignored=show_ignored,
+            show_ignored=out.show_ignored,
             show_coverage=True,
-            include_unclassified=include_unclassified,
+            include_unclassified=policy.unclassified_modules != "ignore",
         )
-        if output_format is OutputFormat.JSON
-        else render_text(result, show_ignored=show_ignored, show_coverage=show_coverage)
+        if out.output_format is OutputFormat.JSON
+        else render_text(
+            result, show_ignored=out.show_ignored, show_coverage=out.show_coverage
+        )
     )
     print(output, end="")
 
@@ -147,13 +152,7 @@ def check(
         for unmatched_ignore in result.unmatched_ignores:
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
-    _emit_check_output(
-        result,
-        output_format=out.output_format,
-        show_ignored=out.show_ignored,
-        show_coverage=out.show_coverage,
-        include_unclassified=hecate_config.policy.unclassified_modules != "ignore",
-    )
+    _emit_check_output(result, out=out, policy=hecate_config.policy)
     return 0 if result.ok else 1
 
 
