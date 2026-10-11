@@ -169,6 +169,15 @@ indiscriminate abstraction or suppression.
   request. All gates pass in a single `make lint` invocation after the split;
   draft pull request [#154](https://github.com/leynos/hecate/pull/154) is open
   against `main` with 36 files changed. Not merged.
+- [x] (2026-10-11 18:05Z) Rebase onto `origin/main`
+  (`9583a94603cabcac0cb8cee10c596b26644cc448`) over the inherited boundary
+  `f5422e1d39d93d57ba2ffff219d66b155ccac827`, replaying all five branch
+  commits. Conflicts arose in eight files where both sides changed the same
+  region: `Makefile`, `pyproject.toml`, `.github/workflows/ci.yml`,
+  `hecate/config.py`, `hecate/config_helpers.py`, `README.md`,
+  `docs/developers-guide.md`, and `tests/test_config_output_cli.py`; all eight
+  keep both sides' intent. Recovery refs are held under
+  `refs/rebase-recovery/nose-adoption-*`.
 
 ## Surprises & discoveries
 
@@ -214,6 +223,31 @@ indiscriminate abstraction or suppression.
   `tests/workflow_contracts/coverage_python_sources.py`, which raises rather
   than asserting for the same reason. Re-running the ten-mutation negative
   control confirmed the split did not hollow out the contracts.
+- Observation: the estate's `weave` semantic merge driver silently corrupted
+  `hecate/config.py` during the rebase onto `origin/main`, while reporting
+  `outcome: clean` at `confidence: very_high`. Evidence: the weave output
+  duplicated the module docstring at line 24, inserted two stray blank lines
+  after the import block, and wrote `_read_table_list` out of alphabetical
+  order. Re-running the same three inputs through `git merge-file --zdiff3`
+  merged the file cleanly, and the two results differ in exactly those three
+  places. Impact: weave is selected here only by a user-wide ambient attributes
+  rule (`*.py merge=weave` in `$HOME/.config/git/attributes`), not by anything
+  tracked in this repository, so the rebase was repeated with
+  `-c core.attributesFile=/dev/null` to deselect the driver for that command
+  only. This is the second time weave has been caught incorrectly merging a
+  Python file in this estate; a clean exit and a high confidence label are
+  evidence about the driver's decision, not about the merged semantics, and
+  every weave auto-resolution needs the independent three-way comparison.
+- Observation: main's concurrent refactor moved the diagnostic-rendering test
+  out of `tests/test_config_output_cli.py` into a new `tests/test_output.py`,
+  while this branch moved four configuration-validation tests out of the same
+  file into a new `tests/test_config_validation.py`. Evidence: the two files
+  are opposite restructurings of one common ancestor, so git reported the whole
+  region as a conflict. Impact: the resolution takes main's file and drops only
+  the four tests the branch relocated, so no test is lost from either side and
+  none runs twice; because main's file keeps `_assert_config_rejects`, the
+  helper main added callers for survives the branch's deletion of the
+  validation tests that also used it.
 
 ## Decision log
 
@@ -266,6 +300,37 @@ indiscriminate abstraction or suppression.
   Rationale: `adr-001` and a duplicated `adr-002` already exist; `adr-003` is
   the next free identifier and does not extend the collision. Date/Author:
   2026-10-11, implementation agent.
+- Decision: rebase onto `origin/main` at
+  `9583a94603cabcac0cb8cee10c596b26644cc448` with the weave merge driver
+  deselected for the replay (`-c core.attributesFile=/dev/null`), using Git's
+  built-in merge machinery with `merge.conflictStyle=zdiff3`. Rationale: weave
+  is selected here only by a user-wide ambient attributes rule, never by a
+  tracked `.gitattributes`, and it produced a demonstrably corrupted merge of
+  `hecate/config.py` (duplicated module docstring, stray blank lines, unsorted
+  import). The override is command-scoped, so it leaves the user's global
+  attributes file and the repository untouched; the operation's own evidence is
+  the three-way comparison recorded under Surprises & discoveries. Date/Author:
+  2026-10-11, implementation agent.
+- Decision: resolve the `tests/test_config_output_cli.py` conflict by taking
+  main's version and deleting only the four configuration-validation and
+  config-discovery tests that this branch relocated into
+  `tests/test_config_validation.py`. Rationale: the two branches restructured
+  the same file in opposite directions, and the branch's copies are the same
+  cases plus a parametrized diagnostic-stability contract over the shared
+  table-list guard, so keeping main's copies as well would run identical tests
+  twice while losing the stronger coverage. Main's additions to the file — the
+  strict-mode and severity tests, and the `_assert_config_rejects` helper they
+  call — are kept, because only the branch's relocated tests used that helper
+  besides them. Date/Author: 2026-10-11, implementation agent.
+- Decision: keep `[tool.nose]` at `roots = ["hecate"]` after main's refactor
+  added `hecate/source.py`, `origins.py`, `namespaces.py`, `module_scope.py`,
+  and `all_sequence.py` and deleted `hecate/reexports.py`. Rationale: the scan
+  root is defined by what is maintained production Python, not by which files
+  happened to exist when the adjudication ran, so narrowing or freezing the
+  scope would silently exempt the largest change main has made to the scanned
+  package. The gate re-adjudicates the refactored package on its own merits,
+  and any family it now reports is a real finding to be resolved rather than a
+  reason to move the root. Date/Author: 2026-10-11, implementation agent.
 
 ## Outcomes & retrospective
 
@@ -850,3 +915,12 @@ runtime schema rather than CI tooling. No requirement was dropped and no
 tolerance was exceeded: the change is well inside the 40-file and 2500-line
 bounds, no runtime dependency was added, and zero allow entries were needed
 against a tolerance of six.
+
+Revision 3, 2026-10-11. Records the rebase onto `origin/main` at `9583a94`.
+Main's concurrent work is a substantial refactor of the scanned package, and it
+collided with this branch in eight files. The rebase keeps both sides' intent
+throughout, deselects the estate's weave merge driver for the replay after it
+produced a verified corrupt merge of `hecate/config.py`, and leaves the scan
+root at `hecate` so the refactored package is re-adjudicated rather than
+exempted. The branch's relocated configuration tests replace main's copies of
+the same cases instead of duplicating them.
