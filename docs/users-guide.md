@@ -42,9 +42,16 @@ The fields are:
 - imported module;
 - importing group and imported group.
 
+A warning-level edge has the same fields with an explicit severity:
+
+```plaintext
+HEC001 (warning): sample.application.service:1 imports warning-level module sample.legacy.old (application -> legacy)
+```
+
 Exit code `0` means the package passed. Exit code `1` means Hecate found
-architecture violations. Exit code `2` means configuration, command-line input,
-or package-root validation failed. `2` also covers a scanned source file that
+architecture violations, or the run passed `--fail-on-warnings` and found
+warning-level edges. Exit code `2` means configuration, command-line input, or
+package-root validation failed. `2` also covers a scanned source file that
 Hecate could not read or parse: the file and the reason are reported on
 standard error, so a broken checkout is never mistaken for an architecture
 finding.
@@ -64,15 +71,18 @@ skipped. The states are:
 | -------------- | -------------------------------------------------------------------------------- |
 | `permitted`    | Both endpoints are classified, and the importer group may import the target.     |
 | `forbidden`    | Both endpoints are classified, and the importer group may not import the target. |
-| `exempted`     | Forbidden in principle, but covered by a documented `ignore_imports` entry.      |
+| `warned`       | Both endpoints are classified, and the importer group tolerates the target.      |
+| `exempted`     | Not permitted in principle, but covered by a documented `ignore_imports` entry.  |
 | `unclassified` | At least one endpoint matched no configured group.                               |
 | `unresolved`   | The import target resolved to no known internal module.                          |
 
-`permitted` and `forbidden` edges are the normal case. The remaining three are
-reported in two different places:
+`permitted` and `forbidden` edges are the normal case. The remaining states are
+reported in different places:
 
 - `unclassified` and `unresolved` appear in the **coverage** section described
-  below, and fail the check only under the conditions given there; and
+  below, and fail the check only under the conditions given there;
+- `warned` appears in the **warnings** section, which is always present and
+  never fails the check by itself; and
 - `exempted` appears in the **ignored** section, which text output shows only
   when `--show-ignored` is passed.
 
@@ -160,6 +170,58 @@ Where `__all__` is absent or non-literal, the default public-name rule applies.
 Star exports are expanded when the origin module can be resolved statically. A
 wildcard whose export set cannot be resolved is reported as unresolved instead
 of being approximated away.
+
+## Migrating with warning-level directions
+
+A dependency that should eventually be forbidden, but is still widespread, does
+not have to be left undeclared while you work through it. Naming it in a group's
+`warn` list makes Hecate report the edges without failing the build:
+
+```toml
+[[tool.hecate.groups]]
+name = "application"
+prefixes = ["sample.application"]
+allowed = ["application", "domain"]
+warn = ["legacy"]
+```
+
+Now every edge from `sample.application` to `sample.legacy` appears in the
+output as a warning. The run stays green, and the direction is visible in CI
+rather than being assumed:
+
+```plaintext
+HEC001 (warning): sample.application.service:1 imports warning-level module sample.legacy.old (application -> legacy)
+```
+
+Warnings are shown whether the run passes or fails, so a run that also has a
+real violation reports both rather than hiding the warnings behind the failure.
+JSON output always carries a `warnings` array, empty when there is nothing to
+report, so a consumer can read the key unconditionally:
+
+```bash
+hecate check --format json | jq '.warnings'
+```
+
+A warning is not a permission to ignore. Once the migration is finished, move
+the target from `warn` to `allowed` to make it silent, or delete the entry to
+make it forbidden again. Listing a target in both `allowed` and `warn` is a
+configuration error, so the two states cannot drift into each other by accident.
+
+To stop the migration from standing still, make warning-level edges fail:
+
+```bash
+hecate check --fail-on-warnings
+```
+
+That run exits `1` when any warned edge was reported, after printing the
+diagnostics, so a pipeline fails on the same output a developer sees. Use it
+once the toleration is meant to be temporary and every new warning should be
+dealt with as it appears.
+
+Warning targets follow the same rule as `allowed`: they must name declared
+groups. A `warn` list that names an undeclared group exits `2` with the
+offending groups reported, because such an entry can never match anything and
+would read as a migration that is not in place.
 
 ## Local validation
 

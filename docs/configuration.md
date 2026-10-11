@@ -39,6 +39,12 @@ name = "domain"
 prefixes = ["beatcue.domain"]
 allowed = ["domain"]
 
+[[tool.hecate.groups]]
+name = "application"
+prefixes = ["beatcue.application"]
+allowed = ["application", "domain"]
+warn = ["legacy"]
+
 [[tool.hecate.ignore_imports]]
 importer = "beatcue.config"
 imported = "beatcue.adapters.outbound"
@@ -73,16 +79,24 @@ root = "src/internal_name"
 
 Each `[[tool.hecate.groups]]` table has these keys:
 
-| Key        | Type             | Required | Description                                   |
-| ---------- | ---------------- | -------- | --------------------------------------------- |
-| `name`     | string           | Yes      | Unique group name.                            |
-| `prefixes` | array of strings | Yes      | Dotted module prefixes matched by this group. |
-| `allowed`  | array of strings | Yes      | Group names this group may import.            |
+| Key        | Type             | Required | Description                                         |
+| ---------- | ---------------- | -------- | --------------------------------------------------- |
+| `name`     | string           | Yes      | Unique group name.                                  |
+| `prefixes` | array of strings | Yes      | Dotted module prefixes matched by this group.       |
+| `allowed`  | array of strings | Yes      | Group names this group may import.                  |
+| `warn`     | array of strings | No       | Group names this group may import at warning level. |
 
 _Table 2: Architecture group keys._
 
 Group matching is ordered. The first group whose prefix contains the module
 wins. Put specific prefixes before general prefixes.
+
+A `warn` entry names a target the group may import, but whose edges Hecate
+reports as warnings instead of passing them silently. Warning edges do not fail
+the check unless the run asks them to; see
+[warning-level directions](#warning-level-directions). If a target appears in
+both `allowed` and `warn`, Hecate rejects the configuration rather than letting
+the outcome depend on which check ran first.
 
 ## Ignore tables
 
@@ -127,11 +141,45 @@ Without strict mode these edges are still reported, but as warnings that do not
 change the exit code. This lets an existing project adopt the policy without a
 flag day, then tighten later.
 
+## Warning-level directions
+
+A group may name targets it tolerates but wants kept visible:
+
+```toml
+[[tool.hecate.groups]]
+name = "application"
+prefixes = ["sample.application"]
+allowed = ["application", "domain"]
+warn = ["legacy"]
+```
+
+Here `sample.application` may import `sample.legacy`, and every such edge is
+reported as a warning. The edge is classified, not exempted: it appears under
+`warnings` in JSON output and as a `(warning):` line in text output, and it
+does not fail the check by itself. Use this for a boundary a migration is
+working towards, so the direction stays in CI output without blocking the
+change that introduces it.
+
+Hecate resolves an edge against the group's policy in this order:
+
+1. an edge outside the scanned roots, or matching no group, is skipped or
+   reported as coverage;
+2. an `allowed` target passes silently;
+3. a matching `ignore_imports` entry exempts the edge;
+4. a `warn` target is reported as a warning; and
+5. anything else is a violation.
+
+`allowed` is checked before `ignore_imports`, so an ignore aimed at an edge the
+policy already allows never matches. It stays visible as an unmatched ignore
+rather than silently covering nothing.
+
 ## Validation rules
 
 - Group names must be unique.
 - Prefixes must be non-empty dotted strings.
-- `allowed` entries must refer to declared groups.
+- `allowed` and `warn` entries must refer to declared groups.
+- A group may not list the same target in both `allowed` and `warn`.
+- `warn` must be an array of non-blank strings when present.
 - Ignores must include a non-empty reason.
 - `unresolved_internal_severity` must be `error`, `warning`, or `exempt`.
 - Missing or non-directory package roots fail before scanning.
@@ -151,10 +199,13 @@ Supported options:
 - `--show-ignored`
 - `--show-coverage`
 - `--fail-on-unmatched-ignore`
+- `--fail-on-warnings`
 
 `--package` and `--root` must be provided together. They override configured
 package roots for ad hoc checks. `--strict` and `--no-strict` override the
-configured `strict` value for a single run.
+configured `strict` value for a single run. `--fail-on-warnings` makes a run
+that reported warning-level edges exit with code `1`; the diagnostics are
+printed first, so the failing run still names the edges that caused it.
 
 ______________________________________________________________________
 
