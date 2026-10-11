@@ -14,8 +14,8 @@ jobs:
       MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
       # Keep this pin in sync with NOSE_VERSION in the Makefile and the
-      # `version` in [tool.nose]; tests/test_toolchain_contract.py enforces
-      # the match.
+      # `version` in [tool.nose]; tests/toolchain_contract/ enforces the
+      # match.
       NOSE_VERSION: '0.20.0'
     steps:
       - name: Check out repository

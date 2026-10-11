@@ -147,7 +147,7 @@ indiscriminate abstraction or suppression.
 - [x] (2026-10-11 15:45Z) Ignore `.tools/` and the gate lock file.
 - [x] (2026-10-11 15:46Z) Port and adapt the focused tooling tests into
   `scripts/tests/` (137 passing).
-- [x] (2026-10-11 15:47Z) Extend `tests/test_toolchain_contract.py` with the
+- [x] (2026-10-11 15:47Z) Extend `tests/toolchain_contract/` with the
   nose pin contracts (18 passing, 10/10 planted drifts detected).
 - [x] (2026-10-11 15:48Z) Adjudicate hecate's families: both resolved by
   extracting `_read_table_list()` into `hecate/config_helpers.py`. **Zero allow
@@ -157,6 +157,12 @@ indiscriminate abstraction or suppression.
   documents hecate's own `[tool.hecate]` runtime schema, not CI tooling.
 - [x] (2026-10-11 16:20Z) Demonstrate the gate against the real pinned binary
   in a disposable workspace (all four states, determinism, idempotence).
+- [x] (2026-10-11 16:45Z) Split `tests/test_toolchain_contract.py` (452 lines)
+  into the `tests/toolchain_contract/` package; `make lint` had failed on
+  Pylint's `too-many-lines` (400), which is deliberately enabled. The readers
+  raise `ToolchainContractError` rather than asserting, matching
+  `tests/workflow_contracts/coverage_python_sources.py`, and the ten planted
+  drifts are still all detected.
 - [ ] Run the commit gates and open the draft pull request.
 
 ## Surprises & discoveries
@@ -185,6 +191,24 @@ indiscriminate abstraction or suppression.
 - Observation: `.tools/` is not currently ignored by Git.
   Evidence: `git check-ignore -v .tools/nose/nose` exits 1. Impact: the ignore
   entry must land with the first commit that would otherwise see the binary.
+- Observation: `max-module-lines = 400` is enforced over `tests/` but not over
+  `scripts/tests/`, so a 452-line contract module blocks `make lint` while a
+  674-line gate test module does not. Evidence: the second gate run failed at
+  `Makefile:150: lint-python` with `C0302: Too many lines in module (452/400)`
+  for `tests/test_toolchain_contract.py`, while `make duplication-test` passed
+  with `scripts/tests/test_duplication_gate_commands.py` at 674 lines. Impact:
+  the budget applies to whatever `PYLINT_TARGETS` names, which is
+  `hecate tests`; the tooling tests the gate reads are outside it. The contract
+  module is split into `tests/toolchain_contract/` rather than the limit being
+  raised, because the limit is deliberately enabled.
+- Observation: a contract module's readers cannot use `assert`, even though
+  the tests that call them can. Evidence: `ruff` S101 is ignored only for
+  `**/test_*.py` and `tests/steps/*.py`, not for a support module, so moving
+  the readers out of a `test_`-prefixed file turned every `assert` into a lint
+  error. Impact: the readers raise `ToolchainContractError`, matching
+  `tests/workflow_contracts/coverage_python_sources.py`, which raises rather
+  than asserting for the same reason. Re-running the ten-mutation negative
+  control confirmed the split did not hollow out the contracts.
 
 ## Decision log
 
@@ -342,7 +366,7 @@ statement. The trace chain used by this plan is:
 NOSE-REQ-roots  -> scripts/nose_detector.py    -> EP-M2 -> scripts/tests/test_nose_detector.py
 NOSE-REQ-keys   -> scripts/duplication_allowlist.py -> EP-M2 -> scripts/tests/test_duplication_gate.py
 NOSE-REQ-atomic -> scripts/atomic_write.py     -> EP-M1 -> scripts/tests/test_atomic_write.py
-NOSE-REQ-pins   -> Makefile + ci.yml           -> EP-M3 -> tests/test_toolchain_contract.py
+NOSE-REQ-pins   -> Makefile + ci.yml           -> EP-M3 -> tests/toolchain_contract/
 NOSE-REQ-adjud  -> hecate/config.py            -> EP-M5 -> make duplication
 ```
 
@@ -414,9 +438,9 @@ compile and quick-install strategies. Method: contract test parsing the
 Makefile with makeutil and the workflow with PyYAML, mirroring the existing
 Skylos contract. Rationale: the invariant is about configuration agreement
 across files that no type checker sees. Domain: three files and their literal
-values. Artefact: `tests/test_toolchain_contract.py`. Evidence: the contract
-passes; the negative control changes one of the three versions and the contract
-must fail.
+values. Artefact: `tests/toolchain_contract/`. Evidence: the contract passes;
+the negative control changes one of the three versions and the contract must
+fail.
 
 Obligation `INV-REAL`. The gate behaves as specified against the real pinned
 binary, not only against injected runners. Method: disposable-workspace
@@ -501,7 +525,7 @@ commit gates, and open the draft pull request.
 - Identifier and outcome: `EP-M3`, provisioning is reproducible and gated.
   `make install-nose`, the CI cache and install steps, the ignore entries, and
   the pin contract all exist and agree. Requirements and gaps: `NOSE-REQ-pins`.
-  Acceptance evidence: `tests/test_toolchain_contract.py` passes; a second
+  Acceptance evidence: `tests/toolchain_contract/` passes; a second
   `make install-nose` is a no-op that verifies the installed version.
   Conformance check: existing lint stages preserved; no dependency change; no
   trust-boundary change beyond the pinned upstream release. Recovery: the
