@@ -178,6 +178,18 @@ indiscriminate abstraction or suppression.
   `docs/developers-guide.md`, and `tests/test_config_output_cli.py`; all eight
   keep both sides' intent. Recovery refs are held under
   `refs/rebase-recovery/nose-adoption-*`.
+- [x] (2026-10-11 18:40Z) Re-run all seven commit gates against the rebased
+  candidate and force-push. `make check-fmt`, `make test` (624 passed),
+  `make typecheck`, `make lint` (single invocation, all four prerequisites
+  reached), `make duplication-test` (138 passed), `make markdownlint` (24
+  files, 0 issues) and `make nixie` all pass. The first `markdownlint` run
+  failed in its `spelling` prerequisite on the hyphenated wording this plan had
+  used for an incorrect merge, in its own uncommitted prose; the phrase was
+  reworded to `incorrectly merging`. The branch was pushed to
+  `503e76922d23067115d90a3bf60c4e7480909bd2` with
+  `--force-with-lease=refs/heads/adopt-nose-code-deduplication:8c2835206723a56c416a615c7207ce3c634bc97b`,
+  and draft pull request [#154](https://github.com/leynos/hecate/pull/154) now
+  reports this revision with 36 files changed.
 
 ## Surprises & discoveries
 
