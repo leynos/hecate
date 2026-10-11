@@ -20,9 +20,9 @@ SCRIPT_DIRECTORY = Path(__file__).resolve().parents[1]
 REPOSITORY_ROOT = SCRIPT_DIRECTORY.parent
 MAKEFILE = REPOSITORY_ROOT / "Makefile"
 
-#: The detector pin these tests assume. ``tests/test_toolchain_contract.py``
-#: owns pin-drift enforcement across the Makefile, CI, and ``[tool.nose]``;
-#: this value only names the version the stubs report.
+#: The detector pin these tests assume. ``tests/toolchain_contract/`` owns
+#: pin-drift enforcement across the Makefile, CI, and ``[tool.nose]``; this
+#: value only names the version the stubs report.
 NOSE_VERSION = "0.20.0"
 
 pytestmark = pytest.mark.skipif(
