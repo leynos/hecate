@@ -8,6 +8,7 @@ import typing as typ
 from .policy import UNCLASSIFIED_MODULE_MODES, Severity
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
     from pathlib import Path
 
 
@@ -104,7 +105,13 @@ def _is_string_list(value: object) -> bool:
     return isinstance(value, list) and _all_non_blank_strings(value)
 
 
-def _all_non_blank_strings(value: list[object]) -> bool:
+def _all_non_blank_strings(value: cabc.Sequence[object]) -> bool:
+    """Return whether every element is a string with non-blank content.
+
+    The parameter is a ``Sequence`` rather than a ``list`` because the callers
+    narrow with ``isinstance(value, list)``, which yields a ``list`` of unknown
+    element type; a covariant supertype accepts that without a cast.
+    """
     return all(isinstance(item, str) and item.strip() for item in value)
 
 

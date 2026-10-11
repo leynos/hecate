@@ -159,7 +159,8 @@ def check(
     _emit_check_output(result, out=out, policy=hecate_config.policy)
     # Warnings are rendered before this point, so an enforced run still shows
     # the edges it is failing on.
-    if not result.ok or (out.fail_on_warnings and result.warnings):
+    warned_edges_fail = out.fail_on_warnings and bool(result.warnings)
+    if not result.ok or warned_edges_fail:
         return 1
     return 0
 
