@@ -130,8 +130,8 @@ not a wildcard, an edge to `x.y`. Collection is syntactic, not an execution
 model: `collect_import_statements` walks the whole tree, so an import is
 recorded wherever it is written, including inside a branch, a `try`, a loop, a
 `with`, a `match` case, a function, or a class. Such an import may never run —
-an `if` body can be skipped, no `match` case need match, and a function body
-runs only when called — so Hecate treats it as a possible source-level
+an `if` body can be skipped, no `match` case needs to match, and a function
+body runs only when called — so Hecate treats it as a possible source-level
 dependency rather than a certain one. An import inside a `TYPE_CHECKING` block
 is reported on the same footing, because the dependency exists in the source
 even though the guard is false at runtime.
