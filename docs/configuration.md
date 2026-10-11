@@ -46,6 +46,11 @@ prefixes = ["beatcue.application"]
 allowed = ["application", "domain"]
 warn = ["legacy"]
 
+[[tool.hecate.groups]]
+name = "legacy"
+prefixes = ["beatcue.legacy"]
+allowed = ["legacy"]
+
 [[tool.hecate.ignore_imports]]
 importer = "beatcue.config"
 imported = "beatcue.adapters.outbound"
@@ -236,6 +241,16 @@ name = "application"
 prefixes = ["sample.application"]
 allowed = ["application", "domain"]
 warn = ["legacy"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["sample.domain"]
+allowed = ["domain"]
+
+[[tool.hecate.groups]]
+name = "legacy"
+prefixes = ["sample.legacy"]
+allowed = ["legacy"]
 ```
 
 Here `sample.application` may import `sample.legacy`, and every such edge is
