@@ -65,15 +65,16 @@ parses arguments and calls `load_config`, which discovers or reads the TOML
 policy and applies command-line overrides. `check_architecture` then analyses
 namespaces, builds the origin index over them, collects import statements, and
 classifies each edge against policy. The resulting `ArchitectureCheckResult` is
-rendered as text or JSON and turned into an exit code of 0, 1, or 2.
+rendered as text or JSON and turned into an exit code. A usage error leaves
+this flow before `load_config` and exits 1.
 
 ```mermaid
 flowchart TD
     A["hecate check"] --> B["cyclopts app()"]
-    B -->|"CycloptsError"| Z2["stderr + exit 2"]
+    B -->|"usage error"| ZU["Cyclopts panel + exit 1"]
     B --> C["load_config()"]
     C --> D{"config valid?"}
-    D -->|"ConfigError"| Z2
+    D -->|"ConfigError"| Z2["stderr + exit 2"]
     D -->|"yes"| E["check_architecture()"]
     E -->|"SourceError"| Z2
     E --> F["analyse_namespaces()"]
@@ -93,7 +94,9 @@ flowchart TD
 ```
 
 _Figure 1: One `hecate check` invocation from argument parsing to exit code.
-All four routes to exit code 2 converge on a single stderr node._
+All three routes to exit code 2 converge on a single stderr node; a usage error
+exits 1 through Cyclopts instead, as described under
+[Check outcome and exit codes](#check-outcome-and-exit-codes)._
 
 ### The stdlib `ast` import-analysis engine
 
@@ -265,7 +268,7 @@ The process exit code follows from that outcome:
 | ---- | -------------------------------------------------------------------------- |
 | 0    | The architecture check passed.                                             |
 | 1    | Architecture violations, or coverage diagnostics at error severity, found. |
-| 2    | Input validation failed: configuration, command-line, or source problems.  |
+| 2    | Input validation failed: configuration or source problems.                 |
 
 _Table 1: Process exit codes for `hecate check`._
 
@@ -275,14 +278,25 @@ by the message on standard error:
 - a `ConfigError`, from a missing or malformed configuration file or a failed
   validation rule;
 - a `SourceError`, from a scanned file that could not be read as UTF-8 or is
-  not valid Python;
-- a `CycloptsError`, from argument parsing in `main`.
+  not valid Python; and
+- an unmatched ignore under `--fail-on-unmatched-ignore`.
 
-A fourth path reaches exit code 2 from `check` itself: with
-`--fail-on-unmatched-ignore`, a configured ignore entry that matched no edge is
-reported and fails the run. That check runs after policy evaluation and returns
-before any rendering, so such a run prints the unmatched entries to standard
-error and exits 2 without printing the check result at all.
+The last of these comes from `check` itself rather than from an exception: the
+check runs after policy evaluation and returns before any rendering, so such a
+run prints the unmatched entries to standard error and exits 2 without printing
+the check result at all.
+
+**A command-line usage error exits 1, not 2.** Cyclopts handles an unknown
+option, an unknown command, or a value it cannot coerce by printing its own
+error panel to standard error and calling `sys.exit(1)` inside `app()`, before
+`main` regains control. The `except cyclopts.CycloptsError` branch in `main`
+therefore never runs for a parse failure. That branch is only reachable when
+`exit_on_error` is false, which this `App` does not set; with that setting the
+parse error would propagate instead and the branch would return 2. The shipped
+behaviour is Cyclopts's default, so a usage error is indistinguishable from an
+architecture violation by exit code alone, and a caller that branches on the
+code must read standard error as well. `cli.py`'s own docstring still claims
+exit 2 for this case, so the docstring and the behaviour disagree.
 
 ### Static-analysis limits
 
