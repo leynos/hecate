@@ -5,7 +5,9 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Outcomes & retrospective`, `Conformance basis`, and `Verification plan` must
 be kept up to date as work proceeds.
 
-Status: APPROVED
+Status: COMPLETE. Delivered as draft pull request
+[#154](https://github.com/leynos/hecate/pull/154), which is not to be merged
+without review.
 
 ## Purpose / big picture
 
@@ -163,7 +165,10 @@ indiscriminate abstraction or suppression.
   raise `ToolchainContractError` rather than asserting, matching
   `tests/workflow_contracts/coverage_python_sources.py`, and the ten planted
   drifts are still all detected.
-- [ ] Run the commit gates and open the draft pull request.
+- [x] (2026-10-11 17:10Z) Run the commit gates and open the draft pull
+  request. All gates pass in a single `make lint` invocation after the split;
+  draft pull request [#154](https://github.com/leynos/hecate/pull/154) is open
+  against `main` with 36 files changed. Not merged.
 
 ## Surprises & discoveries
 
@@ -264,7 +269,10 @@ indiscriminate abstraction or suppression.
 
 ## Outcomes & retrospective
 
-Implementation complete pending the final gate run and the draft pull request.
+Implementation complete. Deliverable: draft pull request
+[#154](https://github.com/leynos/hecate/pull/154), open against `main` and not
+merged. All commit gates pass in a single `make lint` invocation.
+
 Reconnaissance outcomes: the target repository is `leynos/hecate`; it has no
 pre-existing `[tool.nose]`, `[tool.duplication_gate]`, `.tools/`, `nose.toml`,
 `.nose.toml`, `nose.ignore.json`, or native baseline, so nothing can silently
@@ -302,6 +310,16 @@ fallback, a removed checksum check, a mistyped cache path, two weakened cache
 keys, and a dropped CI step. All ten were detected. A contract test that cannot
 fail is worse than no test, and the only way to know is to make it fail on
 purpose.
+
+A third lesson, from the gate run rather than from the code: the 452-line
+contract module tripped Pylint's deliberately-enabled `max-module-lines = 400`,
+and the abort meant `skylos` and `duplication` were never reached in that
+invocation. Both passed standalone, but "each stage passes alone" is a weaker
+claim than "the gate passes", and only the second is worth reporting. The
+module was split into `tests/toolchain_contract/` rather than the budget
+raised, the readers moved from `assert` to `ToolchainContractError` because
+ruff's S101 ignore covers only `test_`-prefixed files, and the ten mutations
+were re-run against the split to confirm it had not hollowed the contracts out.
 
 ## Context and orientation
 
