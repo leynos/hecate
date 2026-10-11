@@ -13,6 +13,10 @@ jobs:
     env:
       MAKEUTIL_REVISION: '29fc5a1634ffbaa18a773eed9dff1b2838a45d9c'
       MAKEUTIL_TOOLCHAIN: 'nightly-2026-05-28'
+      # Keep this pin in sync with NOSE_VERSION in the Makefile and the
+      # `version` in [tool.nose]; tests/test_toolchain_contract.py enforces
+      # the match.
+      NOSE_VERSION: '0.20.0'
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -42,6 +46,53 @@ jobs:
       - name: Install CLI tools
         run: |
           for tool in mbake; do uv tool install ${tool}; done
+
+      # The Makefile scopes uv to repo-local cache and tool directories, so
+      # caching them preserves the Skylos tool environment, the duplication
+      # gate's script environment, and the pinned Pylint tool environment
+      # between runs. The Makefile and gate scripts pin those tool versions,
+      # so their hashes key the cache alongside the project lockfile.
+      - name: Cache uv tool and script environments
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: |
+            .uv-cache
+            .uv-tools
+          key: uv-envs-${{ runner.os }}-${{ hashFiles('uv.lock', 'Makefile', 'scripts/*.py') }}
+          restore-keys: |
+            uv-envs-${{ runner.os }}-
+
+      # cargo-binstall clones the nose repository before it downloads the
+      # release artefact, so cache the installed binary and skip the whole
+      # install on a hit. The key carries the pinned version, so a bump
+      # misses the cache and reinstalls.
+      - name: Cache the pinned nose duplication detector
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .tools/nose
+          key: nose-${{ runner.os }}-${{ env.NOSE_VERSION }}
+
+      - name: Install nose duplication detector
+        env:
+          BINSTALL_VERSION: 'v1.22.0'
+          BINSTALL_SHA256: 'df2921254924066627685ee09f6c8b9acd7acef68a338668f879d2b033c09458'
+        run: |
+          if [ "$(.tools/nose/nose --version 2>/dev/null)" = "nose ${NOSE_VERSION}" ]; then
+            echo "nose ${NOSE_VERSION} restored from cache"
+            exit 0
+          fi
+          binstall_archive="$(mktemp)"
+          binstall_directory="$(mktemp -d)"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$binstall_archive" \
+            "https://github.com/cargo-bins/cargo-binstall/releases/download/${BINSTALL_VERSION}/cargo-binstall-x86_64-unknown-linux-musl.tgz"
+          echo "${BINSTALL_SHA256}  ${binstall_archive}" | sha256sum -c -
+          tar -xzf "$binstall_archive" -C "$binstall_directory"
+          mkdir -p .tools/nose
+          "$binstall_directory/cargo-binstall" --no-confirm \
+            --disable-strategies compile,quick-install \
+            --install-path .tools/nose \
+            --git https://github.com/corca-ai/nose "nose-cli@${NOSE_VERSION}"
+          .tools/nose/nose --version
 
       - name: Validate Makefile
         run: mbake validate Makefile
@@ -74,6 +125,12 @@ jobs:
 
       - name: Run lint gate, including Skylos dead-code detection
         run: make lint
+
+      # The gate helper tests need the pinned helper dependencies in an
+      # isolated interpreter, which `make test` does not build. Run them
+      # here so a defect in the gate itself fails CI on the pull request.
+      - name: Run duplication gate helper tests
+        run: make duplication-test
 
       - name: Run typechecker
         run: make typecheck
