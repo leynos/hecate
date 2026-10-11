@@ -107,10 +107,11 @@ the name arithmetic:
   level, accounting for whether the importing file is a package `__init__`.
 
 `collect_import_statements` returns statements in source order. `ast.walk`
-yields breadth-first, which stops matching source order as soon as an import is
-nested inside a block, so collected nodes are sorted by `(lineno, col_offset)`
-before conversion. Order matters because Python applies last-binding-wins, and
-later analysis depends on being able to read the source order back.
+traverses the tree in no specified order, which stops matching source order as
+soon as an import is nested inside a block, so collected nodes are sorted by
+`(lineno, col_offset)` before conversion. Order matters because Python applies
+last-binding-wins, and later analysis depends on being able to read the source
+order back.
 
 `FromImport.names` preserves `"*"` entries verbatim rather than filtering them,
 so wildcard handling is decided by the code that understands wildcard
