@@ -56,6 +56,29 @@ def given_override_config(fixture_ctx: FixtureContext) -> None:
     fixture_ctx.override_config = override_config
 
 
+@given(
+    parsers.parse('a Hecate config with unclassified modules set to "{mode}"'),
+)
+def given_unclassified_modules_config(fixture_ctx: FixtureContext, mode: str) -> None:
+    """Rewrite the fixture config to report modules no group claims."""
+    fixture_ctx.config.write_text(
+        _policy_toml(unclassified_modules=mode), encoding="utf-8"
+    )
+
+
+@given('a Hecate config with unclassified modules set to "error" and a catch-all group')
+def given_fully_classified_config(fixture_ctx: FixtureContext) -> None:
+    """Rewrite the fixture config so every module in the tree classifies.
+
+    The catch-all group comes last so the specific groups still win; adding it
+    first would classify the whole tree by prefix and hide any classification
+    bug the scenario is meant to expose.
+    """
+    fixture_ctx.config.write_text(
+        _policy_toml(unclassified_modules="error", catch_all=True), encoding="utf-8"
+    )
+
+
 @given("an invalid Hecate config", target_fixture="fixture_ctx")
 def given_invalid_config(tmp_path: Path) -> FixtureContext:
     """Create a config with an undeclared allowed group."""
@@ -330,8 +353,19 @@ def _write_fixture(package_root: Path, fixture: str) -> None:
     (package_root / variant.target).write_text(variant.contents, encoding="utf-8")
 
 
-def _policy_toml(*, allow_everything: bool = False) -> str:
-    """Return the sample policy TOML, optionally allowing every group edge."""
+def _policy_toml(
+    *,
+    allow_everything: bool = False,
+    unclassified_modules: str | None = None,
+    catch_all: bool = False,
+) -> str:
+    """Return the sample policy TOML, optionally allowing every group edge.
+
+    ``catch_all`` appends a last group covering the whole package, which is how
+    a scenario reaches a fully classified tree without the build-up of specific
+    groups first: matching is first-match, so a leading catch-all would swallow
+    every module and hide the classification it was meant to prove.
+    """
     allowed = (
         '["composition_root", "domain", "application", "inbound_adapter", '
         '"outbound_adapter", "adapter", "infrastructure"]'
@@ -343,12 +377,27 @@ def _policy_toml(*, allow_everything: bool = False) -> str:
         if allow_everything
         else '["inbound_adapter", "composition_root", "application", "domain"]'
     )
+    unclassified_line = (
+        f'unclassified_modules = "{unclassified_modules}"\n'
+        if unclassified_modules is not None
+        else ""
+    )
+    catch_all_group = (
+        f"""
+[[tool.hecate.groups]]
+name = "package_root"
+prefixes = ["sample"]
+allowed = {allowed}
+"""
+        if catch_all
+        else ""
+    )
     return f"""
 [tool.hecate]
 root_packages = ["sample"]
 include_external_packages = true
 default_rule_id = "HEC001"
-
+{unclassified_line}
 [[tool.hecate.groups]]
 name = "composition_root"
 prefixes = ["sample.config"]
@@ -383,4 +432,4 @@ allowed = {allowed}
 name = "infrastructure"
 prefixes = ["sqlalchemy"]
 allowed = ["infrastructure"]
-"""
+{catch_all_group}"""
