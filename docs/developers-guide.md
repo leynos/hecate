@@ -70,10 +70,12 @@ rendered as text or JSON and turned into an exit code of 0, 1, or 2.
 ```mermaid
 flowchart TD
     A["hecate check"] --> B["cyclopts app()"]
+    B -->|"CycloptsError"| Z2["stderr + exit 2"]
     B --> C["load_config()"]
     C --> D{"config valid?"}
-    D -->|"ConfigError"| Z2["stderr + exit 2"]
+    D -->|"ConfigError"| Z2
     D -->|"yes"| E["check_architecture()"]
+    E -->|"SourceError"| Z2
     E --> F["analyse_namespaces()"]
     F --> G["parse_source()"]
     E --> H["build_origin_index()"]
@@ -81,13 +83,16 @@ flowchart TD
     I --> J["resolve each target"]
     J --> K["classify each edge against policy"]
     K --> L["ArchitectureCheckResult"]
-    L --> M["render_text() or render_json()"]
+    L --> P{"unmatched ignores under\n--fail-on-unmatched-ignore?"}
+    P -->|"yes"| Z2
+    P -->|"no"| M["render_text() or render_json()"]
     M --> N{"result.ok?"}
     N -->|"true"| Z0["exit 0"]
     N -->|"false"| Z1["exit 1"]
 ```
 
-_Figure 1: One `hecate check` invocation from argument parsing to exit code._
+_Figure 1: One `hecate check` invocation from argument parsing to exit code.
+All four routes to exit code 2 converge on a single stderr node._
 
 ### The stdlib `ast` import-analysis engine
 
