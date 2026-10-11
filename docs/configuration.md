@@ -143,7 +143,7 @@ flag day, then tighten later.
 
 ## Warning-level directions
 
-A group may name targets it tolerates but wants kept visible:
+A group may name targets it tolerates but wants to keep visible:
 
 ```toml
 [[tool.hecate.groups]]

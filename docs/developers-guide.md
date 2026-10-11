@@ -9,18 +9,19 @@ namespace model, provenance, policy, and output stay separable and another
 engine could replace the parser without changing the TOML policy schema. See
 [ADR 001](adr-001-stdlib-ast-import-engine.md) for the decision and its limits.
 
-| Module            | Responsibility                                                     |
-| ----------------- | ------------------------------------------------------------------ |
-| `source.py`       | Read and parse one scanned file, reporting `SourceError`.          |
-| `imports.py`      | Collect `Import` and `ImportFrom` statements from source text.     |
-| `module_scope.py` | Yield the statements that run at module scope, with nesting flags. |
-| `all_sequence.py` | Evaluate a module's `__all__` sequence, or report it unknowable.   |
-| `namespaces.py`   | Model bindings and wildcard exports per module.                    |
-| `origins.py`      | Resolve an import target to the modules that supply it.            |
-| `policy.py`       | Classify edges against groups, allow-lists, and ignores.           |
-| `checker.py`      | Orchestrate the traversal and assemble the result.                 |
-| `diagnostics.py`  | Hold the stable, ordered diagnostic dataclasses.                   |
-| `output.py`       | Render text and JSON output.                                       |
+| Module              | Responsibility                                                     |
+| ------------------- | ------------------------------------------------------------------ |
+| `source.py`         | Read and parse one scanned file, reporting `SourceError`.          |
+| `imports.py`        | Collect `Import` and `ImportFrom` statements from source text.     |
+| `module_scope.py`   | Yield the statements that run at module scope, with nesting flags. |
+| `all_sequence.py`   | Evaluate a module's `__all__` sequence, or report it unknowable.   |
+| `namespaces.py`     | Model bindings and wildcard exports per module.                    |
+| `origins.py`        | Resolve an import target to the modules that supply it.            |
+| `policy.py`         | Hold the validated group, allow-list, warn-list, and ignore model. |
+| `classification.py` | Classify one resolved edge against the policy.                     |
+| `checker.py`        | Orchestrate the traversal and assemble the result.                 |
+| `diagnostics.py`    | Hold the stable, ordered diagnostic dataclasses.                   |
+| `output.py`         | Render text and JSON output.                                       |
 
 `source.py` is the only place the scanner crosses the filesystem and parser
 boundary, so every failure mode of that boundary surfaces as one `SourceError`:
@@ -72,15 +73,23 @@ endpoints by dotted prefix. `ArchitecturePolicy` also carries `strict`,
 `checker.py` orchestrates the run. `check_architecture` analyses namespaces,
 builds the origin index, evaluates every statement under each package root, and
 returns an `ArchitectureCheckResult` whose `ok` property is true only when
-there are no violations and no coverage diagnostic at error severity.
+there are no violations and no coverage diagnostic at error severity. The walk
+and the per-statement expansion of wildcards live here; deciding what one
+resolved edge means does not.
+
+`classification.py` owns that decision, so the precedence order below is
+readable without following the filesystem walk that produced the edge. It holds
+the accumulator (`_CheckContext`), the edge under evaluation (`_Edge`), and
+`classify_origin`, which every resolved origin passes through exactly once.
+
 `diagnostics.py` defines `ArchitectureViolation` for a forbidden classified
 edge, `ArchitectureWarning` for a tolerated one, and `CoverageDiagnostic` for
 an edge that could not be fully evaluated.
 
 ### Edge classification precedence
 
-`_classify_origin` fixes one order, and it is the observable contract of the
-policy model:
+`classify_origin` in `classification.py` fixes one order, and it is the
+observable contract of the policy model:
 
 1. an out-of-scope external edge is skipped; an unclassified or unresolved one
    is exempted or recorded as coverage, and neither continues;
