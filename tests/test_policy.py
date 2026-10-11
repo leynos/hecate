@@ -10,8 +10,10 @@ from hecate.policy import (
     Severity,
     coverage_severity,
     first_matching_group,
+    group_warned_by_list,
     ignore_matches,
     is_group_allowed,
+    is_group_warned,
 )
 
 
@@ -47,6 +49,65 @@ def test_ignore_matching_accepts_descendant_edges() -> None:
     assert ignore_matches(
         ignored_import, "pkg.config.runtime", "pkg.adapters.outbound.db"
     )
+
+
+def test_group_warn_predicate_uses_declared_policy() -> None:
+    """Warning targets are determined by the importer group."""
+    groups = (
+        ModuleGroup("domain", ("pkg.domain",), ("domain",)),
+        ModuleGroup(
+            "application",
+            ("pkg.application",),
+            ("application", "domain"),
+            ("legacy",),
+        ),
+        ModuleGroup("legacy", ("pkg.legacy",), ("legacy",)),
+    )
+
+    assert is_group_warned("application", "legacy", groups)
+    assert not is_group_warned("legacy", "application", groups)
+    assert not is_group_warned("domain", "legacy", groups)
+
+
+def test_group_warned_by_list_checks_the_declared_warn_list() -> None:
+    """The warn-list predicate reads only the list it is given."""
+    assert group_warned_by_list("legacy", ("legacy",))
+    assert not group_warned_by_list("legacy", ("application", "domain"))
+
+
+def test_warning_targets_do_not_become_allowed_targets() -> None:
+    """A warned target is reported, so it is not also permitted silently.
+
+    ``is_allowed`` decides whether an edge is silent, and ``is_warned``
+    decides whether it is reported. Conflating them would make a warning
+    target disappear from output or make a forbidden target pass, so the two
+    predicates must stay disjoint here.
+    """
+    groups = (
+        ModuleGroup("domain", ("pkg.domain",), ("domain",)),
+        ModuleGroup(
+            "application",
+            ("pkg.application",),
+            ("application", "domain"),
+            ("legacy",),
+        ),
+        ModuleGroup("legacy", ("pkg.legacy",), ("legacy",)),
+    )
+
+    assert is_group_warned("application", "legacy", groups)
+    assert not is_group_allowed("application", "legacy", groups), (
+        "a warned target must not read as an allowed one"
+    )
+
+
+def test_policy_is_warned_matches_the_module_helper() -> None:
+    """The policy method exposes the same warning predicate."""
+    group = ModuleGroup("application", ("pkg.application",), ("application",), ("legacy",))
+    policy = ArchitecturePolicy(groups=(group,))
+
+    assert policy.is_warned("application", "legacy")
+    assert not policy.is_warned("application", "domain")
+    assert not policy.is_allowed("application", "legacy")
 
 
 def test_coverage_severity_warns_outside_strict_mode() -> None:

@@ -19,13 +19,16 @@ def render_text(
 ) -> str:
     """Render deterministic plain text for CI and snapshots.
 
-    Violations and coverage failures are always shown, because both change the
-    exit code. Coverage warnings stay behind ``--show-coverage`` so that
-    non-strict runs keep their existing output shape.
+    Violations, warning-level edges, and coverage failures are always shown:
+    each either changes the exit code or is a dependency the policy wants kept
+    visible while it migrates. Coverage warnings stay behind
+    ``--show-coverage`` so that non-strict runs keep their existing output
+    shape.
     """
     lines = [
         *(violation.render() for violation in result.violations),
         *(failure.render() for failure in result.coverage_failures),
+        *(warning.render() for warning in result.warnings),
     ]
     if show_ignored:
         lines.extend(ignored.render() for ignored in result.ignored)
@@ -60,10 +63,16 @@ def render_json(
     show_ignored: bool = False,
     show_coverage: bool = True,
 ) -> str:
-    """Render deterministic JSON output."""
+    """Render deterministic JSON output.
+
+    The ``warnings`` list is always present, even when empty: warning-level
+    edges are visible in every run by design, so a consumer can read the key
+    unconditionally rather than inferring its absence from the flags.
+    """
     payload: dict[str, object] = {
         "ok": result.ok,
         "violations": [violation.to_dict() for violation in result.violations],
+        "warnings": [warning.to_dict() for warning in result.warnings],
     }
     if show_coverage:
         payload["coverage"] = [diagnostic.to_dict() for diagnostic in result.coverage]

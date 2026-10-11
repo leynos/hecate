@@ -76,12 +76,36 @@ def _read_string_tuple(
     return tuple(typ.cast("list[str]", value))
 
 
+def _read_optional_string_tuple(
+    data: dict[str, object],
+    key: str,
+    loc: _Loc,
+) -> tuple[str, ...]:
+    """Read an optional string list, defaulting to an empty tuple.
+
+    Unlike :func:`_read_string_tuple`, an absent key is not an error and an
+    empty list is accepted: this reads a list that adds behaviour when present
+    rather than one the configuration must always supply.
+    """
+    value = data.get(key)
+    if value is None:
+        return ()
+    if not _is_string_list(value):
+        msg = f"{loc.path}: {loc.context}.{key} must be a string list"
+        raise ConfigError(msg)
+    return tuple(typ.cast("list[str]", value))
+
+
 def _is_non_empty_string_list(value: object) -> bool:
-    return (
-        isinstance(value, list)
-        and bool(value)
-        and all(isinstance(item, str) and item.strip() for item in value)
-    )
+    return isinstance(value, list) and bool(value) and _all_non_blank_strings(value)
+
+
+def _is_string_list(value: object) -> bool:
+    return isinstance(value, list) and _all_non_blank_strings(value)
+
+
+def _all_non_blank_strings(value: list[object]) -> bool:
+    return all(isinstance(item, str) and item.strip() for item in value)
 
 
 def _read_bool(data: dict[str, object], key: str, *, default: bool, path: Path) -> bool:
