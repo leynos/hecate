@@ -93,8 +93,9 @@ them. The module pass covers the policy itself: whether every discovered `*.py`
 file is claimed by some group. A module no group claims is enforced over
 nothing, so its edges fall outside group-based checking until the other
 endpoint happens to expose them — which is why the module pass reports the
-module directly, including `__init__.py` and files with no imports. It runs
-under `warn` and `error` only, so the default traversal does no extra work.
+module directly, including `__init__.py` and files with no imports. It is
+invoked in every mode, but under `ignore` it returns before classifying
+anything and records nothing, so the default traversal does no extra work.
 
 `module_coverage.py` owns the second pass. It reads the policy's
 `unclassified_modules` mode and records a `UnclassifiedModuleDiagnostic` for
