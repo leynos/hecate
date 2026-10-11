@@ -17,12 +17,15 @@ analysis can and cannot know.
   that apply to every change. This guide does not restate them.
 - [ADR 001](adr-001-stdlib-ast-import-engine.md) records why the standard
   library `ast` module is the v1 engine, and catalogues its limitations.
-- [ADR 002: four-tier Python commit-gate linting](adr-002-four-tier-python-linting.md)
-  records the lint tiers and the Skylos dead-code gate.
-- [ADR 002: adopt the shared CV-005 contract library](adr-002-adopt-the-shared-cv005-contract-library.md)
-  records the coverage-workflow contract decision.
-- [Local validation of GitHub Actions](local-validation-of-github-actions-with-act-and-pytest.md)
-  covers black-box workflow testing with `act`.
+- [ADR 002: four-tier Python commit-gate linting](
+  adr-002-four-tier-python-linting.md) records the lint tiers and the Skylos
+  dead-code gate.
+- [ADR 002: adopt the shared CV-005 contract library](
+  adr-002-adopt-the-shared-cv005-contract-library.md) records the
+  coverage-workflow contract decision.
+- [Local validation of GitHub Actions](
+  local-validation-of-github-actions-with-act-and-pytest.md) covers black-box
+  workflow testing with `act`.
 - [Documentation style guide](documentation-style-guide.md) governs prose,
   Markdown, and diagram conventions.
 - [Scripting standards](scripting-standards.md) covers `uv`-scripted tooling.
