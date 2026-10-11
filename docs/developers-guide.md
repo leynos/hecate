@@ -9,19 +9,19 @@ namespace model, provenance, policy, and output stay separable and another
 engine could replace the parser without changing the TOML policy schema. See
 [ADR 001](adr-001-stdlib-ast-import-engine.md) for the decision and its limits.
 
-| Module               | Responsibility                                                     |
-| -------------------- | ------------------------------------------------------------------ |
-| `source.py`          | Read and parse one scanned file, reporting `SourceError`.          |
-| `imports.py`         | Collect `Import` and `ImportFrom` statements from source text.     |
-| `module_scope.py`    | Yield the statements that run at module scope, with nesting flags. |
-| `all_sequence.py`    | Evaluate a module's `__all__` sequence, or report it unknowable.   |
-| `namespaces.py`      | Model bindings and wildcard exports per module.                    |
-| `origins.py`         | Resolve an import target to the modules that supply it.            |
-| `policy.py`          | Classify edges against groups, allow-lists, and ignores.           |
-| `checker.py`         | Orchestrate the traversal and assemble the result.                 |
-| `module_coverage.py` | Report discovered modules that no configured group claims.         |
-| `diagnostics.py`     | Hold the stable, ordered diagnostic dataclasses.                   |
-| `output.py`          | Render text and JSON output.                                       |
+| Module               | Responsibility                                                      |
+| -------------------- | ------------------------------------------------------------------- |
+| `source.py`          | Read and parse one scanned file, reporting `SourceError`.           |
+| `imports.py`         | Discover a root's modules, and collect import statements from them. |
+| `module_scope.py`    | Yield the statements that run at module scope, with nesting flags.  |
+| `all_sequence.py`    | Evaluate a module's `__all__` sequence, or report it unknowable.    |
+| `namespaces.py`      | Model bindings and wildcard exports per module.                     |
+| `origins.py`         | Resolve an import target to the modules that supply it.             |
+| `policy.py`          | Classify edges against groups, allow-lists, and ignores.            |
+| `checker.py`         | Orchestrate the traversal and assemble the result.                  |
+| `module_coverage.py` | Report discovered modules that no configured group claims.          |
+| `diagnostics.py`     | Hold the stable, ordered diagnostic dataclasses.                    |
+| `output.py`          | Render text and JSON output.                                        |
 
 `source.py` is the only place the scanner crosses the filesystem and parser
 boundary, so every failure mode of that boundary surfaces as one `SourceError`:
@@ -37,6 +37,11 @@ checkout is reported rather than raised as a traceback.
 `collect_import_statements` returns statements in source order, so later code
 can apply Python's ordering rules; `FromImport.names` preserves `"*"` entries
 verbatim, so wildcard handling is decided downstream rather than assumed here.
+`discover_modules` is the one recursive walk of a package root: it returns each
+`*.py` file as a `DiscoveredModule` pairing the path with its dotted name,
+sorted by path. The edge pass, the namespace pass, and the module pass all read
+that one sequence, so a root is walked once per run rather than once per pass
+and the three cannot disagree about which files exist.
 
 `module_scope.py` answers only which statements run at module scope: an `if`,
 `try`, loop, `with`, or `match` body still executes at import time, so its
@@ -88,13 +93,13 @@ module directly, including `__init__.py` and files with no imports. It runs
 under `warn` and `error` only, so the default traversal does no extra work.
 
 `module_coverage.py` owns the second pass. It reads the policy's
-`unclassified_modules` mode, walks each package root, and records a
-`UnclassifiedModuleDiagnostic` for every module `policy.group_for` does not
-claim. Keeping it out of `checker.py` separates the two questions the passes
-ask: `checker.py` classifies edges and knows nothing about module discovery,
-while `module_coverage.py` knows only which modules policy claims. The
-accumulator is passed in rather than returned so the checker's single result
-object stays the one place diagnostics are merged and sorted.
+`unclassified_modules` mode and records a `UnclassifiedModuleDiagnostic` for
+every discovered module `policy.group_for` does not claim. Keeping it out of
+`checker.py` separates the two questions the passes ask: `checker.py`
+classifies edges and knows nothing about module discovery, while
+`module_coverage.py` knows only which modules policy claims. The accumulator is
+passed in rather than returned so the checker's single result object stays the
+one place diagnostics are merged and sorted.
 
 ### Bindings and wildcard exports
 
@@ -114,21 +119,27 @@ export set so normal resolution reports it unresolved, matching the
 `check_architecture` in `checker.py` fixes this order, and later stages assume
 it:
 
-1. Analyse the scanned modules' namespaces, bindings, and wildcard selection
+1. Discover each package root's modules (`imports.py`). This is the only
+   recursive walk, and every later stage reads its `DiscoveredModule` sequence.
+2. Analyse those modules' namespaces, bindings, and wildcard selection
    (`namespaces.py`, over `module_scope.py` and `all_sequence.py`). This pass
    is what reads and parses each file, through `source.py`.
-2. Build the origin index over those namespaces (`origins.py`), so provenance
+3. Build the origin index over those namespaces (`origins.py`), so provenance
    is derived from the model rather than from a second parse of the tree.
-3. Walk each package root, collect import statements from each scanned file
-   (`imports.py`, parsing through `source.py` again), and resolve named and
-   wildcard edges against the index.
-4. Classify each edge against policy, honouring ignores first (`policy.py`).
-5. Assemble `ArchitectureCheckResult`, then render it (`diagnostics.py`,
+4. Collect import statements from each discovered file (`imports.py`, parsing
+   through `source.py` again), and resolve named and wildcard edges against the
+   index.
+5. Classify each edge against policy, honouring ignores first (`policy.py`),
+   and separately record every discovered module no group claims
+   (`module_coverage.py`).
+6. Assemble `ArchitectureCheckResult`, then render it (`diagnostics.py`,
    `output.py`).
 
 Source parsing supports both the namespace pass and the import-collection pass,
 so parsing is not a step that must happen before namespace analysis; the same
-`parse_source` boundary serves each caller.
+`parse_source` boundary serves each caller. Discovery is likewise a stage of
+its own rather than a walk repeated inside each pass: it fixes the set of files
+under a root once, so no two passes can see different trees.
 
 Skipping or reordering a stage leaves edges unexamined, which the coverage
 model reports rather than hides: each in-scope edge receives exactly one of

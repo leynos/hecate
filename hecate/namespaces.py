@@ -29,7 +29,7 @@ import dataclasses as dc
 import typing as typ
 
 from .all_sequence import literal_all_names
-from .imports import compute_module_name, resolve_import_from
+from .imports import discover_modules, resolve_import_from
 from .module_scope import module_level_statements
 from .source import parse_source
 
@@ -118,11 +118,10 @@ def analyse_namespaces(
     """
     namespaces: dict[str, ModuleNamespace] = {}
     for package_root in packages:
-        for source_path in sorted(package_root.root.rglob("*.py")):
-            module = compute_module_name(
-                package_root.root, package_root.name, source_path
+        for source in discover_modules(package_root.root, package_root.name):
+            namespaces[source.module] = analyse_module(
+                source.source_path, module=source.module
             )
-            namespaces[module] = analyse_module(source_path, module=module)
     return namespaces
 
 

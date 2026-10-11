@@ -13,20 +13,19 @@ from __future__ import annotations
 import typing as typ
 
 from .diagnostics import UnclassifiedModuleDiagnostic, unclassified_module_severity
-from .imports import compute_module_name
 from .policy import UNCLASSIFIED_MODULE_MODES, ArchitecturePolicy
 
 if typ.TYPE_CHECKING:
-    from .config import PackageRoot
+    from .imports import DiscoveredModule
 
 
 def collect_unclassified_modules(
-    package_root: PackageRoot,
+    discovered: tuple[DiscoveredModule, ...],
     *,
     policy: ArchitecturePolicy,
     report: dict[str, UnclassifiedModuleDiagnostic],
 ) -> None:
-    """Record the modules under ``package_root`` that ``policy`` does not claim.
+    """Record the modules in ``discovered`` that ``policy`` does not claim.
 
     A module is named whether or not it imports anything, so a package added
     without a matching prefix is visible on its first run rather than on its
@@ -45,13 +44,14 @@ def collect_unclassified_modules(
     if mode not in UNCLASSIFIED_MODULE_MODES or mode == "ignore":
         return
     severity = unclassified_module_severity(mode)
-    for source_path in sorted(package_root.root.rglob("*.py")):
-        module = compute_module_name(package_root.root, package_root.name, source_path)
-        if policy.group_for(module) is not None:
+    for source in discovered:
+        if policy.group_for(source.module) is not None:
             continue
         report.setdefault(
-            module,
+            source.module,
             UnclassifiedModuleDiagnostic(
-                module=module, source_path=source_path, severity=severity
+                module=source.module,
+                source_path=source.source_path,
+                severity=severity,
             ),
         )

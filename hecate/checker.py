@@ -5,14 +5,20 @@ from __future__ import annotations
 import dataclasses as dc
 import typing as typ
 
-from .config import HecateConfig, PackageRoot
+from .config import HecateConfig
 from .diagnostics import (
     ArchitectureViolation,
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
     UnclassifiedModuleDiagnostic,
 )
-from .imports import FromImport, ImportStatement, collect_import_statements
+from .imports import (
+    DiscoveredModule,
+    FromImport,
+    ImportStatement,
+    collect_import_statements,
+    discover_modules,
+)
 from .module_coverage import collect_unclassified_modules
 from .namespaces import analyse_namespaces
 from .origins import OriginIndex, Resolution, build_origin_index
@@ -114,9 +120,10 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         origins=build_origin_index(config.packages, namespaces),
     )
     for package_root in config.packages:
-        _collect_package_edges(package_root, ctx)
+        discovered = discover_modules(package_root.root, package_root.name)
+        _collect_package_edges(discovered, ctx)
         collect_unclassified_modules(
-            package_root, policy=config.policy, report=ctx.unclassified
+            discovered, policy=config.policy, report=ctx.unclassified
         )
     unmatched_ignores = _find_unmatched_ignores(config.policy, ctx.ignored)
     return ArchitectureCheckResult(
@@ -132,12 +139,12 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
     )
 
 
-def _collect_package_edges(package_root: PackageRoot, ctx: _CheckContext) -> None:
+def _collect_package_edges(
+    discovered: tuple[DiscoveredModule, ...], ctx: _CheckContext
+) -> None:
     """Evaluate every import edge in one package root against policy."""
-    for source_path in sorted(package_root.root.rglob("*.py")):
-        statements = collect_import_statements(
-            source_path, root=package_root.root, package=package_root.name
-        )
+    for source in discovered:
+        statements = collect_import_statements(source.source_path, module=source.module)
         for statement in statements:
             _evaluate_statement(statement, ctx=ctx)
 

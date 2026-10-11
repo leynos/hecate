@@ -51,6 +51,32 @@ def compute_module_name(root: Path, package: str, source_path: Path) -> str:
     return ".".join((package, *parts))
 
 
+@dc.dataclass(frozen=True, slots=True)
+class DiscoveredModule:
+    """One ``*.py`` file beneath a package root, paired with its dotted name."""
+
+    module: str
+    source_path: Path
+
+
+def discover_modules(root: Path, package: str) -> tuple[DiscoveredModule, ...]:
+    """Return every module beneath ``root``, ordered by source path.
+
+    A single walk serves both the edge pass and the module pass, so the two
+    cannot disagree about which files exist. Sorting here rather than in each
+    caller makes traversal order a property of the tree instead of the
+    filesystem, and gives a caller that keys a mapping by module name
+    first-record semantics from this order alone.
+    """
+    return tuple(
+        DiscoveredModule(
+            module=compute_module_name(root, package, source_path),
+            source_path=source_path,
+        )
+        for source_path in sorted(root.rglob("*.py"))
+    )
+
+
 def relative_import_base(module_name: str, *, is_package_init: bool, level: int) -> str:
     """Return the absolute base module for a relative import level."""
     assert module_name
@@ -70,17 +96,21 @@ ImportStatement = DirectImport | FromImport
 def collect_import_statements(
     source_path: Path,
     *,
-    root: Path,
-    package: str,
+    module: str,
 ) -> tuple[ImportStatement, ...]:
     """Collect import statements from a Python source file.
+
+    ``module`` is the dotted name for ``source_path``, as supplied by
+    :func:`discover_modules`. Taking it rather than deriving it here keeps one
+    mapping from path to name, so the importer recorded on each statement is the
+    same name the rest of the run knows the file by.
 
     Statements are returned in source order so that later analysis can apply
     Python's last-binding-wins rules when several statements bind one name.
     ``ast.walk`` yields breadth-first, which is not source order once an import
     is nested in a block, so the collected nodes are sorted before conversion.
     """
-    module_name = compute_module_name(root, package, source_path)
+    module_name = module
     tree = parse_source(source_path)
     is_package_init = source_path.name == "__init__.py"
     statements: list[ImportStatement] = []
