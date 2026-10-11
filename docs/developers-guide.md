@@ -79,7 +79,7 @@ resolved edge means does not.
 
 `classification.py` owns that decision, so the precedence order below is
 readable without following the filesystem walk that produced the edge. It holds
-the accumulator (`_CheckContext`), the edge under evaluation (`_Edge`), and
+the accumulator (`CheckContext`), the edge under evaluation (`Edge`), and
 `classify_origin`, which every resolved origin passes through exactly once.
 
 `diagnostics.py` defines `ArchitectureViolation` for a forbidden classified

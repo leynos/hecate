@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses as dc
 
-from .classification import _CheckContext, _Edge, classify_origin
+from .classification import CheckContext, Edge, classify_origin
 from .config import HecateConfig, PackageRoot
 from .diagnostics import (
     ArchitectureViolation,
@@ -52,7 +52,7 @@ class ArchitectureCheckResult:
 def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
     """Check every package root declared in ``config``."""
     namespaces = analyse_namespaces(config.packages)
-    ctx = _CheckContext(
+    ctx = CheckContext(
         policy=config.policy,
         origins=build_origin_index(config.packages, namespaces),
     )
@@ -70,7 +70,7 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
     )
 
 
-def _collect_package_edges(package_root: PackageRoot, ctx: _CheckContext) -> None:
+def _collect_package_edges(package_root: PackageRoot, ctx: CheckContext) -> None:
     """Evaluate every import edge in one package root against policy."""
     for source_path in sorted(package_root.root.rglob("*.py")):
         statements = collect_import_statements(
@@ -80,7 +80,7 @@ def _collect_package_edges(package_root: PackageRoot, ctx: _CheckContext) -> Non
             _evaluate_statement(statement, ctx=ctx)
 
 
-def _evaluate_statement(statement: ImportStatement, *, ctx: _CheckContext) -> None:
+def _evaluate_statement(statement: ImportStatement, *, ctx: CheckContext) -> None:
     """Evaluate one import statement, expanding wildcards where knowable.
 
     A ``from target import name`` statement yields two edges: the target module
@@ -105,7 +105,7 @@ def _evaluate_statement(statement: ImportStatement, *, ctx: _CheckContext) -> No
 
 
 def _target_unresolved_internal(
-    statement: ImportStatement, *, ctx: _CheckContext
+    statement: ImportStatement, *, ctx: CheckContext
 ) -> bool:
     """Return whether a ``from`` statement's target is internally unresolvable."""
     if not isinstance(statement, FromImport):
@@ -113,12 +113,12 @@ def _target_unresolved_internal(
     return _unresolved_internal(statement.target, ctx=ctx)
 
 
-def _unresolved_internal(imported: str, *, ctx: _CheckContext) -> bool:
+def _unresolved_internal(imported: str, *, ctx: CheckContext) -> bool:
     """Return whether ``imported`` names no known internal module."""
     return ctx.origins.resolve(imported) is Resolution.UNRESOLVED_INTERNAL
 
 
-def _evaluate_wildcard(statement: ImportStatement, *, ctx: _CheckContext) -> None:
+def _evaluate_wildcard(statement: ImportStatement, *, ctx: CheckContext) -> None:
     """Evaluate a wildcard import using Python's wildcard semantics.
 
     Statically knowable exports are expanded into concrete symbol edges. The
@@ -161,7 +161,7 @@ def _wildcard_target(statement: ImportStatement) -> str | None:
 
 
 def _record_edge(
-    statement: ImportStatement, *, imported: str, ctx: _CheckContext
+    statement: ImportStatement, *, imported: str, ctx: CheckContext
 ) -> None:
     """Resolve an import target and classify each origin it could reach.
 
@@ -169,7 +169,7 @@ def _record_edge(
     always means the edge was permitted rather than merely unexamined.
     """
     for origin in ctx.origins.origins_for(imported):
-        classify_origin(_Edge.from_statement(statement, imported=origin), ctx=ctx)
+        classify_origin(Edge.from_statement(statement, imported=origin), ctx=ctx)
 
 
 def _find_unmatched_ignores(
