@@ -218,11 +218,13 @@ decision order and applies the first match:
    exempted.
 7. Anything still unmatched is a violation of `default_rule_id`.
 
-Ignoring is therefore applied at two places rather than one: before the
-allowed-check for the forbidden case, and inside the coverage path so that an
-edge the policy could not classify or resolve stays exemptible. Every in-scope
-edge receives exactly one of `permitted`, `forbidden`, `exempted`,
-`unclassified`, or `unresolved`.
+Ignoring is therefore applied on two branches rather than one: the coverage
+branch, so an edge the policy could not classify or resolve stays exemptible,
+and the forbidden branch, after the allowed-check and before the violation is
+recorded. An exempted edge is reported through the ignore list rather than
+discarded, which is what lets `--fail-on-unmatched-ignore` tell that an entry
+applied. Every in-scope edge receives exactly one of `permitted`, `forbidden`,
+`exempted`, `unclassified`, or `unresolved`.
 
 Deduplication keeps the report stable when several statements or several
 re-export chains reach one edge. Violations are keyed by
