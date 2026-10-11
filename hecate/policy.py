@@ -11,8 +11,12 @@ from .imports import is_module_prefix
 UnclassifiedModules = typ.Literal["ignore", "warn", "error"]
 """How an internal module no configured group classifies is reported."""
 
-UNCLASSIFIED_MODULE_MODES: tuple[str, ...] = ("ignore", "warn", "error")
-"""Permitted :data:`UnclassifiedModules` values, in documented order."""
+UNCLASSIFIED_MODULE_MODES: tuple[str, ...] = typ.get_args(UnclassifiedModules)
+"""Permitted :data:`UnclassifiedModules` values, in the order the literal spells.
+
+Derived from the literal rather than written out a second time, so the type a
+reader sees and the set the configuration validator accepts cannot drift apart.
+"""
 
 
 class Severity(enum.StrEnum):
