@@ -164,7 +164,7 @@ name, because no execution path can still reach them. A binding inside a
 control-flow block only adds a candidate, because which branch ran decides the
 name's value. A `for` target is treated as conditional even though the loop
 statement itself is at module level: an empty iterable leaves the name unbound.
-`ModuleNamespace.bindings` is therefore a multi-map keyed by name, and
+`ModuleNamespace.bindings` is therefore a multimap keyed by name, and
 provenance reports every origin a name may hold rather than one winner.
 
 `all_sequence.py` evaluates the `__all__` sequence statically. A literal
