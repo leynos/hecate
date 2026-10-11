@@ -35,8 +35,11 @@ def collect_unclassified_modules(
     The mode is read here rather than by the caller so the default traversal
     stays a single loop: under ``ignore`` this is the only work the pass does.
 
-    The first source path wins when two roots supply the same module name, so
-    the reported location does not depend on the order roots are declared in.
+    When two roots supply the same module name, the first root declared in the
+    configuration wins, because the caller walks ``config.packages`` in order
+    and the report keeps the first record for a name. Declaration order is the
+    tie-break for the same reason group matching is ordered: a reader who
+    ordered the configuration should be able to predict which one applies.
     """
     mode = policy.unclassified_modules
     if mode not in UNCLASSIFIED_MODULE_MODES or mode == "ignore":

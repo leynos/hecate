@@ -231,13 +231,22 @@ def test_unclassified_modules_are_deterministic_across_runs(tmp_path: Path) -> N
     """
     policy = _policy(unclassified_modules="error")
 
-    first = _check(tmp_path / "a", _TREE_WITH_NEW_PACKAGE, policy=policy)
-    second = _check(tmp_path / "b", _TREE_WITH_NEW_PACKAGE, policy=policy)
+    first_root = tmp_path / "a"
+    second_root = tmp_path / "b"
+    first = _check(first_root, _TREE_WITH_NEW_PACKAGE, policy=policy)
+    second = _check(second_root, _TREE_WITH_NEW_PACKAGE, policy=policy)
 
     modules = [diagnostic.module for diagnostic in first.unclassified_modules]
     assert modules == sorted(modules), f"findings must be sorted, got {modules!r}"
-    assert [item.identity() for item in first.unclassified_modules] == [
-        (item.module, str(item.source_path).replace("b", "a", 1))
+    # Compare each finding as the path the two runs have in common. Rewriting
+    # the absolute path would also rewrite an unrelated "b" in ``tmp_path``,
+    # making the assertion pass or fail on where pytest happened to put the
+    # tree rather than on what Hecate reported.
+    assert [
+        (item.module, item.source_path.relative_to(first_root))
+        for item in first.unclassified_modules
+    ] == [
+        (item.module, item.source_path.relative_to(second_root))
         for item in second.unclassified_modules
     ], (
         "identical trees must classify identically: "
