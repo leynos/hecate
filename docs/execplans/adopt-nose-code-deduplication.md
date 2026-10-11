@@ -39,8 +39,8 @@ The observable end state is:
    weakening any of them.
 
 The objective is to remove unjustified repeated logic and keep intentional
-parallels explicitly reviewable, not to achieve a low duplication count
-through indiscriminate abstraction or suppression.
+parallels explicitly reviewable, not to achieve a low duplication count through
+indiscriminate abstraction or suppression.
 
 ## Constraints
 
@@ -106,8 +106,7 @@ through indiscriminate abstraction or suppression.
 - Risk: `top = 30` is a ranking bound, not a proof of absence. A family below
   the cutoff is not enforced. Severity: medium Likelihood: high Mitigation:
   document the bound honestly; keep the stale-entry diagnostic phrased as
-  "unmatched in this scan"; verify with a widened scan before deleting an
-  entry.
+  "unmatched in this scan"; verify with a widened scan before deleting an entry.
 - Risk: `fcntl.flock` and POSIX directory syncing are unavailable on native
   Windows. Severity: low Likelihood: low Mitigation: document a POSIX or
   Windows Subsystem for Linux (WSL) developer workflow and a Linux CI gate; do
@@ -135,22 +134,29 @@ through indiscriminate abstraction or suppression.
   `.tools/nose/nose`; confirm `nose 0.20.0`.
 - [x] (2026-10-11 15:10Z) Establish the real duplication surface: two families
   at `min-size 24` on the widened surface, both in `hecate/config.py`.
-- [ ] Write this ExecPlan.
-- [ ] Port `scripts/nose_schema.py`, `scripts/nose_detector.py`,
-  `scripts/atomic_write.py`, `scripts/duplication_allowlist.py`, and
-  `scripts/duplication_gate.py`.
-- [ ] Add `[tool.nose]` and `[tool.duplication_gate]` to `pyproject.toml`.
-- [ ] Add the Makefile pins and the `install-nose`, `duplication`,
-  `duplication-test`, and `duplication-allow` targets; wire `lint`.
-- [ ] Add the CI cache and install steps.
-- [ ] Ignore `.tools/` and the gate lock file.
-- [ ] Port and adapt the focused tooling tests into `scripts/tests/`.
-- [ ] Extend `tests/test_toolchain_contract.py` with the nose pin contracts.
-- [ ] Adjudicate hecate's families and land the extractions plus the allow
-  entries.
-- [ ] Document in the developer guide, `AGENTS.md`, the configuration
-  reference, and a new architecture decision record (ADR).
-- [ ] Demonstrate the gate against the real binary in a disposable workspace.
+- [x] (2026-10-11 15:20Z) Write this ExecPlan.
+- [x] (2026-10-11 15:40Z) Port `scripts/nose_schema.py`,
+  `scripts/nose_detector.py`, `scripts/atomic_write.py`,
+  `scripts/duplication_allowlist.py`, and `scripts/duplication_gate.py`.
+- [x] (2026-10-11 15:41Z) Add `[tool.nose]` and `[tool.duplication_gate]` to
+  `pyproject.toml`.
+- [x] (2026-10-11 15:42Z) Add the Makefile pins and the `install-nose`,
+  `duplication`, `duplication-test`, and `duplication-allow` targets; wire
+  `lint`.
+- [x] (2026-10-11 15:44Z) Add the CI cache and install steps.
+- [x] (2026-10-11 15:45Z) Ignore `.tools/` and the gate lock file.
+- [x] (2026-10-11 15:46Z) Port and adapt the focused tooling tests into
+  `scripts/tests/` (137 passing).
+- [x] (2026-10-11 15:47Z) Extend `tests/test_toolchain_contract.py` with the
+  nose pin contracts (18 passing, 10/10 planted drifts detected).
+- [x] (2026-10-11 15:48Z) Adjudicate hecate's families: both resolved by
+  extracting `_read_table_list()` into `hecate/config_helpers.py`. **Zero allow
+  entries were needed**; `[tool.duplication_gate]` is empty.
+- [x] (2026-10-11 16:05Z) Document in the developer guide, `AGENTS.md`, the
+  README index, and ADR 003. `docs/configuration.md` deliberately unchanged: it
+  documents hecate's own `[tool.hecate]` runtime schema, not CI tooling.
+- [x] (2026-10-11 16:20Z) Demonstrate the gate against the real pinned binary
+  in a disposable workspace (all four states, determinism, idempotence).
 - [ ] Run the commit gates and open the draft pull request.
 
 ## Surprises & discoveries
@@ -163,9 +169,9 @@ through indiscriminate abstraction or suppression.
   `surface = "all"` is load-bearing rather than cosmetic. The Empty-result trap
   is worth a line in the developer guide.
 - Observation: `--surface` is not a flag. `--surface all` is rejected; the
-  widened surface is selected by a bare `all` term in the query.
-  Evidence: every iteration of a `--surface all` sweep failed to parse.
-  Impact: the wrapper must build the argument vector with the bare term.
+  widened surface is selected by a bare `all` term in the query. Evidence:
+  every iteration of a `--surface all` sweep failed to parse. Impact: the
+  wrapper must build the argument vector with the bare term.
 - Observation: nose supplies no `name` and no `kind` for any hecate finding.
   Evidence: the JSON report has `name: null` on every region. Impact: every
   hecate exception is a path or path-glob key; `::name` is unusable here and
@@ -183,8 +189,8 @@ through indiscriminate abstraction or suppression.
 ## Decision log
 
 - Decision: record this plan at
-  `docs/execplans/adopt-nose-code-deduplication.md` and commit it.
-  Rationale: the operator's standing instruction prescribes
+  `docs/execplans/adopt-nose-code-deduplication.md` and commit it. Rationale:
+  the operator's standing instruction prescribes
   `docs/execplans/${GIT_BRANCH_NAME##*/}.md` for plans and requires living
   documents to be updated frequently enough to survive context compaction.
   Hecate has no prior `docs/execplans/` tree, so this introduces the directory
@@ -203,12 +209,12 @@ through indiscriminate abstraction or suppression.
   are excluded explicitly and visibly rather than by an unexplained omission.
   Date/Author: 2026-10-11, implementation agent.
 - Decision: keep `mode = "syntax,semantic,near"` and `min-size = 24` unchanged
-  from the starting configuration.
-  Rationale: the repository has no evidence that would justify a different
-  floor, and the size is nose's intermediate-language token count, not a line
-  or AST-node count, so comparing it to hecate's line counts would be
-  meaningless. The three channels are pinned explicitly so that removing one is
-  a visible, reviewable act. Date/Author: 2026-10-11, implementation agent.
+  from the starting configuration. Rationale: the repository has no evidence
+  that would justify a different floor, and the size is nose's
+  intermediate-language token count, not a line or AST-node count, so comparing
+  it to hecate's line counts would be meaningless. The three channels are
+  pinned explicitly so that removing one is a visible, reviewable act.
+  Date/Author: 2026-10-11, implementation agent.
 - Decision: keep `top = 30`; do not change the ranking budget.
   Rationale: the widened scan reports two families, so the budget is nowhere
   near saturation and lowering it would only reduce coverage. The budget is a
@@ -221,29 +227,57 @@ through indiscriminate abstraction or suppression.
   which this repository has not measured. Date/Author: 2026-10-11,
   implementation agent.
 - Decision: add `nose_schema.py` as a sixth module rather than folding its
-  normalization into `duplication_gate.py`.
-  Rationale: the reference separates report validation from orchestration, and
-  hecate's pylint ceiling of 400 module lines makes a single fused module
-  fragile. The decomposition also keeps the pure functions — key validation,
-  glob matching, family matching — independently testable without a subprocess.
-  Date/Author: 2026-10-11, implementation agent.
+  normalization into `duplication_gate.py`. Rationale: the reference separates
+  report validation from orchestration, and hecate's pylint ceiling of 400
+  module lines makes a single fused module fragile. The decomposition also
+  keeps the pure functions — key validation, glob matching, family matching —
+  independently testable without a subprocess. Date/Author: 2026-10-11,
+  implementation agent.
 - Decision: number the new ADR `adr-003`.
   Rationale: `adr-001` and a duplicated `adr-002` already exist; `adr-003` is
-  the next free identifier and does not extend the collision.
-  Date/Author: 2026-10-11, implementation agent.
+  the next free identifier and does not extend the collision. Date/Author:
+  2026-10-11, implementation agent.
 
 ## Outcomes & retrospective
 
-Not yet complete. Reconnaissance outcomes: the target repository is
-`leynos/hecate`; it has no pre-existing `[tool.nose]`, `[tool.duplication_gate]`,
-`.tools/`, `nose.toml`, `.nose.toml`, `nose.ignore.json`, or native baseline, so
-nothing can silently narrow the intended scan; and the pinned detector is
-provisioned and answering `nose 0.20.0`.
+Implementation complete pending the final gate run and the draft pull request.
+Reconnaissance outcomes: the target repository is `leynos/hecate`; it has no
+pre-existing `[tool.nose]`, `[tool.duplication_gate]`, `.tools/`, `nose.toml`,
+`.nose.toml`, `nose.ignore.json`, or native baseline, so nothing can silently
+narrow the intended scan; and the pinned detector is provisioned and answering
+`nose 0.20.0`.
+
+The adjudication outcome is the strongest available: the gate reported two
+families, both the same configuration-table validation in `hecate/config.py`,
+and extracting `_read_table_list()` into `hecate/config_helpers.py` resolved
+both. **No allow entry was needed**, so `[tool.duplication_gate]` ships empty
+and every finding this repository's code produced was removed rather than
+silenced. No episodic exception was copied.
 
 Lesson carried into implementation: the empty-result trap and the absent unit
 names were both discovered only by querying the real binary rather than by
 reading its documentation, which is why the plan requires a real-binary
 demonstration rather than only injected-runner unit tests.
+
+That requirement earned its cost. The demonstration falsified the inherited
+stale-entry diagnostic: it read "remove it; the duplication is gone", which is
+false when an entry goes stale because its family *grew* a member outside the
+entry's keys. In that case the duplication still blocks and the entry is the
+starting point for extending it, so the old wording invited deleting the entry
+that should have been widened. The wording now reads "it matches no reported
+family; the duplication it silenced is gone, or the family changed", a test
+pins that a grown family still blocks and is named, and the developer guide and
+`AGENTS.md` tell the maintainer to check which case applies before deleting an
+entry. This defect was inherited from the reference implementation and would
+not have been found by unit tests written against the same assumption.
+
+A second, smaller lesson: the contract tests were checked for vacuity by
+planting ten separate drifts in the Makefile and workflow — version drift in
+each of the three places, a dropped lint prerequisite, an allowed compile
+fallback, a removed checksum check, a mistyped cache path, two weakened cache
+keys, and a dropped CI step. All ten were detected. A contract test that cannot
+fail is worse than no test, and the only way to know is to make it fail on
+purpose.
 
 ## Context and orientation
 
@@ -251,20 +285,19 @@ Hecate is published as the `hecate` Python package and exposes one console
 script, `hecate = "hecate.cli:main"`. It parses each module under a configured
 package root with the standard library `ast` module, resolves intra-package
 imports, and reports violations of a declared group policy. The production
-sources are the eleven modules directly under `hecate/`:
-`__init__.py`, `checker.py`, `cli.py`, `config.py`, `config_helpers.py`,
-`diagnostics.py`, `imports.py`, `output.py`, `policy.py`, `reexports.py`, and
-`report.py`.
+sources are the eleven modules directly under `hecate/`: `__init__.py`,
+`checker.py`, `cli.py`, `config.py`, `config_helpers.py`, `diagnostics.py`,
+`imports.py`, `output.py`, `policy.py`, `reexports.py`, and `report.py`.
 
 Repository tooling lives in `scripts/`. `scripts/generate_typos_config.py`,
 `scripts/typos_rollout.py`, and `scripts/typos_rollout_cache.py` maintain the
 shared spelling dictionary; `scripts/tests/test_typos_rollout.py` tests them.
 `pyproject.toml` excludes those four files from Ruff, and
 `scripts/tests/test_typos_rollout.py` asserts that every script under
-`scripts/` still parses with a Python 3.13 feature version. That assertion
-does not constrain the new gate modules, which are Python 3.14 tooling and
-carry their own inline script metadata under a
-`#!/usr/bin/env -S uv run python` shebang.
+`scripts/` still parses with a Python 3.13 feature version. That assertion does
+not constrain the new gate modules, which are Python 3.14 tooling and carry
+their own inline script metadata under a `#!/usr/bin/env -S uv run python`
+shebang.
 
 The commit gate is `make lint`, which depends on `lint-python` (Ruff over
 `hecate tests`, then Pylint under a managed PyPy 3.12) and on `skylos` (a
@@ -279,9 +312,9 @@ integration is `.github/workflows/ci.yml`, job `lint-test`, which runs
 "Duplication family" means a set of two or more code regions that nose judges
 to be repeats of one another. "Surface" means how many families nose reports;
 the widened surface reports every family it found rather than the ranked
-default subset. "Intermediate-language token count" means nose's own
-normalized token measure, which sizes a unit before ranking; it is not a line
-count. "Allow entry" means one `[[tool.duplication_gate.allow]]` table in
+default subset. "Intermediate-language token count" means nose's own normalized
+token measure, which sizes a unit before ranking; it is not a line count.
+"Allow entry" means one `[[tool.duplication_gate.allow]]` table in
 `pyproject.toml`. "Fail closed" means that a missing binary, a timeout, a
 non-zero exit, malformed JSON, or an unrecognized report shape produces exit
 code 2 with a diagnostic, never an empty findings list and never a silent pass.
@@ -337,8 +370,8 @@ three locations, and at least one case has a member outside the entry's keys.
 
 Obligation `INV-ORDER`. Normalized gate output, and the partition into
 blocking, allowed, and stale entries, is a deterministic function of the report
-and the allow list, independent of dictionary iteration order. Method:
-property test with generated family and entry sequences, asserting
+and the allow list, independent of dictionary iteration order. Method: property
+test with generated family and entry sequences, asserting
 `partition(findings, entries)` is invariant under a shuffle of its inputs and
 that repeated normalization of one report is byte-identical. Rationale:
 ordering is a range property over generated sequences, which is exactly what a
@@ -351,8 +384,8 @@ as a regression case.
 
 Obligation `INV-FAILCLOSED`. Every detector failure mode yields exit code 2 and
 a diagnostic naming the cause; none yields exit code 0 or an empty finding
-list. Method: parameterized tests with injected command runners that raise, time
-out, exit non-zero, emit truncated JSON, emit a JSON array instead of an
+list. Method: parameterized tests with injected command runners that raise,
+time out, exit non-zero, emit truncated JSON, emit a JSON array instead of an
 object, emit a report with an unknown `schema_version`, and emit a family
 missing a required field. Rationale: these are distinct finite partitions with
 distinct handling. Domain: the runner boundary, exercised without downloading
@@ -390,19 +423,19 @@ binary, not only against injected runners. Method: disposable-workspace
 integration demonstration. Rationale: this is the only method that exercises
 argument construction, working-directory handling, report shape, and ranking
 behaviour together. Domain: a temporary workspace with a small unsaturated
-Python package. Artefact: the transcript recorded in this plan's `Artefacts and
-notes`. Evidence: a clean run exits 0; a planted substantial clone exits 1 and
-names the family; a narrow reasoned exception makes it exit 0; an added
-out-of-scope member makes it exit 1 again; three consecutive runs produce
-byte-identical normalized output. Non-vacuity: the workspace is intentionally
-small so the `top = 30` bound cannot hide the canary, and the planted clone is
-asserted to exceed the size floor before the gate is invoked.
+Python package. Artefact: the transcript recorded in this plan's
+`Artefacts and notes`. Evidence: a clean run exits 0; a planted substantial
+clone exits 1 and names the family; a narrow reasoned exception makes it exit
+0; an added out-of-scope member makes it exit 1 again; three consecutive runs
+produce byte-identical normalized output. Non-vacuity: the workspace is
+intentionally small so the `top = 30` bound cannot hide the canary, and the
+planted clone is asserted to exceed the size floor before the gate is invoked.
 
 External axioms, not verified here: nose's own ranking, its tokenization, and
 its JSON schema are treated as documented interfaces. The contract that hecate
 owns and does verify is its own use of those interfaces — the argument vector
 it constructs, the working directory it sets, the fields it reads, and its
-behavior when a field is absent.
+behaviour when a field is absent.
 
 ## Plan of work
 
@@ -419,13 +452,13 @@ shape a hard error. In `scripts/nose_detector.py`, define `PYPROJECT`, the
 `[tool.nose]` settings record with its `load_settings` reader and its version
 agreement check, and `run_detector`, which builds the argument vector, runs the
 pinned binary with an explicit repository working directory, enforces a bounded
-timeout, and normalizes through the schema module. In `scripts/atomic_write.py`,
-port the neutral atomic-write primitive unchanged apart from attribution. In
-`scripts/duplication_allowlist.py`, define `AllowEntry`, key validation, the
-whole-family matcher, the TOML reader, and the locked idempotent writer. In
-`scripts/duplication_gate.py`, define the Cyclopts application with the
-`check` and `allow` commands, the `partition_findings` function, and the exit
-codes.
+timeout, and normalizes through the schema module. In
+`scripts/atomic_write.py`, port the neutral atomic-write primitive unchanged
+apart from attribution. In `scripts/duplication_allowlist.py`, define
+`AllowEntry`, key validation, the whole-family matcher, the TOML reader, and
+the locked idempotent writer. In `scripts/duplication_gate.py`, define the
+Cyclopts application with the `check` and `allow` commands, the
+`partition_findings` function, and the exit codes.
 
 Stage C — repository integration. Add `[tool.nose]` and an empty
 `[tool.duplication_gate]` to `pyproject.toml`. Add the Makefile pins and the
@@ -459,12 +492,12 @@ commit gates, and open the draft pull request.
 - Identifier and outcome: `EP-M2`, the gate is runnable by hand —
   `pyproject.toml` carries `[tool.nose]` and `[tool.duplication_gate]`, and the
   detector, schema, allow-list, and gate modules agree on the contracts.
-  Requirements and gaps: `NOSE-REQ-roots`, `NOSE-REQ-keys`. Acceptance
-  evidence: `make duplication` runs and the focused tests pass. Conformance
-  check: roots validated to exist; no application change; no new interface
-  outside `scripts/`. Recovery: revert the `pyproject.toml` tables and the
-  script directory. Remaining gaps: no CI, no lint wiring. Compatibility
-  decision: none.
+  Requirements and gaps: `NOSE-REQ-roots`, `NOSE-REQ-keys`. Acceptance evidence:
+  `make duplication` runs and the focused tests pass. Conformance check: roots
+  validated to exist; no application change; no new interface outside
+  `scripts/`. Recovery: revert the `pyproject.toml` tables and the script
+  directory. Remaining gaps: no CI, no lint wiring. Compatibility decision:
+  none.
 - Identifier and outcome: `EP-M3`, provisioning is reproducible and gated.
   `make install-nose`, the CI cache and install steps, the ignore entries, and
   the pin contract all exist and agree. Requirements and gaps: `NOSE-REQ-pins`.
@@ -587,9 +620,9 @@ the configured version it exits without reinstalling. The allow helper is
 idempotent for an identical target, including a reordered member list. Nothing
 in the plan deletes tracked files. The tooling directory is additive, so
 reverting a milestone is a deletion of new files plus a revert of the
-`pyproject.toml`, Makefile, workflow, and ignore edits, each of which is a small
-atomic commit. Planted clones and temporary exceptions exist only inside a
-temporary directory and are removed before the work is committed; the plan
+`pyproject.toml`, Makefile, workflow, and ignore edits, each of which is a
+small atomic commit. Planted clones and temporary exceptions exist only inside
+a temporary directory and are removed before the work is committed; the plan
 requires verifying that no planted clone or temporary exception remains in the
 tree.
 
@@ -606,6 +639,84 @@ $ nose query --root hecate all --mode syntax,semantic,near --min-size 24 --top 3
 ```
 
 The demonstration transcript is recorded here once Stage E runs.
+
+### Demonstration transcript (Stage E, 2026-10-11)
+
+Run in a disposable workspace at `/tmp/nose_demo/workspace`: a two-module
+package under `app/`, the five real gate modules copied into `scripts/` so the
+gate resolves that workspace as its repository root, and `NOSE_BIN` pointed at
+the real pinned binary. The workspace is deliberately far below the `top = 30`
+bound so the ranking cap cannot hide the canary, and the workspace is removed
+before the run finishes.
+
+```plaintext
+=== detector under test ===
+nose 0.20.0
+
+################ state 1: clean tree (expect exit 0) ################
+--- state 1: clean tree ---
+duplication gate passed
+exit=0
+
+############ determinism: three consecutive runs ############
+OK: three runs byte-identical
+
+######## state 2: plant a substantial clone (expect exit 1) ########
+--- state 2: planted clone ---
+duplicate code: 1 unsuppressed family/families
+  app/parse.py:3-27 ~ app/parse_twin.py:3-27 (copy-paste, value 32.5)
+exit=1
+OK: gate named the unsuppressed family
+
+####### state 3: narrow reasoned exception (expect exit 0) #######
+recorded duplication exception for app/parse.py ~ app/parse_twin.py
+--- state 3: reasoned exception covers the family exactly ---
+duplication gate passed; 1 allowed by reasoned exceptions
+exit=0
+
+--- exception TOML as persisted ---
+[[tool.duplication_gate.allow]]
+members = ["app/parse.py", "app/parse_twin.py"]
+reason = "Planted pair kept in lockstep as a detector canary for this demonstration."
+
+######## idempotence: repeat the identical allow command ########
+OK: identical target is a no-op
+
+######## idempotence: reordered member keys ########
+OK: reordered members are recognised as the same target
+
+## state 4: extra out-of-scope member (expect exit 1 again) ##
+--- state 4: out-of-scope member ---
+stale allow entry (app/parse.py ~ app/parse_twin.py): it matches no reported
+family; the duplication it silenced is gone, or the family changed
+duplicate code: 1 unsuppressed family/families
+  app/parse.py:3-27 ~ app/parse_triplet.py:3-27 ~ app/parse_twin.py:3-27 (copy-paste, value 80.0)
+exit=1
+OK: gate blocked on the uncovered third member
+
+################ cleanup ################
+removed /tmp/nose_demo/workspace
+OK: workspace gone
+ALL DEMONSTRATION STATES VERIFIED
+```
+
+State 4 is the load-bearing one for the atomicity claim: the recorded exception
+lists exactly two members, the third member is outside its keys, and the entry
+stops matching rather than partially covering. The family blocks, and the
+stale-entry notice no longer asserts the duplication is gone. Nothing was left
+behind: the workspace directory is deleted, and `git status` after the run
+shows no planted clone and no temporary exception in the repository.
+
+Contract-test vacuity evidence (ten planted drifts, all detected):
+
+```plaintext
+ci-pin-drift: DETECTED              cache-wrong-dir: DETECTED
+makefile-pin-drift: DETECTED        uv-cache-key-loses-makefile: DETECTED
+gate-pin-drift: DETECTED            nose-cache-key-loses-version: DETECTED
+lint-drops-duplication: DETECTED    ci-drops-helper-tests: DETECTED
+compile-fallback-allowed: DETECTED  sha-not-pinned: DETECTED
+all mutations detected
+```
 
 ## Interfaces and dependencies
 
@@ -678,11 +789,22 @@ def main() -> int: ...
 ```
 
 `tomlkit` is the only gate-only dependency added, and it is declared in the
-inline script metadata alongside `cyclopts`, never in
-`[project].dependencies`.
+inline script metadata alongside `cyclopts`, never in `[project].dependencies`.
 
 ## Revision note
 
 Initial draft, 2026-10-11. Establishes the plan, records the reconnaissance
 findings and the adjudication policy, and fixes the milestone boundaries. No
 remaining work was re-scoped.
+
+Revision 2, 2026-10-11. Records the implementation outcome: the adjudication
+resolved both families by extraction with zero allow entries; the
+disposable-workspace demonstration passed all four states with byte-identical
+output across three runs; and the demonstration falsified the inherited
+stale-entry diagnostic, which was corrected with a regression test, in the
+developer guide, and in `AGENTS.md`. The configuration reference was
+deliberately left unchanged, because it documents hecate's own `[tool.hecate]`
+runtime schema rather than CI tooling. No requirement was dropped and no
+tolerance was exceeded: the change is well inside the 40-file and 2500-line
+bounds, no runtime dependency was added, and zero allow entries were needed
+against a tolerance of six.

@@ -25,6 +25,12 @@ dev = [
     "pytest-xdist",
     "pyyaml>=6.0.3",
     "packaging>=26.2,<27",
+    # scripts/duplication_gate.py declares its own runtime pins in its uv
+    # inline script metadata and runs in an isolated environment, but the
+    # helper tests in scripts/tests/ import those modules directly, and
+    # `make test` collects that directory. Keep this range compatible with
+    # the pin in the gate script's metadata.
+    "tomlkit>=0.15.1,<0.16",
 ]
 
 [tool.ruff]
@@ -371,3 +377,33 @@ default_rule_id = "HEC001"
 name = "hecate"
 prefixes = ["hecate"]
 allowed = ["hecate"]
+
+# Scan scope and ranking policy for the blocking duplication gate
+# (`make duplication`, wired into `make lint`). The scope is the maintained
+# production package only: the test suites, the maintenance scripts and the
+# BDD feature files are deliberately out of scope, so a family that also
+# repeats inside a test is judged on its production copies alone. `min-size`
+# is nose's intermediate-language token count, not Python lines or AST nodes,
+# so it is not a span a reviewer can count by eye. `surface = "all"` widens
+# the view to families the ranked dashboard hides, and `top = 30` adjudicates
+# the thirty highest-value families of that widened view. Never lower the
+# size floor or raise the ranking bound to obtain a green gate: the report
+# says how many families were shown, not how many exist.
+[tool.nose]
+version = "0.20.0"
+roots = ["hecate"]
+mode = "syntax,semantic,near"
+min-size = 24
+surface = "all"
+top = 30
+
+# Reasoned exceptions for the duplication gate. Entries key on locations, not
+# line spans: `path` (a POSIX glob) matches any location in a matching file,
+# and `path::name` additionally requires nose's unit name for that location.
+# A `unit` entry names one key; a `members` entry names two or more. Either
+# silences a family only when *every* location in it matches one of the
+# entry's keys, so a new copy in an unlisted file still blocks the gate, and
+# partial coverage from several entries never adds up. Record entries with
+# `make duplication-allow FIRST='...' [SECOND='...'] REASON='...'` and remove
+# them when the gate reports them as stale.
+[tool.duplication_gate]

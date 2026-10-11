@@ -98,6 +98,29 @@ When implementing changes, adhere to the following testing procedures:
       records the reason in its documented allow list; retain the
       caller-specific evidence in the reviewing change and never add a broad
       exception or baseline.
+    - **Duplication:** Passes the blocking nose duplication gate that `make
+      lint` runs. The objective is to remove unjustified repeated logic, not
+      to reach a low duplication count by abstraction or suppression. For
+      genuine duplication, strengthen the regression tests, extract the
+      smallest coherent shared implementation at the correct architectural
+      layer, and update the callers. Do not add generic utilities, inheritance
+      hierarchies, or cross-layer dependencies merely to satisfy the detector,
+      and do not refactor away a parallel that is genuinely intentional.
+      Record a genuinely intentional parallel as a reasoned exception with
+      `make duplication-allow FIRST='path[::name]' [SECOND='path[::name]']
+      REASON='…'`, which keys on locations rather than line numbers. A
+      family is silenced only when every location in it matches one of the
+      entry's keys, so add a `SECOND` for each extra member rather than
+      joining keys into one value. Never disguise unresolved duplication as
+      intentional, never allow-list the initial scan wholesale, and remove an
+      entry once the gate reports it stale, but first check why: a stale entry
+      means it matched no reported family, which also happens when a family
+      gained a member outside the entry's keys, and in that case the
+      duplication still blocks and the entry needs extending rather than
+      deleting. The gate exits 1 on unsuppressed
+      families and 2 on a configuration or tool error; a missing detector is a
+      provisioning failure, resolved with `make install-nose`, not permission
+      to compile one from source.
     - **Formatting:** Adheres to formatting standards (run `make check-fmt` to
       verify, use `make fmt` to apply formatting).
     - **Typechecking:** Passes type checking (`make typecheck`).
