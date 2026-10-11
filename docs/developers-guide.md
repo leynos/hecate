@@ -410,10 +410,12 @@ be explored symbolically.
 Rendering lives in `output.py`. A new format follows the shape of `render_text`
 and `render_json`: take an `ArchitectureCheckResult`, return a string, and keep
 the result deterministic. Both existing renderers accept `show_ignored` and
-`show_coverage` keyword-only flags, and `render_json` defaults `show_coverage`
-to `True` while `render_text` defaults it to `False`. That asymmetry is
-deliberate: machine consumers receive coverage without extra arguments, while
-text output keeps its previous shape unless asked.
+`show_coverage` keyword-only flags, and they default `show_coverage`
+differently: `render_json` to `True`, `render_text` to `False`.
+`_emit_check_output` then makes the difference user-visible by always passing
+`show_coverage=True` for JSON, so machine consumers receive coverage without an
+extra argument while text output keeps its previous shape unless
+`--show-coverage` is passed. Keep that split when adding a format.
 
 A new format must also be reachable from the command line, which means
 extending the `OutputFormat` `StrEnum` in `cli.py` and adding the branch to
@@ -582,9 +584,9 @@ uv run pytest tests/test_properties.py tests/test_origin_properties.py \
 ### CrossHair contracts
 
 CrossHair explores reachable paths through a function symbolically, which
-answers a question Hypothesis cannot: whether a _every_ path satisfies a
-contract rather than whether sampled inputs do. It is applied only where that
-question is tractable and worth the cost.
+answers a question Hypothesis cannot: whether **every** reachable path
+satisfies a contract, rather than whether sampled inputs do. It is applied only
+where that question is tractable and worth the cost.
 
 The recipe is fixed in the `crosshair` Make target:
 
@@ -592,7 +594,7 @@ The recipe is fixed in the `crosshair` Make target:
 uv run crosshair check hecate/policy.py hecate/diagnostics.py --analysis_kind=asserts
 ```
 
-Three properties of that recipe matter:
+Three properties of that recipe matter, and one exclusion:
 
 - **Scope is two pure modules.** `hecate/policy.py` holds group matching,
   allow-list evaluation, ignore matching, and severity selection;
@@ -717,9 +719,10 @@ pytestmark = pytest.mark.skipif(
 ```
 
 That guard exists because mutmut runs the suite inside a `mutants/` working
-copy containing only the test tree, `pyproject.toml`, and the paths listed in
-`also_copy`; `.github/` is not among them, so the contract test would otherwise
+copy that does not include `.github/`, so the contract test would otherwise
 fail the baseline before any mutant ran.
+`tests/workflow_contracts/test_coverage_python_version.py` carries an
+equivalent guard for the tests that read this repository's own workflows.
 
 The contract deliberately does not check everything. Two gaps are worth knowing
 when extending the workflow:
@@ -813,12 +816,14 @@ the caller guide in
 
 Two consequences of the sandbox are worth knowing before investigating a
 failure. First, mutmut runs the suite inside a `mutants/` working copy that
-contains only the test tree, `pyproject.toml`, and the paths listed in
-`[tool.mutmut] also_copy`, which is why `tests/test_workflow_contract.py` and
-the two `workflow_contracts` suites carry skip guards for the absent `.github/`
-directory. Second, a "no tests" survivor means mutmut found no covering test at
-all, which is a coverage gap rather than an assertion gap; those are the most
-actionable entries in the report.
+does not copy `.github/`, which is why `tests/test_workflow_contract.py` and
+the repository-reading tests in
+`tests/workflow_contracts/test_coverage_python_version.py` skip themselves when
+that directory is absent. The synthetic reader tests in that module build their
+own workflow documents and stay active, so the version-resolution rules are
+still exercised inside the sandbox. Second, a "no tests" survivor means mutmut
+found no covering test at all, which is a coverage gap rather than an assertion
+gap; those are the most actionable entries in the report.
 
 ## Local development workflow
 
@@ -834,16 +839,16 @@ actionable entries in the report.
   and the bootstrap instructions are in [Linting](#linting) below.
 
 Several gates also need external tools that `make build` does **not** install.
-The `Makefile` checks for them and fails with a clear message when one is
-missing:
+For the local ones the `Makefile` checks `PATH` and fails with a clear message
+when a tool is missing:
 
-| Tool                | Used by                                   |
-| ------------------- | ----------------------------------------- |
-| `mdtablefix`        | `make fmt`, `make check-fmt`              |
-| `markdownlint-cli2` | `make fmt`, `make markdownlint`           |
-| `nixie`             | `make nixie`                              |
-| `mbake`             | CI's `mbake validate Makefile` step       |
-| `typos`             | `make spelling`, pinned via `uv tool run` |
+| Tool                | Used by                                  | Checked by the Makefile      |
+| ------------------- | ---------------------------------------- | ---------------------------- |
+| `mdtablefix`        | `make fmt`, `make check-fmt`             | yes                          |
+| `markdownlint-cli2` | `make fmt`, `make markdownlint`          | yes                          |
+| `nixie`             | `make nixie`                             | yes                          |
+| `typos`             | `make spelling`                          | no, pinned via `uv tool run` |
+| `mbake`             | CI's `mbake validate Makefile` step only | not used locally             |
 
 _Table 4: External tools not installed by `make build`._
 
@@ -963,9 +968,9 @@ _Table 5: Commit gates, local commands, and whether CI runs them._
   `tests`, in strict dead-code gate mode with uploads and provenance disabled.
   CI runs the same `make lint` target, so an unexplained Skylos finding blocks
   both local commits and pull requests.
-- **`make typecheck`** runs `ty check hecate tests`, the gate.
-  `pyright` is installed in the `dev` group but is **not** the typechecking
-  gate and is not run by any target or workflow.
+- **`make typecheck`** runs `ty check hecate tests`, and that is the
+  typechecking gate. `pyright` is installed in the `dev` group but is **not**
+  the gate and is not run by any target or workflow.
 - **`make test`** depends on `build`, `pytest`, `makeutil`, and
   `test-workflow-contracts`, then runs `pytest -v -n auto`.
 
