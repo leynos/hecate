@@ -108,10 +108,12 @@ so wildcard handling is decided by the code that understands wildcard
 semantics, not by the collector.
 
 Relative imports are resolved through `resolve_import_from`, which combines
-`relative_import_base` with the written module. A bare `from . import name` at
-level 1 inside `pkg/sub/mod.py` therefore resolves to `pkg.sub`, and inside
-`pkg/sub/__init__.py` to `pkg.sub` as well, because the level arithmetic drops
-one fewer component for a package `__init__`.
+`relative_import_base` with the written module. `relative_import_base` strips
+`level - 1` components from the module name, and strips the module's own leaf
+first unless the file is a package `__init__`, whose module name already
+denotes the package. A bare `from . import name` therefore resolves to
+`pkg.sub` both in `pkg/sub/mod.py` and in `pkg/sub/__init__.py`, while in
+`pkg/sub/mod.py` a second dot would drop `sub` as well.
 
 `ImportFrom` edges, nested imports, and `TYPE_CHECKING` imports need no special
 case. A `from x import y` statement contributes an edge to `x` and, when `y` is
@@ -261,9 +263,9 @@ by the message on standard error:
 
 A fourth path reaches exit code 2 from `check` itself: with
 `--fail-on-unmatched-ignore`, a configured ignore entry that matched no edge is
-reported and fails the run. That check runs after policy evaluation and before
-rendering, so a run can report both violations and unmatched ignores and still
-exit 2.
+reported and fails the run. That check runs after policy evaluation and returns
+before any rendering, so such a run prints the unmatched entries to standard
+error and exits 2 without printing the check result at all.
 
 ### Static-analysis limits
 
@@ -597,10 +599,14 @@ Three properties of that recipe matter:
   `hecate/diagnostics.py` holds the diagnostic dataclasses and their JSON
   payloads. Both are pure functions over validated in-memory values.
 - **Analysis kind is `asserts`.** CrossHair checks the module's own `assert`
-  statements, which is why those files carry assertions such as the
-  non-empty-identifier and non-negative-line-number preconditions in
-  `module_prefix_contains`, `group_allowed_by_list`, `relative_import_base`, and
-  `diagnostic_identity_to_dict`.
+  statements rather than a separate contract syntax. Those files carry
+  preconditions in that form: `module_prefix_contains` in `policy.py` asserts
+  its prefix and module are non-empty, `group_allowed_by_list` asserts the
+  imported group is non-empty, and `diagnostic_identity_to_dict` in
+  `diagnostics.py` asserts a non-empty rule id, importer, and imported target,
+  plus a non-negative line number. The same discipline applies in the other
+  modules, where the assertions are outside CrossHair's scope but still guard
+  the analysis.
 - **There is no explicit analysis budget or timeout.** The recipe passes no
   `--per_condition_timeout`, `--per_path_timeout`, or `--report_all`, so
   CrossHair applies its own defaults.
