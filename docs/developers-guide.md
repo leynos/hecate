@@ -284,7 +284,6 @@ statement itself is at module level: an empty iterable leaves the name unbound.
 `ModuleNamespace.bindings` is therefore a multimap keyed by name, and
 provenance reports every origin a name may hold rather than one winner.
 
-<<<<<<< HEAD
 `all_sequence.py` evaluates the `__all__` sequence statically. A literal
 assignment such as `__all__ = ["A", "B"]` is read exactly; `__all__ += [...]`
 extends a sequence that is still known; and anything the evaluator cannot
