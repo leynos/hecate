@@ -125,11 +125,15 @@ denotes the package. A bare `from . import name` therefore resolves to
 
 `ImportFrom` edges, nested imports, and `TYPE_CHECKING` imports need no special
 case. A `from x import y` statement contributes an edge to `x` and, when `y` is
-not a wildcard, an edge to `x.y`. An import nested inside a module-level `if`,
-`try`, `with`, or `match` still runs at import time and is collected like any
-other. An import inside a `TYPE_CHECKING` block is likewise a real import
-statement, and Hecate reports it whether or not the guard is true at runtime,
-because the dependency exists in the source.
+not a wildcard, an edge to `x.y`. Collection is syntactic, not an execution
+model: `collect_import_statements` walks the whole tree, so an import is
+recorded wherever it is written, including inside a branch, a `try`, a loop, a
+`with`, a `match` case, a function, or a class. Such an import may never run —
+an `if` body can be skipped, no `match` case need match, and a function body
+runs only when called — so Hecate treats it as a possible source-level
+dependency rather than a certain one. An import inside a `TYPE_CHECKING` block
+is reported on the same footing, because the dependency exists in the source
+even though the guard is false at runtime.
 
 ### Bindings and wildcard exports
 
@@ -147,10 +151,11 @@ export set so normal resolution reports it unresolved, matching the
 `module_scope.py` answers only which statements run at module scope: an `if`,
 `try`, loop, `with`, or `match` body still executes at import time, so its
 bindings count, while `def`, `async def`, and `class` bodies open a local scope
-and are not traversed. Its nesting flag separates a statement that always runs
-from one that may not, which `all_sequence.py` and `namespaces.py` read when
-deciding whether a later assignment replaces an earlier one or only adds a
-possibility.
+and are not traversed. That exclusion is about bindings only; import collection
+uses a whole-tree walk, as described above. `module_scope.py`'s nesting flag
+separates a statement that always runs from one that may not, which
+`all_sequence.py` and `namespaces.py` read when deciding whether a later
+assignment replaces an earlier one or only adds a possibility.
 
 A binding executed unconditionally supersedes every earlier candidate for its
 name, because no execution path can still reach them. A binding inside a
