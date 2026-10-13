@@ -52,7 +52,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git --include-untracked`;
         # this pins the version the estate formats with.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@2f47859bcf82ae8b5bc10b457683fbd589ca2e41
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@aea9c14c24b73042e99f0be8245a4f171b67c31a
         with:
           version: "0.6.1"
 
@@ -87,7 +87,7 @@ jobs:
       # published.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@2f47859bcf82ae8b5bc10b457683fbd589ca2e41
+        uses: leynos/shared-actions/.github/actions/generate-coverage@aea9c14c24b73042e99f0be8245a4f171b67c31a
         with:
           language: python
           python-source: ./hecate
