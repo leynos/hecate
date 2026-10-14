@@ -113,11 +113,13 @@ When implementing changes, adhere to the following testing procedures:
       entry's keys, so add a `SECOND` for each extra member rather than
       joining keys into one value. Never disguise unresolved duplication as
       intentional, never allow-list the initial scan wholesale, and remove an
-      entry once the gate reports it stale, but first check why: a stale entry
-      means it matched no reported family, which also happens when a family
-      gained a member outside the entry's keys, and in that case the
-      duplication still blocks and the entry needs extending rather than
-      deleting. The gate exits 1 on unsuppressed
+      entry once the gate reports it stale, but first check why and widen the
+      scan first: a stale entry means it matched no family in this bounded
+      scan, not that the duplication is gone, because `top` ranks the scan and
+      a family below the cutoff is not reported at all. After widening,
+      re-check — a stale entry also means a family gained a member outside the
+      entry's keys, and in that case the duplication still blocks and the entry
+      needs extending rather than deleting. The gate exits 1 on unsuppressed
       families and 2 on a configuration or tool error; a missing detector is a
       provisioning failure, resolved with `make install-nose`, not permission
       to compile one from source.

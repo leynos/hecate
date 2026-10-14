@@ -253,9 +253,18 @@ def _parse_group_item(
 
 
 def _parse_groups(data: dict[str, object], path: Path) -> tuple[ModuleGroup, ...]:
-    groups = _read_table_list(
-        data.get("groups"), key="tool.hecate.groups", path=path, require_non_empty=True
-    )
+    """Parse the required, non-empty ``groups`` table list.
+
+    An empty ``groups`` is rejected here rather than by the shape reader: a
+    configuration with no groups classifies no edge, so it would let every
+    boundary rule pass by defining nothing to check. The requirement belongs
+    to this key, not to the array shape in general, which is why it is stated
+    once at its only call site.
+    """
+    groups = _read_table_list(data.get("groups"), key="tool.hecate.groups", path=path)
+    if not groups:
+        msg = f"{path}: tool.hecate.groups must be a non-empty list of tables"
+        raise ConfigError(msg)
     return tuple(
         _parse_group_item(item, index, path) for index, item in enumerate(groups)
     )

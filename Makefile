@@ -208,7 +208,7 @@ duplication: install-nose ## Run the blocking code-duplication gate
 	$(DUPLICATION_GATE) check
 
 duplication-test: ## Run the duplication-gate helper tests
-	@$(UV_ENV) NOSE_BIN=$(NOSE_BIN) $(UV) run --no-project \
+	@$(UV_ENV) NOSE_BIN=$(NOSE_BIN) $(UV) run --no-project --python 3.14 \
 		--with pytest==9.0.2 --with cyclopts==4.25.2 \
 		--with tomlkit==0.15.1 --with 'hypothesis[asyncio]==6.165.6' \
 		python -m pytest -c /dev/null --rootdir=. -p no:cacheprovider \

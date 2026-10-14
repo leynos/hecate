@@ -55,9 +55,13 @@ def _read_table_list(
     *,
     key: str,
     path: Path,
-    require_non_empty: bool = False,
 ) -> list[dict[str, object]]:
     """Validate a configured list-of-tables and return its tables.
+
+    This checks shape only. An empty array is a well-formed table list, so a
+    key that must hold at least one table states that requirement at its own
+    call site rather than through a mode argument here; that keeps this helper
+    answering one question instead of switching between two.
 
     Parameters
     ----------
@@ -68,23 +72,19 @@ def _read_table_list(
         ``tool.hecate.groups``, used in every diagnostic.
     path : Path
         Configuration file the value came from, used in every diagnostic.
-    require_non_empty : bool
-        Whether an empty array is itself an error, as it is for ``groups``.
 
     Returns
     -------
     list[dict[str, object]]
-        The validated tables, in configured order.
+        The validated tables, in configured order, possibly empty.
 
     Raises
     ------
     ConfigError
-        If the value is not an array of tables, or is an empty array where a
-        non-empty one is required.
+        If the value is not an array of tables.
     """
-    expected = "a non-empty list of tables" if require_non_empty else "a list of tables"
-    if not _is_valid_table_list(value, require_non_empty=require_non_empty):
-        msg = f"{path}: {key} must be {expected}"
+    if not isinstance(value, list):
+        msg = f"{path}: {key} must be a list of tables"
         raise ConfigError(msg)
     parsed: list[dict[str, object]] = []
     for index, item in enumerate(typ.cast("list[object]", value)):
@@ -93,13 +93,6 @@ def _read_table_list(
             raise ConfigError(msg)
         parsed.append(typ.cast("dict[str, object]", item))
     return parsed
-
-
-def _is_valid_table_list(value: object, *, require_non_empty: bool) -> bool:
-    """Whether *value* is the array shape the caller requires."""
-    if not isinstance(value, list):
-        return False
-    return not (require_non_empty and not value)
 
 
 def _read_string(
