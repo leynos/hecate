@@ -9,6 +9,15 @@ The report is treated as untrusted input: it is produced by a separate
 process whose version this gate verifies but does not control. Validating it
 here keeps a surprising shape a single diagnosed configuration error rather
 than an attribute error raised somewhere inside the matcher.
+
+Every ``require_*`` helper below shares one contract, stated here rather than
+repeated in each docstring: ``context`` names the configuration path being
+read, a rejected value raises :exc:`GateConfigError` naming that path and the
+shape it wanted, and an accepted value is returned in narrowed form so callers
+can use it without re-checking. What each helper's own docstring adds is only
+the predicate it applies and the reasoning behind it. Elements of a rejected
+array are diagnosed against their own ``context[]`` path, not the array as a
+whole.
 """
 
 from __future__ import annotations
@@ -40,11 +49,21 @@ __all__ = [
 
 
 class GateConfigError(ValueError):
-    """Raised when the gate configuration or the detector report is malformed."""
+    """Raised when the gate configuration or the detector report is malformed.
+
+    ``label`` is the prefix the CLI prints before the message, so a rendered
+    diagnostic reads ``<label>: <message>``. Naming the class of failure on the
+    error itself keeps the CLI from having to re-derive it by type test at the
+    point where it only wants to report.
+    """
+
+    label = "configuration error"
 
 
 class GateExecutionError(GateConfigError):
     """Raised when the pinned detector is missing, wrong, or fails to run."""
+
+    label = "tool error"
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -102,83 +121,58 @@ class Finding:
         return " ~ ".join(location.label for location in self.locations)
 
 
+def _reject(context: str, clause: str) -> typ.Never:
+    """Raise the standard invalid-value diagnostic for ``context``.
+
+    Every validator in this module reports the same way: name the offending
+    configuration path, then say what it should have been. ``clause`` is the
+    text that follows ``"must"``, so the message is always
+    ``f"{context} must {clause}"``. Keeping that shape in one place stops the
+    validators from drifting apart in wording, which matters because callers
+    match on these messages.
+    """
+    msg = f"{context} must {clause}"
+    raise GateConfigError(msg)
+
+
 def require_table(value: object, *, context: str) -> cabc.Mapping[str, object]:
     """Validate one TOML table before configuration logic consumes it.
 
-    Parameters
-    ----------
-    value : object
-        Candidate TOML value.
-    context : str
-        Configuration path used in an invalid-value diagnostic.
-
-    Returns
-    -------
-    collections.abc.Mapping[str, object]
-        The validated table with string keys.
-
-    Raises
-    ------
-    GateConfigError
-        If ``value`` is not a table with string keys.
+    Accepts any mapping whose keys are all strings. Keys are checked because
+    the schema is read with ``str`` lookups, so a non-string key could not be
+    reached by any later ``.get`` and would surface much later as a missing
+    value rather than a malformed one.
     """
     if not isinstance(value, cabc.Mapping) or not all(
         isinstance(key, str) for key in value
     ):
-        msg = f"{context} must be a table with string keys"
-        raise GateConfigError(msg)
+        _reject(context, "be a table with string keys")
     return typ.cast("cabc.Mapping[str, object]", value)
 
 
 def require_string(value: object, *, context: str) -> str:
     """Validate one required non-empty configuration string.
 
-    Parameters
-    ----------
-    value : object
-        Candidate configuration value.
-    context : str
-        Configuration path used in an invalid-value diagnostic.
-
-    Returns
-    -------
-    str
-        The validated string.
-
-    Raises
-    ------
-    GateConfigError
-        If ``value`` is not a non-empty string.
+    A key that is missing entirely arrives here as ``None`` and is rejected
+    like any other non-string, so a value the configuration should have
+    supplied is reported at its own path rather than silently defaulting.
+    An empty string is rejected for the same reason: it is a present-but-unset
+    typo, not an omission the gate should paper over.
     """
     if not _is_non_empty_string(value):
-        msg = f"{context} must be a non-empty string"
-        raise GateConfigError(msg)
+        _reject(context, "be a non-empty string")
     return value
 
 
 def require_string_tuple(value: object, *, context: str) -> tuple[str, ...]:
     """Validate one configuration array of non-empty strings.
 
-    Parameters
-    ----------
-    value : object
-        Candidate configuration value.
-    context : str
-        Configuration path used in an invalid-value diagnostic.
-
-    Returns
-    -------
-    tuple[str, ...]
-        The validated configuration strings in input order.
-
-    Raises
-    ------
-    GateConfigError
-        If ``value`` is not an array of non-empty strings.
+    Strings and bytes are rejected even though both are sequences of strings,
+    because a scalar ``roots = "hecate"`` is a plausible mistake worth naming
+    as such rather than silently iterating its characters.
     """
     if not isinstance(value, cabc.Sequence) or isinstance(value, (str, bytes)):
-        msg = f"{context} must be an array of strings"
-        raise GateConfigError(msg)
+        _reject(context, "be an array of strings")
     return tuple(require_string(item, context=f"{context}[]") for item in value)
 
 
@@ -195,26 +189,11 @@ def _is_integer(value: object) -> typ.TypeIs[int]:
 def require_positive_int(value: object, *, context: str) -> int:
     """Validate one required positive configuration integer.
 
-    Parameters
-    ----------
-    value : object
-        Candidate configuration value.
-    context : str
-        Configuration path used in an invalid-value diagnostic.
-
-    Returns
-    -------
-    int
-        The validated positive integer.
-
-    Raises
-    ------
-    GateConfigError
-        If ``value`` is not a positive integer.
+    A bool is rejected even though it subclasses ``int``, so a TOML ``true``
+    is never read as a count of 1.
     """
     if not _is_integer(value) or value < 1:
-        msg = f"{context} must be a positive integer"
-        raise GateConfigError(msg)
+        _reject(context, "be a positive integer")
     return value
 
 
@@ -265,16 +244,14 @@ def _require_supported_schema(document: cabc.Mapping[str, object]) -> None:
 def _finding_value(value: object, *, context: str) -> float:
     """Validate a family's refactoring value as a non-boolean number."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        msg = f"{context}.value must be a number"
-        raise GateConfigError(msg)
+        _reject(f"{context}.value", "be a number")
     return float(value)
 
 
 def _finding_locations(value: object, *, context: str) -> tuple[Location, ...]:
     """Validate a family's member locations, preserving their report order."""
     if not isinstance(value, cabc.Sequence) or isinstance(value, (str, bytes)):
-        msg = f"{context}.locations must be an array"
-        raise GateConfigError(msg)
+        _reject(f"{context}.locations", "be an array")
     if not value:
         msg = f"{context}.locations must not be empty"
         raise GateConfigError(msg)
