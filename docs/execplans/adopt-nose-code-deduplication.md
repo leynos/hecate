@@ -235,6 +235,15 @@ indiscriminate abstraction or suppression.
   `test_duplication_gate_make.py` failures were a genuine fixture gap
   introduced by the detector-before-write repair. The fixture was corrected and
   the target now passes; see the decision log and the surprise below.
+- [x] (2026-10-14 12:05Z) Repair the two hosted CodeScene findings on
+  `98320e0` by refactoring, not suppression. `hecate/config_helpers.py` goes
+  from mean 4.10 over 10 functions to 2.50, and
+  `scripts/tests/test_duplication_gate_commands.py` is split at the process
+  boundary into an in-process module (401 code lines) and a real-boundary
+  module, `scripts/tests/test_duplication_gate_cli.py` (324 code lines), which
+  also retires the four-function duplication family. Both files now report
+  `cs review` score 10.00 with no findings. Per-file detail below; the delta
+  re-run and the gate re-run are recorded when they complete.
 
 ## Surprises & discoveries
 
@@ -346,6 +355,61 @@ indiscriminate abstraction or suppression.
   gains a new input from the environment, the copied-workspace fixture is the
   place to satisfy it, because it is the only fixture that reaches the real
   configuration path.
+- Observation: the hosted `Overall Code Complexity` finding on
+  `hecate/config_helpers.py` named only one rule, but the file held two
+  independent duplications and a provably redundant guard. Evidence: the file
+  measured mean 4.10 over 10 functions, i.e. 41 complexity points against a
+  budget of 40 for a strict-below-4.00 mean, so a single point was strictly
+  required; deleting `_has_invalid_dot_placement` and simplifying
+  `_is_invalid_dotted_string` to its segment check removes four real guards and
+  takes the total to 25. Exhaustive enumeration over alphabets up to length 4
+  plus 200,000 random probes found no counterexample to the claim that every
+  placement case is already a segment case, which is what makes the deletion a
+  genuine simplification rather than arithmetic. Impact: the mean threshold is
+  strict, so a file reporting exactly 4.00 is still flagged, and the quantity a
+  repair must reduce is `mean x count`. Recovering the per-function values
+  needed a differential measurement harness, because CodeScene reports only the
+  file mean; the harness is recorded under `Artefacts and notes`.
+- Observation: the same finding's remedy was a second duplication the rule did
+  not name. Evidence: four readers each restated "fetch the configured entry,
+  reject it if it is not the expected type, otherwise keep it", with only the
+  diagnostic differing; `_require[T]` now carries the type test and each call
+  site supplies its own message, so the diagnostics survive verbatim and the
+  exact-string assertions in `tests/test_config_validation.py` still pass.
+  Impact: an intermediate attempt added `_read_mapping_value`, a helper with no
+  callers, and a second unused `_require_type`; both would have lowered the
+  mean while raising the sum, which is the metric-gaming this work must avoid.
+  The fix was to wire `_require` into five real call sites or delete it. A
+  helper introduced for this rule must have callers before the file is
+  re-measured.
+- Observation: the `Low Cohesion` and `Code Duplication` findings on
+  `scripts/tests/test_duplication_gate_commands.py` were one structural
+  problem, not two. Evidence: the module's 31 functions fell into two clearly
+  separated jobs -- driving `check` and `allow` in process with their seams
+  replaced, and driving the gate or the pinned detector across a real process
+  boundary -- and the four-function duplication family spanned both. Splitting
+  at that boundary takes each module under 600 code lines, drops the
+  responsibility count, and retires the duplication family, because the
+  families were pairs of tests that the split separates or consolidates.
+  Impact: the split axis has to be an existing boundary in the subject matter,
+  not a line count. Splitting by size alone would have cut through the two jobs
+  and left both halves incoherent.
+- Observation: consolidating the four similar-structure tests exposed a shape
+  the detector could not see, and the first consolidation tripped a different
+  rule. Evidence: the four were two genuine pairs --
+  `test_allow_rejects_malformed_keys` with
+  `test_allow_refuses_a_key_covering_no_reported_family` shared one body
+  differing only in the key and the expected diagnostic, and
+  `test_read_allowlist_translates_environment_failures` with
+  `test_detect_findings_translates_detector_failures` shared one body differing
+  only in which seam was called. Merging the first pair into a parametrized
+  test raised its argument count to six, which CodeScene then flagged as
+  `Excess Number of Function Arguments` (threshold four, score 9.68). Forming
+  the three per-case fields into a frozen `_RefusedKey` data class returned the
+  file to 10.00. Impact: a parametrized test that carries the reason for each
+  case is a data clump, and CodeScene's argument rule counts the parametrized
+  case's fields as arguments. Bundling them is the right fix anyway: the
+  explanation belongs with the case it explains.
 
 ## Decision log
 
@@ -525,6 +589,27 @@ indiscriminate abstraction or suppression.
   pass, which keeps the report consistent with the keys by construction and
   leaves Make's forwarding as the only free variable. Date/Author: 2026-10-14,
   implementation agent.
+- Decision: split `scripts/tests/test_duplication_gate_commands.py` along its
+  process boundary rather than along a line count, and move the real-boundary
+  tests into `scripts/tests/test_duplication_gate_cli.py`. Rationale: the
+  hosted findings were `Lines of Code in a Single File` (619 against 600),
+  `Low Cohesion` (13 responsibilities among 31 functions, threshold 4) and
+  `Code Duplication` (four functions with similar structure), and all three
+  were one structural problem. A split by size would have satisfied the line
+  rule while leaving each half with both jobs; the boundary between "replaces
+  the reader and detector seams" and "runs the shipped command or the pinned
+  binary for real" is a distinction the tests already made, since every test
+  falls on one side. Options considered: (a) raise the rule's threshold or
+  suppress the file -- rejected, this work is required to repair CodeScene
+  findings rather than silence them; (b) move the module under `scripts/` so
+  Pylint's 400-line limit applies -- rejected, that is a second, stricter limit
+  driven by tooling placement rather than cohesion, and it would have forced a
+  split anyway; (c) split at the boundary and consolidate the four parallel
+  tests -- chosen. The four tests were two genuine pairs, each merged into one
+  parametrized test whose cases carry their own explanation, and the three
+  per-case fields were formed into a frozen `_RefusedKey` because the merged
+  argument count tripped CodeScene's `Excess Number of Function Arguments`
+  rule. Date/Author: 2026-10-14, implementation agent.
 
 ## Outcomes & retrospective
 
@@ -1174,3 +1259,24 @@ that nearly every other test replaces is exercised by the one fixture that runs
 the real command, so a targeted `-k` run cannot see this class of regression
 and only the full `make duplication-test` target can. All seven commit gates
 were re-run afterwards, sequentially and once each, and pass.
+
+Revision 7, 2026-10-14. Records the repair of the two hosted CodeScene findings
+that remained on `98320e0`. Both are repaired by refactoring with zero
+suppression, and between them they falsified two assumptions about how to
+repair this rule. The first was that a mean-complexity finding is a
+single-duplication problem: `hecate/config_helpers.py` held a provably
+redundant guard *and* a four-way repetition of one type-test shape, and neither
+alone was visible until the per-function values were recovered by differential
+measurement. The second was that a file split is a line-count problem: the
+`Lines of Code`, `Low Cohesion`, and `Code Duplication` findings on
+`scripts/tests/test_duplication_gate_commands.py` were one structural problem,
+and splitting at the process boundary resolved all three at once, because the
+duplication family straddled that boundary. The module is now
+`scripts/tests/test_duplication_gate_commands.py` (401 code lines, in-process
+seam tests) plus `scripts/tests/test_duplication_gate_cli.py` (324 code lines,
+real subprocess and pinned-detector tests); the `duplication-test` target names
+both. Every repair was verified against the rule that raised it -- `cs review`
+reports 10.00 with no findings for both files -- and the four merged tests were
+carried over with their assertions and their explanatory messages intact, so no
+proof was dropped. No requirement was dropped. The scope tolerance recorded in
+revision 5 remains exceeded; this revision adds to it rather than resetting it.
