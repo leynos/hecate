@@ -118,28 +118,61 @@ def _report(
     )
 
 
-def _read_allowlist(allowlist_reader: AllowlistReader) -> tuple[AllowEntry, ...]:
-    """Read the reasoned allowlist, naming unreadable configuration."""
+def _translate[T](
+    action: cabc.Callable[[], T],
+    *,
+    label: str,
+    execution_faults: tuple[type[BaseException], ...] = (),
+    config_faults: tuple[type[BaseException], ...] = (),
+) -> T:
+    """Run ``action``, turning dependency failures into diagnosed gate errors.
+
+    The two loaders below fail in the same three ways, so the policy for
+    reporting them lives here once. A ``GateConfigError`` raised by ``action``
+    is already the gate's own diagnosis and propagates unchanged; an
+    ``execution_fault`` names the surrounding environment -- a missing binary,
+    an unreadable file -- and becomes a ``GateExecutionError`` under ``label``;
+    a ``config_fault`` names data the action was handed and becomes a
+    ``GateConfigError`` carrying the dependency's own message.
+    """
     try:
-        return allowlist_reader(PYPROJECT)
+        return action()
     except GateConfigError:
         raise
-    except (OSError, tomllib.TOMLDecodeError) as error:
-        msg = f"cannot load duplication allowlist: {error}"
+    except execution_faults as error:
+        msg = f"{label}: {error}"
         raise GateExecutionError(msg) from error
+    except config_faults as error:
+        raise GateConfigError(str(error)) from error
+
+
+def _read_allowlist(reader: AllowlistReader) -> tuple[AllowEntry, ...]:
+    """Read the reasoned allowlist, naming unreadable configuration.
+
+    A malformed TOML file is an environment fault rather than a policy one:
+    the repository configuration could not be read at all, which is a
+    different repair from an entry that is readable but wrong.
+    """
+    return _translate(
+        lambda: reader(PYPROJECT),
+        label="cannot load duplication allowlist",
+        execution_faults=(OSError, tomllib.TOMLDecodeError),
+    )
 
 
 def _detect_findings(detector: FindingDetector) -> list[Finding]:
-    """Run the detector, separating execution failures from bad configuration."""
-    try:
-        return detector()
-    except GateConfigError:
-        raise
-    except OSError as error:
-        msg = f"nose detector failed: {error}"
-        raise GateExecutionError(msg) from error
-    except (TypeError, ValueError) as error:
-        raise GateConfigError(str(error)) from error
+    """Run the detector, separating execution failures from bad configuration.
+
+    A ``TypeError`` or ``ValueError`` out of the detector means the report it
+    produced is not the shape the gate understands, which is a configuration
+    fault the maintainer resolves rather than an environment one.
+    """
+    return _translate(
+        detector,
+        label="nose detector failed",
+        execution_faults=(OSError,),
+        config_faults=(TypeError, ValueError),
+    )
 
 
 def _check_inputs(
@@ -170,11 +203,8 @@ def check() -> None:
             allowlist_reader=load_allowlist,
             detector=detect_findings,
         )
-    except GateExecutionError as error:
-        print(f"tool error: {error}", file=sys.stderr)
-        raise SystemExit(2) from error
     except GateConfigError as error:
-        print(f"configuration error: {error}", file=sys.stderr)
+        print(f"{error.label}: {error}", file=sys.stderr)
         raise SystemExit(2) from error
     blocking, allowed, stale = partition_findings(findings, allowlist)
     _report(blocking, allowed, stale)
