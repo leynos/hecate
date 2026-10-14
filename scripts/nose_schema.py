@@ -120,6 +120,20 @@ class Finding:
         """Return the ``path:lines ~ path:lines`` summary of the family."""
         return " ~ ".join(location.label for location in self.locations)
 
+    @property
+    def order_key(self) -> tuple[float, str, str]:
+        """Return the total key that gives normalization its stable order.
+
+        ``(-value, label)`` alone is not total: two families can share a value
+        and a location summary while differing in witness, and sorting on the
+        partial key leaves them in report order. The same set of families then
+        normalizes to different output depending on how nose happened to emit
+        them. Appending ``witness`` breaks that tie. Two findings still equal
+        under this key are identical in every attribute the gate reports, so
+        their relative order cannot change what the gate prints.
+        """
+        return (-self.value, self.label, self.witness)
+
 
 def _reject(context: str, clause: str) -> typ.Never:
     """Raise the standard invalid-value diagnostic for ``context``.
@@ -226,7 +240,7 @@ def normalize_findings(report: object) -> list[Finding]:
         _finding(family, context=f"nose report families[{index}]")
         for index, family in enumerate(families)
     ]
-    findings.sort(key=lambda finding: (-finding.value, finding.label))
+    findings.sort(key=lambda finding: finding.order_key)
     return findings
 
 

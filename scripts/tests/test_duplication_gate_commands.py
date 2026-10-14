@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from duplication_gate_test_support import (
     REPOSITORY_ROOT,
+    STUB_REPORT,
     allowlist,
     copied_gate_workspace,
     detector,
@@ -21,6 +22,28 @@ from duplication_gate_test_support import (
     run_gate_command,
     write_stub_nose,
 )
+
+
+def _report_with_named_locations(*names: str) -> dict[str, object]:
+    """Build a stub report whose first family names the given units.
+
+    Both locations are placed on the same file so that a family can be covered
+    by ``path::name`` keys alone; the shared file is what distinguishes a
+    single-key ``unit`` entry from a cross-file ``members`` entry.
+    """
+    family = STUB_REPORT["families"][0]
+    return {
+        **STUB_REPORT,
+        "families": [
+            {
+                **family,
+                "locations": [
+                    {**family["locations"][0], "file": "hecate/b.py", "name": name}
+                    for name in names
+                ],
+            }
+        ],
+    }
 
 
 def _finding() -> detector.Finding:
@@ -66,15 +89,17 @@ class TestGateCommands:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """Allow entries covering nothing are reported for removal."""
+        """Allow entries covering nothing are reported as unmatched in this scan."""
         monkeypatch.chdir(tmp_path)
         entry = allowlist.AllowEntry(keys=("hecate/gone.py",), reason="resolved")
         monkeypatch.setattr(gate, "load_allowlist", lambda _path: (entry,))
         monkeypatch.setattr(gate, "detect_findings", lambda: [])
         gate.check()
         assert capsys.readouterr().out == (
-            "stale allow entry (hecate/gone.py): it matches no reported family; "
-            "the duplication it silenced is gone, or the family changed\n"
+            "stale allow entry (hecate/gone.py): unmatched in this scan; "
+            "widen the scan (raise `top`, or lower `min-size`) before deleting "
+            "the entry, because the duplication it silenced may be gone, or its "
+            "family may have changed shape\n"
             "duplication gate passed\n"
         ), "Stale entries must be reported alongside a passing gate."
 
@@ -88,8 +113,9 @@ class TestGateCommands:
 
         That case is the dangerous one: the duplication is still present, and
         the entry is needed as the starting point for extending it. A
-        diagnostic that only says the duplication is gone invites deleting the
-        entry instead.
+        diagnostic that says the duplication is gone invites deleting the
+        entry instead, so the wording is checked for the weaker, true claim
+        and for the widening step that would tell them apart.
         """
         monkeypatch.chdir(tmp_path)
         entry = allowlist.AllowEntry(
@@ -115,6 +141,13 @@ class TestGateCommands:
         )
         assert "hecate/c.py" in output, (
             "The blocking report must name the member outside the entry's keys."
+        )
+        assert "unmatched in this scan" in output, (
+            "A stale entry must be described as unmatched in this scan, which "
+            "is what the gate actually observed."
+        )
+        assert "before deleting the entry" in output, (
+            "The diagnostic must require a widened scan before deletion."
         )
         assert "the duplication is gone\n" not in output, (
             "A stale entry must not assert the duplication is gone; in this "
@@ -333,6 +366,14 @@ class TestGateCommands:
             "The mismatch diagnostic must name the install remediation."
         )
 
+    def _allow_with_detector(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Make the allow command see the shared two-member stub family."""
+        monkeypatch.setattr(
+            gate,
+            "detect_findings",
+            lambda: detector.normalize_findings(STUB_REPORT),
+        )
+
     def test_allow_reports_malformed_existing_entries(
         self,
         tmp_path: Path,
@@ -346,9 +387,14 @@ class TestGateCommands:
             encoding="utf-8",
         )
         monkeypatch.setattr(gate, "PYPROJECT", pyproject)
+        self._allow_with_detector(monkeypatch)
 
         with pytest.raises(SystemExit) as error:
-            gate.allow(first="hecate/b.py", reason="reviewed exception")
+            gate.allow(
+                first="hecate/a.py",
+                second=["hecate/b.py"],
+                reason="reviewed exception",
+            )
 
         assert error.value.code == 2, "Malformed existing allows must return two."
         assert capsys.readouterr().err == (
@@ -368,9 +414,14 @@ class TestGateCommands:
             raise write_error
 
         monkeypatch.setattr(gate, "append_allow_entry", fail_write)
+        self._allow_with_detector(monkeypatch)
 
         with pytest.raises(SystemExit) as exit_error:
-            gate.allow(first="hecate/a.py", reason="reviewed exception")
+            gate.allow(
+                first="hecate/a.py",
+                second=["hecate/b.py"],
+                reason="reviewed exception",
+            )
 
         assert exit_error.value.code == 2, "Write failures must return two."
         assert capsys.readouterr().err == (
@@ -387,6 +438,7 @@ class TestGateCommands:
         pyproject = tmp_path / "pyproject.toml"
         pyproject.write_text("[project]\nname = 'x'\n", encoding="utf-8")
         monkeypatch.setattr(gate, "PYPROJECT", pyproject)
+        self._allow_with_detector(monkeypatch)
 
         with pytest.raises(SystemExit) as error:
             gate.allow(first="/hecate/a.py", reason="reviewed exception")
@@ -399,36 +451,116 @@ class TestGateCommands:
             "A rejected key must not be recorded."
         )
 
-    @pytest.mark.parametrize(
-        ("second", "expected_keys"),
-        [
-            pytest.param(None, ("hecate/a.py",), id="unit"),
-            pytest.param(
-                ["hecate/b.py::beta"],
-                ("hecate/a.py", "hecate/b.py::beta"),
-                id="members",
-            ),
-        ],
-    )
-    def test_allow_cli_round_trips_unit_and_members(
+    def test_allow_refuses_a_key_covering_no_reported_family(
         self,
         tmp_path: Path,
-        second: list[str] | None,
-        expected_keys: tuple[str, ...],
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
     ) -> None:
-        """The real allow CLI records both supported exception forms."""
-        _workspace, script = copied_gate_workspace(tmp_path)
-        arguments = ["allow", "--first", "hecate/a.py"]
-        for key in second or ():
-            arguments.extend(("--second", key))
-        arguments.extend(("--reason", "reviewed exception"))
+        """A key the detector never reports is refused, not recorded."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("[project]\nname = 'x'\n", encoding="utf-8")
+        monkeypatch.setattr(gate, "PYPROJECT", pyproject)
+        self._allow_with_detector(monkeypatch)
 
-        result = run_gate_command(script, *arguments)
+        with pytest.raises(SystemExit) as error:
+            gate.allow(first="hecate/typo.py", reason="reviewed exception")
+
+        assert error.value.code == 2, "An uncovered key must return two."
+        diagnostic = capsys.readouterr().err
+        assert "covers no reported family" in diagnostic, (
+            "The diagnostic must say the keys match nothing reported."
+        )
+        assert "duplication_gate" not in pyproject.read_text(encoding="utf-8"), (
+            "An entry covering no family must not be recorded."
+        )
+
+    def test_allow_refuses_partial_coverage_of_a_family(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """Keys reaching only one member of a family do not form an exception.
+
+        This is the more dangerous of the two refusals: a partial key set is
+        syntactically perfect and names a real file, so without the coverage
+        check it would be recorded, reported as a success, and then ignored by
+        the gate -- which goes on blocking while the allowlist looks fixed.
+        """
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("[project]\nname = 'x'\n", encoding="utf-8")
+        monkeypatch.setattr(gate, "PYPROJECT", pyproject)
+        self._allow_with_detector(monkeypatch)
+
+        with pytest.raises(SystemExit) as error:
+            gate.allow(first="hecate/a.py", reason="reviewed exception")
+
+        assert error.value.code == 2, "Partial coverage must return two."
+        assert "covers no reported family" in capsys.readouterr().err, (
+            "Partial coverage must be reported as covering no whole family."
+        )
+        assert "duplication_gate" not in pyproject.read_text(encoding="utf-8"), (
+            "A partial exception must not be recorded."
+        )
+
+    def test_allow_cli_round_trips_a_unit_key(self, tmp_path: Path) -> None:
+        """A single named unit covering its whole family is recorded as ``unit``."""
+        workspace, script = copied_gate_workspace(tmp_path)
+        stub = write_stub_nose(
+            tmp_path, report=_report_with_named_locations("beta", "gamma")
+        )
+        result = run_gate_command(
+            script,
+            "allow",
+            "--first",
+            "hecate/b.py::beta",
+            "--second",
+            "hecate/b.py::gamma",
+            "--reason",
+            "reviewed exception",
+            environment=gate_environment(NOSE_BIN=str(stub)),
+        )
         assert result.returncode == 0, result.stderr
         entries = allowlist.load_allowlist(script.parent.parent / "pyproject.toml")
-        assert entries[0].keys == expected_keys, "CLI must retain its requested keys."
+        assert entries[0].keys == ("hecate/b.py::beta", "hecate/b.py::gamma"), (
+            "CLI must retain its requested keys."
+        )
         assert entries[0].reason == "reviewed exception", (
             "CLI must retain the supplied reason."
+        )
+
+    def test_allow_cli_round_trips_members(self, tmp_path: Path) -> None:
+        """A cross-file family is recorded as ``members`` and then silences it."""
+        workspace, script = copied_gate_workspace(tmp_path)
+        stub = write_stub_nose(tmp_path)
+
+        result = run_gate_command(
+            script,
+            "allow",
+            "--first",
+            "hecate/a.py",
+            "--second",
+            "hecate/b.py",
+            "--reason",
+            "reviewed exception",
+            environment=gate_environment(NOSE_BIN=str(stub)),
+        )
+        assert result.returncode == 0, result.stderr
+        entries = allowlist.load_allowlist(script.parent.parent / "pyproject.toml")
+        assert entries[0].keys == ("hecate/a.py", "hecate/b.py"), (
+            "CLI must retain its requested keys."
+        )
+        assert entries[0].reason == "reviewed exception", (
+            "CLI must retain the supplied reason."
+        )
+
+        checked = run_gate_command(
+            script, "check", environment=gate_environment(NOSE_BIN=str(stub))
+        )
+        assert checked.returncode == 0, checked.stderr
+        assert "duplication gate passed" in checked.stdout, (
+            "The recorded exception must silence the family it covers."
         )
 
     def test_check_cli_passes_with_a_stub_detector(self, tmp_path: Path) -> None:

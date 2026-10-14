@@ -1359,15 +1359,18 @@ rather than line spans:
 
 An entry silences a family only when **every** location in it matches one of
 the entry's keys, so a new copy in an unlisted file still blocks, and partial
-coverage from several entries never adds up. Entries that cover no finding are
-reported as stale and must be removed. A stale entry means the entry matches no
-reported family, which happens either because the duplication it silenced is
-gone or because the family changed shape — for example when it gained a member
-outside the entry's keys. Check which before deleting one: in the second case
-the duplication is still there, and the entry is the starting point for
-extending it. Values pass through the environment verbatim, so spaces, quotes,
-and dollar signs in a reason are preserved rather than interpreted as shell or
-Make program text.
+coverage from several entries never adds up. An entry the run does not match is
+reported as stale, meaning **unmatched in this scan** — not "the duplication is
+gone". The scan is bounded by `top`, so a family that has dropped below the
+ranking is simply not reported, and the gate cannot tell that from a family
+that no longer exists. Widen the scan before deleting such an entry: raise
+`top`, or lower `min-size`, and re-run. Only two causes then remain — the
+duplication is genuinely gone, or the family changed shape, for example by
+gaining a member outside the entry's keys — and in the second case the
+duplication is still present and the entry is the starting point for extending
+it rather than for deleting it. Values pass through the environment verbatim,
+so spaces, quotes, and dollar signs in a reason are preserved rather than
+interpreted as shell or Make program text.
 
 The helper holds an advisory lock beside `pyproject.toml` while it rewrites the
 entries, so concurrent allow commands cannot interleave their
@@ -1380,12 +1383,18 @@ The gate is POSIX-only: it uses `fcntl.flock` and POSIX directory operations.
 The supported developer workflow is POSIX or WSL, and the blocking run happens
 on Linux CI. Native Windows is not supported.
 
-The gate's modules declare Python 3.14 and their pinned helper libraries in
-their own uv inline script metadata, so `make duplication` and
-`make duplication-test` run in an isolated environment with the interpreter
-selected explicitly, rather than in the application's virtualenv.
-`tests/toolchain_contract/` keeps the Makefile, the CI workflow, and
+The gate's entry point `scripts/duplication_gate.py` declares the Python 3.14
+floor and its pinned helper libraries in uv inline script metadata; the other
+gate modules are plain imports without metadata of their own.
+`make duplication` and `make duplication-test` therefore select that
+interpreter and those pins explicitly, rather than inheriting the application's
+virtualenv. `tests/toolchain_contract/` keeps the Makefile, the CI workflow, and
 `[tool.nose]` pinned to the same version.
+
+The gate's own tests live under `scripts/tests/` and are not collected by
+`make test` or the coverage job; `[tool.pytest.ini_options]` sets
+`testpaths = ["tests"]` so application discovery stays within `tests/`. Run
+them with `make duplication-test`.
 
 ______________________________________________________________________
 
