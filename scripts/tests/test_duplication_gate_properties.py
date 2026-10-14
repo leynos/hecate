@@ -6,14 +6,12 @@ from duplication_gate_test_support import allowlist, detector, gate
 from hypothesis import given
 from hypothesis import strategies as st
 
-_PATHS = st.sampled_from(
-    (
-        "hecate/a.py",
-        "hecate/b.py",
-        "hecate/c.py",
-        "hecate/d.py",
-    )
-)
+_PATHS = st.sampled_from((
+    "hecate/a.py",
+    "hecate/b.py",
+    "hecate/c.py",
+    "hecate/d.py",
+))
 _NAMES = st.sampled_from(("alpha", "beta", None))
 
 
@@ -66,6 +64,20 @@ def test_entries_allow_only_fully_covered_families(
     )
 
 
+def _shared_unit_name(finding: detector.Finding) -> str | None:
+    """Return the one name every location shares, or ``None`` if there is none.
+
+    A ``path::name`` key only matches a family whose locations all name the
+    same unit, so this reports whether that form is even available. ``None``
+    is also a name in the report, and a family mixing a named and an unnamed
+    location has no shared name to key on.
+    """
+    names = {location.name for location in finding.locations}
+    if names == {None} or len(names) != 1:
+        return None
+    return next(iter(names))
+
+
 @st.composite
 def _covered_family(
     draw: st.DrawFn,
@@ -79,12 +91,9 @@ def _covered_family(
     """
     finding = draw(_findings())
     files = tuple({location.file for location in finding.locations})
-    names = {location.name for location in finding.locations}
-    if len(names) == 1 and None not in names and draw(st.booleans()):
-        name = next(iter(names))
-        keys = tuple(f"{path}::{name}" for path in files)
-    else:
-        keys = files
+    name = _shared_unit_name(finding)
+    prefer_qualified = name is not None and draw(st.booleans())
+    keys = tuple(f"{path}::{name}" for path in files) if prefer_qualified else files
     return finding, allowlist.AllowEntry(keys=keys, reason="property")
 
 
@@ -119,9 +128,7 @@ def test_a_new_member_outside_the_exception_blocks_again(
             witness=finding.witness,
             value=finding.value,
             locations=(
-                detector.Location(
-                    file="hecate/unlisted.py", start=1, end=2, name=None
-                ),
+                detector.Location(file="hecate/unlisted.py", start=1, end=2, name=None),
             ),
         )
     ), "A partial exception must never cover a family on its own."
@@ -186,7 +193,7 @@ def test_normalization_orders_values_then_locations(
                 ],
             }
             for finding in findings
-        ]
+        ],
     }
     normalized = detector.normalize_findings(report)
     assert len(normalized) == len(findings), (
