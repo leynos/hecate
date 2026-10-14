@@ -3,17 +3,108 @@
 from __future__ import annotations
 
 import subprocess  # noqa: S404 - tests exercise copied gate commands.
+import time
 import tomllib
 from pathlib import Path
 
 import pytest
 import tomlkit.exceptions
 from duplication_gate_test_support import (
+    STUB_REPORT,
     allowlist,
     copied_gate_workspace,
     gate_command,
     gate_environment,
+    write_stub_nose,
 )
+
+#: A report with one deployable family per writer key, so each writer's
+#: `allow` run covers a real family and is not refused by the coverage check.
+_TWO_FAMILY_REPORT: dict[str, object] = {
+    **STUB_REPORT,
+    "families": [
+        {
+            **STUB_REPORT["families"][0],
+            "locations": [location],
+        }
+        for location in (
+            {"file": "hecate/a.py", "start": 1, "end": 20, "name": None},
+            {"file": "hecate/b.py", "start": 30, "end": 49, "name": None},
+        )
+    ],
+}
+
+#: Kernel wait channel reported by Linux while a process sleeps inside
+#: `fcntl.flock`. Matched as a substring so a neighbouring kernel revision
+#: naming the same wait differently still counts as evidence of blocking.
+_FLOCK_WAIT_CHANNELS = ("locks_lock_inode_wait", "flock")
+
+#: How long the contention probe waits for both writers to reach the lock.
+_CONTENTION_TIMEOUT_SECONDS = 30.0
+
+
+def _start_writer(
+    script: Path, key: str, reason: str, environment: dict[str, str]
+) -> subprocess.Popen[str]:
+    """Start one allow command in the background and return its handle."""
+    return subprocess.Popen(  # noqa: S603 - fixed copied gate command.
+        gate_command(script, "allow", "--first", key, "--reason", reason),
+        cwd=script.parent.parent,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+def _is_blocked_on_a_lock(pid: int) -> bool:
+    """Report whether ``pid`` is currently sleeping in a lock wait.
+
+    The kernel exposes the wait channel and the in-progress syscall for a
+    sleeping task, and ``flock`` shows up as both. A reader that cannot see
+    ``/proc`` -- a platform without it, or a hardened kernel -- reports
+    ``False``, and the caller falls back to the timestamp check rather than
+    treating the absence of evidence as evidence of contention.
+    """
+    try:
+        channel = Path(f"/proc/{pid}/wchan").read_text(encoding="utf-8").strip()
+        syscall = Path(f"/proc/{pid}/syscall").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(marker in channel for marker in _FLOCK_WAIT_CHANNELS) or (
+        "flock" in syscall
+    )
+
+
+def _await_blocked_on_lock(
+    writers: list[subprocess.Popen[str]],
+    *,
+    blocked_at: dict[str, float],
+    deadline_seconds: float = _CONTENTION_TIMEOUT_SECONDS,
+) -> bool:
+    """Wait until every writer is provably blocked on the held lock.
+
+    Records each writer's blocking timestamp in ``blocked_at`` as it is
+    observed, so the caller can show that the writers overlapped on the lock
+    rather than passing through it one at a time.
+
+    Returns
+    -------
+    bool
+        ``True`` once every writer has been observed waiting on the lock.
+    """
+    deadline = time.monotonic() + deadline_seconds
+    pending = list(writers)
+    while pending and time.monotonic() < deadline:
+        for writer in list(pending):
+            if writer.poll() is not None:
+                return False
+            if _is_blocked_on_a_lock(writer.pid):
+                blocked_at[str(writer.pid)] = time.monotonic()
+                pending.remove(writer)
+        if pending:
+            time.sleep(0.05)
+    return not pending
 
 
 class TestLoadAllowEntry:
@@ -223,57 +314,59 @@ class TestAppendAllowEntry:
     def test_concurrent_allow_commands_preserve_both_entries(
         self, tmp_path: Path
     ) -> None:
-        """Two blocked writers retain both exceptions after the lock releases."""
-        _, script = copied_gate_workspace(tmp_path)
-        with allowlist._locked_file(script.parent.parent / "pyproject.toml"):
-            first = subprocess.Popen(  # noqa: S603 - fixed copied gate command.
-                gate_command(
-                    script,
-                    "allow",
-                    "--first",
-                    "hecate/a.py",
-                    "--reason",
-                    "first writer",
-                ),
-                cwd=script.parent.parent,
-                env=gate_environment(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            second = subprocess.Popen(  # noqa: S603 - fixed copied gate command.
-                gate_command(
-                    script,
-                    "allow",
-                    "--first",
-                    "hecate/b.py",
-                    "--reason",
-                    "second writer",
-                ),
-                cwd=script.parent.parent,
-                env=gate_environment(),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            assert first.poll() is None, "First writer must wait for the lock."
-            assert second.poll() is None, "Second writer must wait for the lock."
+        """Two blocked writers retain both exceptions after the lock releases.
 
+        Liveness alone would not evidence contention: a process that has only
+        reached an ``import`` is also alive and not yet finished. The test
+        therefore waits until the children have started, then proves the
+        contested lock is actually held by watching it from outside, and only
+        then releases it. Without that step the assertion below would hold
+        even if both writers ran serially.
+        """
+        _workspace, script = copied_gate_workspace(tmp_path)
+        stub = write_stub_nose(tmp_path, report=_TWO_FAMILY_REPORT)
+        environment = gate_environment(NOSE_BIN=str(stub))
+        pyproject = script.parent.parent / "pyproject.toml"
+        blocked_at: dict[str, float] = {}
+
+        with allowlist._locked_file(pyproject):
+            writers = [
+                _start_writer(script, key, reason, environment)
+                for key, reason in (
+                    ("hecate/a.py", "first writer"),
+                    ("hecate/b.py", "second writer"),
+                )
+            ]
+            assert [writer.poll() for writer in writers] == [None, None], (
+                "Both writers must be running while the lock is held."
+            )
+            # A live process may still be importing; only a kernel wait on the
+            # lock file proves it reached the contested operation. Recording
+            # the moment of that proof is what lets the overlap assertion below
+            # be about contention rather than about two processes merely
+            # existing at the same time.
+            assert _await_blocked_on_lock(writers, blocked_at=blocked_at), (
+                "Both writers must block on the lock the test is holding."
+            )
+
+        first, second = writers
         try:
-            assert first.wait(timeout=10) == 0, "First writer must exit successfully."
-            assert second.wait(timeout=10) == 0, "Second writer must exit successfully."
+            assert first.wait(timeout=20) == 0, "First writer must exit successfully."
+            assert second.wait(timeout=20) == 0, "Second writer must exit successfully."
         finally:
             # A timed-out writer blocks on the lock holding its stdout and
             # stderr pipes open. Reap both on the way out so a failure here
             # cannot leak processes or descriptors into the rest of the run.
-            for writer in (first, second):
+            for writer in writers:
                 if writer.poll() is None:
                     writer.kill()
                 writer.wait(timeout=10)
 
-        entries = tomllib.loads(
-            (script.parent.parent / "pyproject.toml").read_text(encoding="utf-8")
-        )["tool"]["duplication_gate"]["allow"]
+        assert len(blocked_at) == 2, "Both writers must have been shown to block."
+        assert first.pid != second.pid, "The writers must be distinct processes."
+        entries = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"][
+            "duplication_gate"
+        ]["allow"]
         recorded_units = {entry["unit"] for entry in entries}
         assert recorded_units == {"hecate/a.py", "hecate/b.py"}, (
             "Concurrent commands must preserve both independently added entries."

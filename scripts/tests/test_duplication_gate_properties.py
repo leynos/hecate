@@ -176,7 +176,19 @@ def test_normalization_orders_values_then_locations(
     findings: list[detector.Finding],
 ) -> None:
     """Normalized findings use the documented deterministic ordering."""
-    report = {
+    normalized = detector.normalize_findings(_report_of(findings))
+    assert len(normalized) == len(findings), (
+        "Normalization must conserve the finding count."
+    )
+    sort_keys = [finding.order_key for finding in normalized]
+    assert sort_keys == sorted(sort_keys), (
+        "Normalization must sort by descending value, then location, then witness."
+    )
+
+
+def _report_of(findings: list[detector.Finding]) -> dict[str, object]:
+    """Build the stub schema-9 report carrying ``findings`` in the given order."""
+    return {
         "schema_version": 9,
         "families": [
             {
@@ -195,11 +207,125 @@ def test_normalization_orders_values_then_locations(
             for finding in findings
         ],
     }
-    normalized = detector.normalize_findings(report)
-    assert len(normalized) == len(findings), (
-        "Normalization must conserve the finding count."
+
+
+def _tied_family(witness: str) -> detector.Finding:
+    """Build one of several families identical but for their witness.
+
+    Every other field matches, so ``(-value, label)`` ties completely and only
+    the witness can separate them. This is the fixed counterexample the
+    verification plan pins: it is the smallest input on which a partial sort
+    key leaves report order visible in the output.
+    """
+    return detector.Finding(
+        witness=witness,
+        value=10.0,
+        locations=(
+            detector.Location(file="hecate/a.py", start=1, end=9, name=None),
+            detector.Location(file="hecate/b.py", start=1, end=9, name=None),
+        ),
     )
-    sort_keys = [(-finding.value, finding.label) for finding in normalized]
-    assert sort_keys == sorted(sort_keys), (
-        "Normalization must sort by descending value then source location."
+
+
+def test_normalization_is_stable_for_families_that_tie_on_every_other_field() -> (
+    None
+):
+    """Families differing only in witness must not take their report order.
+
+    Without the witness tie-break this fails: the three families tie on
+    ``(-value, label)``, so each input order is preserved and the three outputs
+    differ from one another.
+    """
+    families = [_tied_family(name) for name in ("exact", "copy-paste", "similar")]
+    shuffled = [families[2], families[1], families[0]]
+
+    first = detector.normalize_findings(_report_of(families))
+    second = detector.normalize_findings(_report_of(shuffled))
+
+    assert first == second, (
+        "Normalization must not depend on the order nose emitted the families."
     )
+    assert [finding.witness for finding in first] == [
+        "copy-paste",
+        "exact",
+        "similar",
+    ], "The witness must break the tie in a fixed, asserted order."
+
+
+@st.composite
+def _colliding_findings(draw: st.DrawFn) -> detector.Finding:
+    """Build a family whose sort key collides with its siblings'.
+
+    Every family this draws shares one value, one location set, and a witness
+    from a small pool, so a report of several of them ties on ``(-value,
+    label)`` by construction. A strategy that drew values freely would rarely
+    produce a tie, and the shuffle assertion below would then pass without ever
+    exercising the property it exists to check.
+    """
+    return detector.Finding(
+        witness=draw(st.sampled_from(("exact", "copy-paste", "similar"))),
+        value=10.0,
+        locations=(
+            detector.Location(file="hecate/a.py", start=1, end=9, name=None),
+            detector.Location(file="hecate/b.py", start=1, end=9, name=None),
+        ),
+    )
+
+
+@st.composite
+def _shuffle_inputs(
+    draw: st.DrawFn,
+) -> tuple[list[detector.Finding], list[allowlist.AllowEntry]]:
+    """Draw findings and entries, biased towards colliding sort keys."""
+    findings = draw(
+        st.one_of(
+            st.lists(_findings(), min_size=1, max_size=8),
+            st.lists(_colliding_findings(), min_size=2, max_size=5),
+        )
+    )
+    return findings, draw(st.lists(_allow_entries(), max_size=6))
+
+
+@given(inputs=_shuffle_inputs(), data=st.data())
+def test_partition_and_normalization_survive_input_permutation(
+    inputs: tuple[list[detector.Finding], list[allowlist.AllowEntry]],
+    data: st.DataObject,
+) -> None:
+    """Partitioning and normalizing are invariant under a shuffle of the inputs."""
+    findings, entries = inputs
+    shuffled_findings = data.draw(st.permutations(findings))
+    shuffled_entries = data.draw(st.permutations(entries))
+
+    ordered = gate.partition_findings(findings, list(entries))
+    shuffled = gate.partition_findings(list(shuffled_findings), list(shuffled_entries))
+
+    def as_sets(
+        triple: tuple[
+            list[detector.Finding], list[detector.Finding], list[allowlist.AllowEntry]
+        ],
+    ) -> tuple[set[detector.Finding], set[detector.Finding], set[allowlist.AllowEntry]]:
+        return (set(triple[0]), set(triple[1]), set(triple[2]))
+
+    assert as_sets(ordered) == as_sets(shuffled), (
+        "A shuffle of the report and the allow list must not change the partition."
+    )
+    assert detector.normalize_findings(_report_of(shuffled_findings)) == (
+        detector.normalize_findings(_report_of(findings))
+    ), "A shuffle of the report must not change the normalized order."
+
+
+def test_the_normalization_shuffle_case_is_not_vacuous() -> None:
+    """The permutation property is exercised on a non-trivial tied example.
+
+    The generator above can produce single-family reports, where a permutation
+    is the identity and the assertion cannot fail. This pins one input where
+    the shuffle genuinely reorders, so the property above cannot pass merely by
+    drawing trivial cases.
+    """
+    families = [_tied_family(name) for name in ("exact", "copy-paste", "similar")]
+    report = _report_of(families)
+
+    assert list(reversed(families)) != families, "The witness order must reorder."
+    assert detector.normalize_findings(_report_of(list(reversed(families)))) == (
+        detector.normalize_findings(report)
+    ), "The reordered report must still normalize to the same sequence."

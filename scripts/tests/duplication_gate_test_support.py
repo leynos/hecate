@@ -36,6 +36,19 @@ GATE_MODULE_NAMES: typ.Final = (
     "nose_schema.py",
 )
 
+#: A ``[tool.nose]`` table the detector loader accepts. Tests that run the
+#: real gate as a subprocess must write this into their copied workspace,
+#: because the gate reads the settings from the configuration beside it rather
+#: than from the repository it was copied out of.
+NOSE_SETTINGS = """\
+[tool.nose]
+version = "0.20.0"
+roots = ["hecate"]
+mode = "syntax"
+min-size = 24
+surface = "all"
+"""
+
 #: Report emitted by the stub detector: one two-member duplication family.
 STUB_REPORT = {
     "schema_version": 9,
@@ -55,8 +68,22 @@ STUB_REPORT = {
 }
 
 
-def copied_gate_workspace(tmp_path: Path) -> tuple[Path, Path]:
+def copied_gate_workspace(
+    tmp_path: Path, *, settings: str = NOSE_SETTINGS
+) -> tuple[Path, Path]:
     """Create a mutable workspace holding the gate and its helper modules.
+
+    Parameters
+    ----------
+    tmp_path : pathlib.Path
+        Temporary directory to build the workspace inside.
+    settings : str
+        Configuration written into the copied workspace's ``pyproject.toml``.
+        It defaults to a ``[tool.nose]`` table, because the gate command reads
+        the detector settings from the configuration beside it: a copy that
+        carries only a ``[project]`` table reaches the detector loader with no
+        settings and is refused with a missing-version error rather than
+        testing the command under test.
 
     Returns
     -------
@@ -69,7 +96,8 @@ def copied_gate_workspace(tmp_path: Path) -> tuple[Path, Path]:
     for name in GATE_MODULE_NAMES:
         shutil.copy(REPOSITORY_ROOT / "scripts" / name, scripts / name)
     (workspace / "pyproject.toml").write_text(
-        '[project]\nname = "gate-test"\nversion = "0"\n', encoding="utf-8"
+        f'[project]\nname = "gate-test"\nversion = "0"\n\n{settings}',
+        encoding="utf-8",
     )
     return workspace, scripts / "duplication_gate.py"
 
@@ -170,6 +198,7 @@ def stub_runner(
 
 __all__ = [
     "GATE_MODULE_NAMES",
+    "NOSE_SETTINGS",
     "REPOSITORY_ROOT",
     "STUB_REPORT",
     "allowlist",

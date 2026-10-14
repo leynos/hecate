@@ -100,9 +100,15 @@ def _report(
     """Print the gate outcome in a concise, actionable form."""
     for entry in stale:
         joined = " ~ ".join(entry.keys)
+        # The scan is bounded by `top`, so an entry this gate cannot match may
+        # still be silencing duplication that is merely outside the reported
+        # ranking. Saying it is "gone" would assert more than the run observed
+        # and would invite deleting an entry that is still load-bearing.
         print(
-            f"stale allow entry ({joined}): it matches no reported family; "
-            "the duplication it silenced is gone, or the family changed"
+            f"stale allow entry ({joined}): unmatched in this scan; "
+            "widen the scan (raise `top`, or lower `min-size`) before deleting "
+            "the entry, because the duplication it silenced may be gone, or its "
+            "family may have changed shape"
         )
     if not blocking:
         suffix = f"; {len(allowed)} allowed by reasoned exceptions" if allowed else ""
@@ -184,6 +190,31 @@ def _check_inputs(
     return (_read_allowlist(allowlist_reader), _detect_findings(detector))
 
 
+def _require_covered(finding: Finding | None, keys: tuple[str, ...]) -> None:
+    """Refuse an exception that does not cover a whole reported family."""
+    if finding is None:
+        joined = " ~ ".join(keys)
+        msg = (
+            f"{joined} covers no reported family; record an exception only for "
+            "duplication the detector currently reports, and check the key's "
+            "spelling and its file glob against `make duplication`"
+        )
+        raise GateConfigError(msg)
+
+
+def _covered_family(findings: list[Finding], keys: tuple[str, ...]) -> Finding | None:
+    """Return the reported family these keys cover, if there is exactly one.
+
+    Coverage is the same all-or-nothing rule the blocking gate applies, so this
+    uses the entry's own matcher rather than re-implementing it: an approach
+    that accepted a key set covering only part of a family would record an
+    exception the gate then ignores, which reads as success while changing
+    nothing.
+    """
+    candidate = AllowEntry(keys=keys, reason="validating")
+    return next((finding for finding in findings if candidate.matches(finding)), None)
+
+
 @app.command
 def check() -> None:
     """Run the blocking duplication gate and exit non-zero on findings.
@@ -221,6 +252,13 @@ def allow(
 ) -> None:
     """Record one reasoned exception in ``[tool.duplication_gate]``.
 
+    The detector runs before anything is written, so an entry is recorded only
+    once its keys are shown to cover a family the gate currently reports.
+    Without that check a misspelled key, or a key set reaching only part of a
+    family, would print a success message and change nothing: the gate would go
+    on blocking exactly as before, while the recorded exception looked like an
+    adjudication that had been applied.
+
     Parameters
     ----------
     first : str
@@ -236,7 +274,8 @@ def allow(
     Raises
     ------
     SystemExit
-        If the reason is empty or a location key is malformed.
+        If the reason is empty, a location key is malformed, or the keys do not
+        cover a family in the current report.
     """
     if not reason.strip():
         print("REASON must not be empty", file=sys.stderr)
@@ -245,6 +284,7 @@ def allow(
     try:
         for key in keys:
             validate_key(key, context=f"'{key}'")
+        _require_covered(_covered_family(_detect_findings(detect_findings), keys), keys)
         append_allow_entry(PYPROJECT, keys=keys, reason=reason)
     except (GateConfigError, OSError) as error:
         print(f"configuration error: {error}", file=sys.stderr)

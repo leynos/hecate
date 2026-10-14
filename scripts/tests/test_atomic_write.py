@@ -213,6 +213,59 @@ def test_closes_the_directory_descriptor_when_the_sync_fails(
     )
 
 
+@dc.dataclass
+class _FailingFileSync:
+    """Fail the temporary file's ``fsync``, before the cleanup block runs.
+
+    ``atomic_write`` creates the temporary file with ``delete=False``, so the
+    file outlives its own close and only the cleanup path can remove it. The
+    file sync happens inside the creation block, before cleanup is entered, so
+    a failure here is the earliest observable point at which a temporary
+    sibling exists with nothing yet arranged to delete it.
+    """
+
+    #: The spy stands in for the whole ``os`` module, so the directory-sync
+    #: helper's ``os.O_RDONLY`` has to resolve here too.
+    O_RDONLY: typ.ClassVar[int] = os.O_RDONLY
+
+    def fsync(self, descriptor: int) -> None:
+        """Fail the temporary file's sync."""
+        message = "temporary file sync failed"
+        raise OSError(message)
+
+    def open(self, path: Path, flags: int) -> int:
+        """Delegate descriptor opening; a failing sync never reaches this."""
+        return os.open(path, flags)
+
+    def close(self, descriptor: int) -> None:
+        """Delegate descriptor closing."""
+        os.close(descriptor)
+
+
+def test_removes_the_temporary_file_when_its_sync_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A failure while syncing the temporary file must not leak it."""
+    destination = tmp_path / "config.toml"
+    spy = _FailingFileSync()
+    monkeypatch.setattr(atomic_write, "os", spy)
+
+    with pytest.raises(OSError, match="temporary file sync failed"):
+        atomic_write.atomic_write(
+            destination,
+            b"payload\n",
+            options=atomic_write.AtomicWriteOptions(sync_file=True),
+        )
+
+    assert list(tmp_path.glob(f".{destination.name}.*")) == [], (
+        "A failed temporary sync must not leave the temporary sibling behind."
+    )
+    assert not destination.exists(), (
+        "A failed temporary sync must not create the destination."
+    )
+
+
 def test_syncs_the_temporary_file_when_requested(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

@@ -80,15 +80,21 @@ def atomic_write(
     if options.create_parents:
         path.parent.mkdir(parents=True, exist_ok=True)
     mode = path.stat().st_mode if options.preserve_mode and path.exists() else None
-    with tempfile.NamedTemporaryFile(
-        delete=False, dir=path.parent, prefix=f".{path.name}."
-    ) as stream:
-        stream.write(content)
-        stream.flush()
-        if options.sync_file:
-            os.fsync(stream.fileno())
-        temporary = pathlib.Path(stream.name)
+    temporary: pathlib.Path | None = None
     try:
+        with tempfile.NamedTemporaryFile(
+            delete=False, dir=path.parent, prefix=f".{path.name}."
+        ) as stream:
+            # The temporary path is recorded the moment it exists, before
+            # anything else can fail. The file was created with delete=False,
+            # so it outlives its own close; a failure during the write, the
+            # flush, or the sync would otherwise leave it behind, and the
+            # finally block below could not even name the file to remove.
+            temporary = pathlib.Path(stream.name)
+            stream.write(content)
+            stream.flush()
+            if options.sync_file:
+                os.fsync(stream.fileno())
         if mode is not None:
             temporary.chmod(mode)
         temporary.replace(path)
@@ -96,4 +102,7 @@ def atomic_write(
             with _open_directory(path.parent) as descriptor:
                 os.fsync(descriptor)
     finally:
-        temporary.unlink(missing_ok=True)
+        # A completed replacement has already moved this file, so a missing
+        # path here is the success case as well as a retried cleanup.
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)

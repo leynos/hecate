@@ -84,7 +84,9 @@ matched with `PurePosixPath.full_match`, optionally suffixed `::name` to
 require nose's unit name. An entry names one key (`unit`) or two or more
 (`members`), and silences a family only when every location in it matches one
 of the entry's keys, so a new copy in an unlisted file still blocks. Entries
-that cover no finding are reported as stale.
+the run matches to no family are reported as stale, meaning unmatched in that
+bounded scan rather than proven gone; `top` ranks the scan, so an entry must be
+re-checked with a widened scan before it is deleted.
 
 Adopting the gate against this repository's own code found two families, both in
 `hecate/config.py`, covering the same configuration-table validation. The fix
@@ -124,10 +126,12 @@ and none was needed.
   `pyproject.toml` while it rewrites the entries, so concurrent allow commands
   cannot interleave their read-modify-write. The lock coordinates processes
   that follow its protocol; it does not coordinate an unrelated editor.
-- The gate's Python modules live in `scripts/` and run under an isolated
-  Python 3.14 interpreter declared in each module's uv inline script metadata.
-  That interpreter is selected explicitly for gate execution and for the gate's
-  own tests.
+- The gate's Python modules live in `scripts/` and its entry point
+  `scripts/duplication_gate.py` declares the Python 3.14 floor and the pinned
+  helper libraries in its uv inline script metadata. The remaining modules are
+  plain imports without metadata of their own. The gate therefore runs under an
+  interpreter selected explicitly by `make duplication` and by
+  `make duplication-test`, not inherited from the application virtualenv.
 
 ## Rejected alternatives
 

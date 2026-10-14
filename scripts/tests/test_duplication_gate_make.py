@@ -11,13 +11,51 @@ import typing as typ
 import pytest
 from duplication_gate_test_support import (
     REPOSITORY_ROOT,
+    STUB_REPORT,
     allowlist,
     copied_gate_workspace,
     gate_environment,
+    write_stub_nose,
 )
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
+
+
+def _report_covering(*locations: tuple[str, str | None]) -> dict[str, object]:
+    """Build a stub report whose single family spans exactly these locations.
+
+    The `allow` command refuses a key set that does not cover a *whole* reported
+    family, so each case below hands it the family those keys are meant to
+    cover rather than one shape standing in for every case.
+    """
+    family = STUB_REPORT["families"][0]
+    return {
+        **STUB_REPORT,
+        "families": [
+            {
+                **family,
+                "locations": [
+                    {"file": file, "start": 1, "end": 20, "name": name}
+                    for file, name in locations
+                ],
+            }
+        ],
+    }
+
+
+def _locations_covered_by(keys: tuple[str, ...]) -> tuple[tuple[str, str | None], ...]:
+    """Return the stub locations that exactly these allow keys cover.
+
+    A ``path::name`` key is met only by a location carrying that unit name, so
+    deriving the report from the keys keeps the two consistent by construction
+    and leaves the assertion about Make's argument forwarding as the thing
+    under test.
+    """
+    return tuple(
+        (path, name or None)
+        for path, _, name in (key.partition("::") for key in keys)
+    )
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -116,6 +154,10 @@ class TestMakeDuplicationAllow:
     ) -> None:
         """The Make target forwards unit and member inputs as literal arguments."""
         workspace, _script = copied_gate_workspace(tmp_path)
+        keys = ("hecate/a.py",) if second is None else ("hecate/a.py", second)
+        stub = write_stub_nose(
+            tmp_path, report=_report_covering(*_locations_covered_by(keys))
+        )
         marker = tmp_path / "injected-command"
         reason = f'kept literally: "$(touch {marker})"; $HOME'
         result = _make_allow(
@@ -123,6 +165,7 @@ class TestMakeDuplicationAllow:
             request=_MakeAllowRequest(
                 first="hecate/a.py", second=second, reason=reason
             ),
+            environment=gate_environment(NOSE_BIN=str(stub)),
         )
         assert result.returncode == 0, result.stderr
         entries = allowlist.load_allowlist(workspace / "pyproject.toml")
@@ -137,6 +180,12 @@ class TestMakeDuplicationAllow:
     ) -> None:
         """A family with three members is recorded through repeated `--second`."""
         workspace, _script = copied_gate_workspace(tmp_path)
+        stub = write_stub_nose(
+            tmp_path,
+            report=_report_covering(
+                ("hecate/a.py", None), ("hecate/b.py", None), ("hecate/c.py", None)
+            ),
+        )
         make = shutil.which("make")
         assert make is not None, "Expected make to be available for contract tests."
         result = subprocess.run(  # noqa: S603 - fixed target, copied workspace.
@@ -153,7 +202,7 @@ class TestMakeDuplicationAllow:
                 "REASON=three parallel members",
             ],
             cwd=workspace,
-            env=gate_environment(),
+            env=gate_environment(NOSE_BIN=str(stub)),
             check=False,
             capture_output=True,
             text=True,
