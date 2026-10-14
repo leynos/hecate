@@ -214,6 +214,7 @@ duplication-test: ## Run the duplication-gate helper tests
 		python -m pytest -c /dev/null --rootdir=. -p no:cacheprovider \
 		scripts/tests/test_atomic_write.py \
 		scripts/tests/test_duplication_gate.py \
+		scripts/tests/test_duplication_gate_cli.py \
 		scripts/tests/test_duplication_gate_commands.py \
 		scripts/tests/test_duplication_gate_make.py \
 		scripts/tests/test_duplication_gate_persistence.py \
