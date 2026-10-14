@@ -190,6 +190,24 @@ indiscriminate abstraction or suppression.
   `--force-with-lease=refs/heads/adopt-nose-code-deduplication:8c2835206723a56c416a615c7207ce3c634bc97b`,
   and draft pull request [#154](https://github.com/leynos/hecate/pull/154) now
   reports this revision with 36 files changed.
+- [x] (2026-10-14 09:38Z) Rebase again, onto `origin/main` at
+  `d1b59ecabd361d23f9ac9391c2df579f8ec721e4` over the inherited boundary
+  `9583a94603cabcac0cb8cee10c596b26644cc448`; main's only advance since the
+  first rebase is a Dependabot shared-actions SHA bump. The replay was clean
+  with no conflicts, and `git range-diff` reports all seven commits as
+  unchanged (`=`), which is the expected result for replaying onto a base that
+  does not touch this branch's files. Recovery refs are held under
+  `refs/rebase-recovery/nose-adoption-2-*`.
+- [x] (2026-10-14 09:57Z) Repair the three hosted CodeScene findings by
+  refactoring and re-verify. `scripts/nose_schema.py` 9.38→10.00,
+  `scripts/duplication_gate.py` mean complexity 4.625→4.286 (threshold 4),
+  `scripts/tests/test_duplication_gate_properties.py` 9.68→10.00. `cs delta
+  d1b59ec HEAD --error-on-warnings` now exits 0; the same command against the
+  pre-repair commit still exits 1, so the clean result is a real change rather
+  than a tolerance that moved. All seven commit gates were re-run and pass, and
+  the repair was pushed as `7408540` with a lease bound to the observed remote
+  head `c27f605`. See the two surprises below for why the first two repairs
+  were not what the findings appeared to be.
 
 ## Surprises & discoveries
 
@@ -260,6 +278,30 @@ indiscriminate abstraction or suppression.
   none runs twice; because main's file keeps `_assert_config_rejects`, the
   helper main added callers for survives the branch's deletion of the
   validation tests that also used it.
+- Observation: CodeScene's "Code Duplication" rule on `scripts/nose_schema.py`
+  was driven by the repeated NumPy-style docstring blocks, not by the code
+  bodies. Evidence: a probe that replaced each validator's `Parameters` /
+  `Returns` / `Raises` block with prose moved the file from 9.38 to 10.00 with
+  byte-identical runtime diagnostics; an earlier attempt that extracted a
+  shared `_reject(context, clause)` helper but left the docstrings alone stayed
+  at 9.38. Impact: the first repair attempt was aimed at the wrong layer. When
+  a duplication finding lands on a family of small, genuinely parallel
+  validators, check whether the detector is matching the documentation envelope
+  before rewriting control flow. Stating the shared contract once in the module
+  docstring is also the better documentation: the per-validator text now says
+  only what that validator adds.
+- Observation: CodeScene's "Overall Code Complexity" rule is a **mean over
+  every function in the file**, so removing a low-complexity helper *raises*
+  the score. Evidence: measured directly on `scripts/duplication_gate.py` --
+  the baseline is mean 4.625 over 8 functions, and inlining one helper gives
+  mean 4.857 over 7. The quantity a repair must reduce is `mean x count`, the
+  sum of branch counts. Impact: "extract a helper" is not a general-purpose
+  remedy for this rule; the repair has to remove real branches. Consolidating
+  two duplicated three-clause `except` ladders into one generic policy did
+  that, taking the sum from 37 to 30. Adding trivial functions to dilute the
+  average would lower the mean while raising the sum, which is exactly the
+  metric-gaming this work is required to avoid; it is also detectable, because
+  the rule reports the function count alongside the mean.
 
 ## Decision log
 
@@ -343,6 +385,19 @@ indiscriminate abstraction or suppression.
   package. The gate re-adjudicates the refactored package on its own merits,
   and any family it now reports is a real finding to be resolved rather than a
   reason to move the root. Date/Author: 2026-10-11, implementation agent.
+- Decision: repair all three CodeScene findings by refactoring, with no
+  suppression, threshold change, or `.codescene/code-health-rules.json`.
+  Rationale: the findings are all in files this branch introduces, so they are
+  this branch's to fix, and the repository has no pre-existing suppression
+  policy to inherit. Each repair is a change that stands on its own merits:
+  the `nose_schema.py` validators now document one shared contract once instead
+  of restating it in five docstrings, and `duplication_gate.py` has one
+  error-translation policy instead of two near-identical ladders. The
+  alternative reading of the complexity rule -- adding small functions to pull
+  the mean down -- would have lowered the reported average while raising the
+  total branch count, so it is recorded here as considered and rejected on the
+  grounds that it games the metric rather than reducing complexity.
+  Date/Author: 2026-10-14, implementation agent.
 
 ## Outcomes & retrospective
 
@@ -936,3 +991,16 @@ produced a verified corrupt merge of `hecate/config.py`, and leaves the scan
 root at `hecate` so the refactored package is re-adjudicated rather than
 exempted. The branch's relocated configuration tests replace main's copies of
 the same cases instead of duplicating them.
+
+Revision 4, 2026-10-14. Records the second rebase, onto `origin/main` at
+`d1b59ec`, and the repair of the three hosted CodeScene findings. The rebase
+was a clean replay of the same seven commits onto a base that touches none of
+this branch's files, and `git range-diff` confirms every commit is unchanged.
+The CodeScene repair is the substantive change in this revision, and both of
+the repairs that succeeded were non-obvious: the duplication finding on
+`scripts/nose_schema.py` was caused by repeated docstring blocks rather than by
+the code, and the complexity finding required *removing* branches because the
+rule averages over every function in the file. All three findings were cleared
+by refactoring with zero suppression -- no `.codescene/code-health-rules.json`
+was added and no `@codescene` directive was used. No requirement was dropped
+and no tolerance was exceeded.
