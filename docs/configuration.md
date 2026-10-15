@@ -84,7 +84,43 @@ Each `[[tool.hecate.groups]]` table has these keys:
 _Table 2: Architecture group keys._
 
 Group matching is ordered. The first group whose prefix contains the module
-wins. Put specific prefixes before general prefixes.
+wins. Prefix containment follows dotted module boundaries: `sample.api` matches
+itself and descendants such as `sample.api.runtime`, but not lookalikes such as
+`sample.apis`. Put specific prefixes before general prefixes.
+
+Configuration is rejected when an earlier group's prefix is equal to or
+contains a prefix in a later group. The later prefix cannot classify any
+module, so a green check cannot rely on it. Prefixes in the same group may be
+redundant; this check compares groups only. A narrow exception before a broad
+prefix remains valid.
+
+This order is rejected because `sample.api` wins before `sample.api.runtime`:
+
+```toml
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter", "composition_root"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api.runtime"]
+allowed = ["composition_root", "inbound_adapter"]
+```
+
+Move the narrower group first to make the exception effective:
+
+```toml
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api.runtime"]
+allowed = ["composition_root", "inbound_adapter"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter", "composition_root"]
+```
 
 ## Ignore tables
 

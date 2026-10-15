@@ -76,6 +76,9 @@ prefixes = ["cmdmox", "cuprum", "cv2", "cyclopts", "librosa", "rich", "transform
 allowed = ["infrastructure"]
 ```
 
+Compatibility note: `outbound_adapter` precedes the broader `adapter` prefix in
+this example, so it satisfies Hecate's shadowed-prefix validation.
+
 ## Migration checklist
 
 1. Add the policy to `pyproject.toml`.
