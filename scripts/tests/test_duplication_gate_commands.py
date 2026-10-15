@@ -267,18 +267,26 @@ class TestAllowCommand:
         ), "Malformed allows must use the configuration diagnostic."
 
     @pytest.mark.parametrize(
-        "document",
+        ("document", "message"),
         [
             pytest.param(
-                "[tool]\nduplication_gate = 1\n",
+                "tool = 1\n\n[project]\nname = 'x'\n",
+                "pyproject.tool must be a table with string keys",
+                id="scalar-tool-table",
+            ),
+            pytest.param(
+                "[project]\nname = 'x'\n\n[tool]\nduplication_gate = 1\n",
+                "pyproject.tool.duplication_gate must be a table with string keys",
                 id="scalar-gate-table",
             ),
             pytest.param(
-                "[tool.duplication_gate]\nallow = 3\n",
+                "[project]\nname = 'x'\n\n[tool.duplication_gate]\nallow = 3\n",
+                "pyproject.tool.duplication_gate.allow must be an array of tables",
                 id="scalar-allow-array",
             ),
             pytest.param(
-                '[tool.duplication_gate]\nallow = "nope"\n',
+                '[project]\nname = \'x\'\n\n[tool.duplication_gate]\nallow = "nope"\n',
+                "pyproject.tool.duplication_gate.allow must be an array of tables",
                 id="string-allow-array",
             ),
         ],
@@ -289,6 +297,7 @@ class TestAllowCommand:
         monkeypatch: pytest.MonkeyPatch,
         capsys: pytest.CaptureFixture[str],
         document: str,
+        message: str,
     ) -> None:
         """A wrongly typed container is a configuration error, not a traceback.
 
@@ -301,11 +310,16 @@ class TestAllowCommand:
         a traceback rather than the gate's own diagnostic, and a failure mode
         that looks like a crash in the gate instead of a fault in the file.
 
+        Each case pins the whole diagnostic, not just its prefix. The four
+        containers nest, so a validator that reported the wrong one would
+        still say "configuration error" while sending the operator to the
+        wrong line of the file.
+
         The document must also survive: a rejected manifest is never rewritten,
         so the operator's next step is to fix the line they just typed.
         """
         pyproject = tmp_path / "pyproject.toml"
-        original = f"[project]\nname = 'x'\n\n{document}"
+        original = document
         pyproject.write_text(original, encoding="utf-8")
         monkeypatch.setattr(gate, "PYPROJECT", pyproject)
         self._stub_detector(monkeypatch)
@@ -318,8 +332,8 @@ class TestAllowCommand:
             )
 
         assert error.value.code == 2, "A malformed container must return two."
-        assert "configuration error:" in capsys.readouterr().err, (
-            "A malformed container must use the configuration diagnostic."
+        assert capsys.readouterr().err == f"configuration error: {message}\n", (
+            "A malformed container must name the container at fault."
         )
         assert pyproject.read_text(encoding="utf-8") == original, (
             "A rejected document must be left exactly as it was found."
