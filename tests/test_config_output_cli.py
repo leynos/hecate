@@ -7,40 +7,12 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from config_test_helpers import assert_config_rejects as _assert_config_rejects
 
 from hecate.cli import main
-from hecate.config import ConfigError, load_config
 
 if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
-
-
-def _assert_config_rejects(
-    tmp_path: Path,
-    toml_text: str,
-    *expected_substrings: str,
-) -> str:
-    """Scaffold a temp config and assert ``load_config`` raises ``ConfigError``.
-
-    The config file path and every string in *expected_substrings* must appear in
-    the resulting error message.
-    """
-    config = tmp_path / "pyproject.toml"
-    (tmp_path / "pkg").mkdir(exist_ok=True)
-    config.write_text(toml_text, encoding="utf-8")
-
-    with pytest.raises(ConfigError) as exc_info:
-        load_config(config)
-
-    error_text = str(exc_info.value)
-    assert str(config) in error_text, (
-        f"expected config path {config!r} in error message: {error_text}"
-    )
-    for expected in expected_substrings:
-        assert expected in error_text, (
-            f"expected {expected!r} in error message: {error_text}"
-        )
-    return error_text
 
 
 def test_config_validation_rejects_shadowed_narrower_prefix(
