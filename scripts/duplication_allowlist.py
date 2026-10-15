@@ -285,17 +285,95 @@ def append_allow_entry(
             # configuration error.
             msg = f"cannot parse {pyproject_path}: {error}"
             raise GateConfigError(msg) from error
-        tool = document.setdefault("tool", tomlkit.table(is_super_table=True))
-        gate = tool.setdefault("duplication_gate", tomlkit.table())
-        entries = gate.setdefault("allow", tomlkit.aot())
+        tool = _existing_table(document, "tool", context="pyproject.tool")
+        gate = _existing_table(
+            tool, "duplication_gate", context="pyproject.tool.duplication_gate"
+        )
+        entries = _existing_entries(gate)
         for index, raw_entry in enumerate(entries):
-            existing = _allow_entry(raw_entry, index=index)
-            if _same_allow_target(existing.keys, target):
+            parsed = _allow_entry(raw_entry, index=index)
+            if _same_allow_target(parsed.keys, target):
                 raw_entry["reason"] = reason
                 _write_document(pyproject_path, document)
                 return
         entries.append(_new_entry(target, reason))
         _write_document(pyproject_path, document)
+
+
+def _existing_table(
+    parent: cabc.MutableMapping[str, object],
+    key: str,
+    *,
+    context: str,
+) -> cabc.MutableMapping[str, object]:
+    """Return the table at ``key``, creating it only when the key is absent.
+
+    ``setdefault`` is not enough here: when the key holds a scalar it returns
+    that scalar, and the fault then surfaces as an ``AttributeError`` from the
+    next ``setdefault`` or a ``TypeError`` from an iteration. A mistyped
+    manifest should read as a mistyped manifest, so the container is checked
+    before it is used.
+
+    Parameters
+    ----------
+    parent : collections.abc.MutableMapping[str, object]
+        Mapping that should hold ``key``.
+    key : str
+        Name of the table within ``parent``.
+    context : str
+        Fully qualified name used in the diagnostic.
+
+    Returns
+    -------
+    collections.abc.MutableMapping[str, object]
+        The existing table, or a newly created one.
+
+    Raises
+    ------
+    GateConfigError
+        If the key holds a value that is not a table.
+    """
+    if key not in parent:
+        created = tomlkit.table(is_super_table=key == "tool")
+        parent[key] = created
+        return created
+    existing = parent[key]
+    if not isinstance(existing, cabc.MutableMapping):
+        msg = f"{context} must be a table"
+        raise GateConfigError(msg)
+    return existing
+
+
+def _existing_entries(
+    gate: cabc.MutableMapping[str, object],
+) -> cabc.MutableSequence[object]:
+    """Return the array of allow entries, creating it only when absent.
+
+    Returns
+    -------
+    collections.abc.MutableSequence[object]
+        The existing array of tables, or a newly created empty one.
+
+    Raises
+    ------
+    GateConfigError
+        If the key holds a value that is not an array. A string is excluded
+        explicitly because it satisfies the sequence protocol while being
+        nothing like the array of tables an allow list is.
+    """
+    key = "allow"
+    context = "pyproject.tool.duplication_gate.allow"
+    if key not in gate:
+        created = tomlkit.aot()
+        gate[key] = created
+        return created
+    existing = gate[key]
+    if not isinstance(existing, cabc.MutableSequence) or isinstance(
+        existing, (str, bytes)
+    ):
+        msg = f"{context} must be an array of tables"
+        raise GateConfigError(msg)
+    return existing
 
 
 def _new_entry(keys: tuple[str, ...], reason: str) -> tomlkit.items.Table:
