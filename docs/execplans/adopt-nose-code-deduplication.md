@@ -515,53 +515,64 @@ indiscriminate abstraction or suppression.
   figure has grown across the branch's life -- at `eff5157` it was 36 files,
   6681 insertions and 158 deletions, or 6523 net lines -- because the review
   repairs and their regression cases were themselves added to the same measure,
-  which is the arithmetic the earlier entry here did not anticipate. The figure
-  recorded is the one for the head actually pushed. Earlier revisions of this
-  entry quoted 6523 and, before that, an independent count by the reviewer at
-  the then-current revision; both were accurate for the revision they named,
-  and neither is accurate for the current head. Rationale: the tolerance exists
-  to stop unbounded work, and the review identified the overshoot only after
-  the change was whole. The excess is not padding, and the measurement says so:
-  of the 8107 net lines, 1420 are gate implementation (`scripts/*.py`,
-  excluding tests), 3893 are that gate's own tests under `scripts/tests/`, 830
-  are the application tests and the toolchain contracts that pin the wiring,
-  1675 are documentation including this plan, and 204 are Makefile, workflow,
-  configuration, and lockfile. The largest single file is this plan, which is a
-  living design-and-delivery record the repository's own instructions require
-  rather than product code, and the next largest are test modules. Only 40 net
-  lines touch the application. That is a ratio of roughly 2.7 lines of test and
-  1.2 lines of documentation per line of implementation, which is what
-  test-first delivery to this repository's stated standard costs; cutting to
-  2500 net lines would mean deleting proofs or wiring rather than deleting
-  scope, trading a documented scope breach for an undocumented verification
-  breach -- the worse of the two, and the one this repository's own
-  instructions single out. Options considered and their trade-offs: (a) cut the
-  change to the threshold -- rejected, it removes verification rather than
-  scope and would leave the gate weaker than what review has already seen; (b)
-  split the change into a prerequisite PR and a feature PR per the babysitting
-  skill's prerequisite rule -- rejected, the gate cannot block `make lint`
-  without its wiring and tests in the same commit, so a split would land a gate
-  that is not yet a gate, which is the compatibility theatre the repository
-  prohibits; (c) record the breach and continue -- **the status quo, not an
-  approval**. Basis for continuing rather than halting: the operator's work
-  order authorizes delivery of the implementation, tests, adjudication, and
-  documentation as one change, so an agent that stopped at the measured breach
-  would be abandoning work it was told to finish. That justifies *continuing*,
-  and it is explicitly not the human acceptance the tolerance requires. A work
-  order issued before the breach was measured cannot be an informed approval of
-  a number it never saw, and an agent citing the operator's standing
-  instruction is still only an agent speaking: the review is right that the
-  previous wording here dressed an agent rationale as an approval. What is
-  recorded instead is the accurate state -- the breach is measured, its
-  composition is itemized above, the work is not being cut back for the stated
-  reasons, and acceptance is **pending** and belongs to the human reviewer. If
-  the reviewer withholds acceptance the remedy is the one option (a) describes,
-  and this record does not foreclose it. This entry is the escalation, recorded
-  at the first point where the breach was measured rather than at the point
-  where it should have been. The earlier revisions' "no tolerance was exceeded"
-  claim was false and is corrected in revision 5. Date/Author: 2026-10-14,
-  implementation agent; revised 2026-10-16 to record the breach as pending
-  acceptance rather than accepted.
+  which is the arithmetic the earlier entry here did not anticipate. Earlier
+  revisions of this entry quoted 6523 and, before that, an independent count by
+  the reviewer at the then-current revision; both were accurate for the
+  revision they named, and neither is accurate for the current head. The figure
+  is quoted against `386f700` rather than against the head that carries this
+  paragraph, because a measurement cannot include the commit that states it:
+  the correcting commit adds its own text to the same diff, so any figure
+  quoted for the tip is stale by exactly the lines that quote it. The
+  measurement that matters is the one the reviewer can reproduce, and it is
+  larger than the figure here by the size of this entry and a few lines of
+  Revision 9. Stating the exact drift would require the commit to know its own
+  final size, which is why the figure is pinned to a named revision instead.
+  What does not move is the order of magnitude: the breach is well clear of the
+  threshold at every revision measured, between 2.6 times it at `eff5157` and
+  3.3 times it at the latest, so the decision does not turn on which of these
+  counts is taken. Rationale: the tolerance exists to stop unbounded work, and
+  the review identified the overshoot only after the change was whole. The
+  excess is not padding, and the measurement says so: of the 8107 net lines,
+  1420 are gate implementation (`scripts/*.py`, excluding tests), 3893 are that
+  gate's own tests under `scripts/tests/`, 830 are the application tests and
+  the toolchain contracts that pin the wiring, 1675 are documentation including
+  this plan, and 204 are Makefile, workflow, configuration, and lockfile. The
+  largest single file is this plan, which is a living design-and-delivery
+  record the repository's own instructions require rather than product code,
+  and the next largest are test modules. Only 40 net lines touch the
+  application. That is a ratio of roughly 2.7 lines of test and 1.2 lines of
+  documentation per line of implementation, which is what test-first delivery
+  to this repository's stated standard costs; cutting to 2500 net lines would
+  mean deleting proofs or wiring rather than deleting scope, trading a
+  documented scope breach for an undocumented verification breach -- the worse
+  of the two, and the one this repository's own instructions single out.
+  Options considered and their trade-offs: (a) cut the change to the threshold
+  -- rejected, it removes verification rather than scope and would leave the
+  gate weaker than what review has already seen; (b) split the change into a
+  prerequisite PR and a feature PR per the babysitting skill's prerequisite
+  rule -- rejected, the gate cannot block `make lint` without its wiring and
+  tests in the same commit, so a split would land a gate that is not yet a
+  gate, which is the compatibility theatre the repository prohibits; (c) record
+  the breach and continue -- **the status quo, not an approval**. Basis for
+  continuing rather than halting: the operator's work order authorizes delivery
+  of the implementation, tests, adjudication, and documentation as one change,
+  so an agent that stopped at the measured breach would be abandoning work it
+  was told to finish. That justifies *continuing*, and it is explicitly not the
+  human acceptance the tolerance requires. A work order issued before the
+  breach was measured cannot be an informed approval of a number it never saw,
+  and an agent citing the operator's standing instruction is still only an
+  agent speaking: the review is right that the previous wording here dressed an
+  agent rationale as an approval. What is recorded instead is the accurate
+  state -- the breach is measured, its composition is itemized above, the work
+  is not being cut back for the stated reasons, and acceptance is **pending**
+  and belongs to the human reviewer. If the reviewer withholds acceptance the
+  remedy is the one option (a) describes, and this record does not foreclose
+  it. This entry is the escalation, recorded at the first point where the
+  breach was measured rather than at the point where it should have been. The
+  earlier revisions' "no tolerance was exceeded" claim was false and is
+  corrected in revision 5. Date/Author: 2026-10-14, implementation agent;
+  revised 2026-10-16 to record the breach as pending acceptance rather than
+  accepted.
 - Decision: remove the `require_non_empty` mode argument from
   `_read_table_list()` and state the non-emptiness requirement at its single
   requirement site in `hecate/config.py`. Rationale: the constraint at
