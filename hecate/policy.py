@@ -63,6 +63,16 @@ class ModuleGroup:
 
 
 @dc.dataclass(frozen=True, slots=True)
+class ShadowedPrefix:
+    """A group prefix that an earlier group prefix makes unreachable."""
+
+    shadowed_group: str
+    shadowed_prefix: str
+    winning_group: str
+    winning_prefix: str
+
+
+@dc.dataclass(frozen=True, slots=True)
 class IgnoredImport:
     """One documented import edge ignored by policy."""
 
@@ -109,6 +119,41 @@ def first_matching_group(
         if any(module_prefix_contains(prefix, module) for prefix in group.prefixes):
             return group
     return None
+
+
+def find_shadowed_prefixes(
+    groups: tuple[ModuleGroup, ...],
+) -> tuple[ShadowedPrefix, ...]:
+    """Find later-group prefixes already covered by an earlier group.
+
+    For each prefix in each later group, return the first containing prefix in
+    the earliest earlier group. Prefixes within one group are intentionally not
+    compared, since they cannot change which group first-match classification
+    selects.
+    """
+    shadowed: list[ShadowedPrefix] = []
+    for group_index, group in enumerate(groups):
+        for prefix in group.prefixes:
+            for earlier_group in groups[:group_index]:
+                winning_prefix = next(
+                    (
+                        earlier_prefix
+                        for earlier_prefix in earlier_group.prefixes
+                        if module_prefix_contains(earlier_prefix, prefix)
+                    ),
+                    None,
+                )
+                if winning_prefix is not None:
+                    shadowed.append(
+                        ShadowedPrefix(
+                            shadowed_group=group.name,
+                            shadowed_prefix=prefix,
+                            winning_group=earlier_group.name,
+                            winning_prefix=winning_prefix,
+                        )
+                    )
+                    break
+    return tuple(shadowed)
 
 
 def is_group_allowed(

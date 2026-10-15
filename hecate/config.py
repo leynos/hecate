@@ -17,7 +17,13 @@ from .config_helpers import (
     _read_string_tuple,
     _validate_dotted_strings,
 )
-from .policy import ArchitecturePolicy, IgnoredImport, ModuleGroup, Severity
+from .policy import (
+    ArchitecturePolicy,
+    IgnoredImport,
+    ModuleGroup,
+    Severity,
+    find_shadowed_prefixes,
+)
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -332,12 +338,34 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
         raise ConfigError(msg)
 
 
+def _validate_group_prefix_order(policy: ArchitecturePolicy, path: Path) -> None:
+    """Reject prefixes made unreachable by earlier groups."""
+    loc = _Loc(path=path, context="tool.hecate.groups")
+    diagnostics: list[str] = []
+    for shadow in find_shadowed_prefixes(policy.groups):
+        classification = (
+            "the intended classification effective"
+            if shadow.shadowed_prefix == shadow.winning_prefix
+            else "the narrower classification effective"
+        )
+        diagnostics.append(
+            f"{loc.path}: {loc.context}: prefix {shadow.shadowed_prefix!r} in "
+            f"group {shadow.shadowed_group!r} is shadowed by earlier prefix "
+            f"{shadow.winning_prefix!r} in group {shadow.winning_group!r}; "
+            f"place group {shadow.shadowed_group!r} before group "
+            f"{shadow.winning_group!r} to make {classification}"
+        )
+    if diagnostics:
+        raise ConfigError("\n".join(diagnostics))
+
+
 def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
     group_names = [group.name for group in policy.groups]
     _check_duplicate_group_names(group_names, path)
     declared_names = set(group_names)
     for group in policy.groups:
         _validate_group_references(group, declared_names, path)
+    _validate_group_prefix_order(policy, path)
     for ignored_import in policy.ignores:
         _validate_ignore_reason(ignored_import, path)
 
