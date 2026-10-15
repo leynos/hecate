@@ -162,6 +162,12 @@ class _ContendedRun:
         Whether the probe ever reported the control as waiting. It must not,
         and a ``True`` here means the probe is measuring something other than
         contention.
+    original_manifest : bytes
+        The manifest before either writer started.
+    held_manifest : bytes
+        The manifest as it read while the lock was still held. The lock's
+        whole purpose is that no writer replaces the file during that window,
+        so this differing from the original is a lock that did not hold.
     """
 
     writers: tuple[subprocess.Popen[str], ...]
@@ -169,6 +175,8 @@ class _ContendedRun:
     pyproject: Path
     blocked_at: dict[str, float]
     bystander_blocked: bool
+    original_manifest: bytes
+    held_manifest: bytes
 
     def reap(self, *, grace_seconds: float = _WRITER_GRACE_SECONDS) -> None:
         """Wait for every process this run started, killing any straggler.
@@ -203,15 +211,26 @@ class _ContendedRun:
         return {entry["unit"] for entry in entries}
 
     @classmethod
-    def start_and_release(cls, tmp_path: Path) -> _ContendedRun:
+    def start_and_release(
+        cls, tmp_path: Path, *, settle_seconds: float = 0.0
+    ) -> _ContendedRun:
         """Start both writers against a held lock, then release it.
 
         The lock is taken through the module's own ``_locked_file`` rather
         than with a hand-rolled ``flock``, so the writers queue against the
         same helper the gate uses. Both are started before the lock is
-        released, which is what makes the run concurrent whoever wins; the
-        observations recorded here say whether that concurrency was *proved*
-        at the moment of contention.
+        released, which is what makes the run concurrent whoever wins.
+
+        Parameters
+        ----------
+        tmp_path : pathlib.Path
+            Directory to build the copied workspace inside.
+        settle_seconds : float
+            How long to let the writers run before the manifest is read and
+            the lock released. A positive value gives a writer that ignores
+            the lock every chance to complete and be caught replacing the
+            file; the default reads it immediately for the kernel-probe test,
+            which does not depend on that window.
         """
         _workspace, script = copied_gate_workspace(tmp_path)
         stub = write_stub_nose(tmp_path, report=_TWO_FAMILY_REPORT)
@@ -221,6 +240,8 @@ class _ContendedRun:
         bystander = _before_the_lock()
         writers: list[subprocess.Popen[str]] = []
         bystander_blocked = False
+        original_manifest = pyproject.read_bytes()
+        held_manifest = original_manifest
         try:
             with allowlist._locked_file(pyproject):
                 writers.extend(
@@ -232,6 +253,9 @@ class _ContendedRun:
                 )
                 _await_blocked(tuple(writers), blocked_at=blocked_at)
                 bystander_blocked = _is_blocked_on_the_lock(bystander.pid)
+                if settle_seconds:
+                    time.sleep(settle_seconds)
+                held_manifest = pyproject.read_bytes()
         except BaseException:
             for writer in writers:
                 writer.kill()
@@ -245,6 +269,8 @@ class _ContendedRun:
             pyproject=pyproject,
             blocked_at=blocked_at,
             bystander_blocked=bystander_blocked,
+            original_manifest=original_manifest,
+            held_manifest=held_manifest,
         )
 
 
@@ -499,6 +525,42 @@ class TestAppendAllowEntry:
         assert run.recorded_units() == {"hecate/a.py", "hecate/b.py"}, (
             "Concurrent commands must preserve both independently added "
             "entries."
+        )
+
+    def test_a_held_lock_excludes_the_writers_whatever_the_platform(
+        self, tmp_path: Path
+    ) -> None:
+        """No writer replaces the manifest while the lock is held.
+
+        This is the portable half of the contention evidence. The kernel
+        probe above proves the writers genuinely reached the lock, but it
+        cannot run everywhere; the effect the lock exists to produce is
+        observable anywhere, and it is what actually matters. Both writers
+        are given a generous window to run while the test holds the lock. A
+        writer still waiting cannot have altered the file, so the manifest
+        must read exactly as it did before they started; a writer that ran
+        anyway would have replaced it, which is the failure this catches.
+
+        Removing the `fcntl.flock` fails here with the writer's own recorded
+        entry in `held_manifest`, so the check is not vacuous on a platform
+        that has no `/proc` at all.
+        """
+        run = _ContendedRun.start_and_release(tmp_path, settle_seconds=2.0)
+        try:
+            assert b"duplication_gate" not in run.held_manifest, (
+                "An entry appeared during the held window, which means a "
+                "writer recorded it without acquiring the lock."
+            )
+            assert run.held_manifest == run.original_manifest, (
+                "The manifest changed while the lock was held, so a writer "
+                "replaced it without waiting: `held_manifest` should still "
+                "read as the configuration the run started from."
+            )
+        finally:
+            run.reap()
+
+        assert run.recorded_units() == {"hecate/a.py", "hecate/b.py"}, (
+            "Both writers must still record their entries once released."
         )
 
     def test_liveness_alone_does_not_prove_contention(
