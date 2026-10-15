@@ -1,5 +1,7 @@
 """Fixture construction for shadowed-prefix BDD scenarios."""
 
+from __future__ import annotations
+
 import typing as typ
 
 if typ.TYPE_CHECKING:
