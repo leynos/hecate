@@ -1387,21 +1387,28 @@ The Revision 8 helpers each narrowed their container with `isinstance` and then
 returned it under a signature describing a different type. `ty` rejected all
 three diagnostics: the return of `_existing_table` and `_existing_entries`, and
 the subscript assignment to an element the loader had left as `object`. The
-narrowing was real but local, so each helper had to state again what it had just
-proved. The deeper fault was that the writer's check and the loader's were two
-implementations of one question. They had already drifted apart in wording: the
-loader said a container "must be a table with string keys" where the writer said
-"must be a table", so the same wrongly typed file produced two different
+narrowing was real but local, so each helper had to state again what it had
+just proved. The deeper fault was that the writer's check and the loader's were
+two implementations of one question. They had already drifted apart in wording:
+the loader said a container "must be a table with string keys" where the writer
+said "must be a table", so the same wrongly typed file produced two different
 diagnostics depending on whether the gate was reading or writing it.
 
 `_existing_table` now delegates to the loader's `_config_mapping`, so one
 function decides what a table is and what to say when the value is something
-else, and the cast restores for the checker what parsing already guarantees. The
-two remaining casts are each attached to the runtime check that justifies them.
-The container tests were tightened from a prefix match to the whole diagnostic
-before the fix, so they now distinguish the four nested containers rather than
-accepting any message beginning "configuration error"; two of the four failed
-against the unfixed helpers, on the wording divergence. A top-level scalar
-`tool` case was added, since the loader reaches it through `root.get` and an
-earlier probe of mine composed the document wrongly and so suggested it was
-unreachable, when it is in fact reported cleanly.
+else, and the cast restores for the checker what parsing already guarantees.
+The two remaining casts are each attached to the runtime check that justifies
+them. The container tests were tightened from a prefix match to the whole
+diagnostic before the fix, so they now distinguish the four nested containers
+rather than accepting any message beginning "configuration error"; two of the
+four failed against the unfixed helpers, on the wording divergence. A top-level
+scalar `tool` case was added, since the loader reaches it through `root.get`
+and an earlier probe of mine composed the document wrongly and so suggested it
+was unreachable, when it is in fact reported cleanly.
+
+Revision 9 also carries the resulting CodeScene finding. Pinning the exact
+diagnostic meant two values per case, which took the parametrized test to five
+parameters -- one over the threshold. The two-value parametrization was folded
+into a `_MalformedContainer` case object, the idiom the neighbouring
+`_RefusedKey` cases already use, so no suppression or threshold change was
+needed and the test reads the same way as the ones beside it.
