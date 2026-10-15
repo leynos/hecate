@@ -343,17 +343,21 @@ def _validate_group_prefix_order(policy: ArchitecturePolicy, path: Path) -> None
     loc = _Loc(path=path, context="tool.hecate.groups")
     diagnostics: list[str] = []
     for shadow in find_shadowed_prefixes(policy.groups):
-        classification = (
-            "the intended classification effective"
+        remedy = (
+            f"remove the duplicate prefix from group {shadow.shadowed_group!r} "
+            f"or group {shadow.winning_group!r}"
             if shadow.shadowed_prefix == shadow.winning_prefix
-            else "the narrower classification effective"
+            else (
+                f"place group {shadow.shadowed_group!r} before group "
+                f"{shadow.winning_group!r} to make the narrower "
+                "classification effective"
+            )
         )
         diagnostics.append(
             f"{loc.path}: {loc.context}: prefix {shadow.shadowed_prefix!r} in "
             f"group {shadow.shadowed_group!r} is shadowed by earlier prefix "
             f"{shadow.winning_prefix!r} in group {shadow.winning_group!r}; "
-            f"place group {shadow.shadowed_group!r} before group "
-            f"{shadow.winning_group!r} to make {classification}"
+            f"{remedy}"
         )
     if diagnostics:
         raise ConfigError("\n".join(diagnostics))

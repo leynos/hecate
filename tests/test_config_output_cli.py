@@ -72,6 +72,31 @@ allowed = ["composition_root", "inbound_adapter"]
     )
 
 
+def test_equal_group_prefix_diagnostic_recommends_removal(
+    tmp_path: Path,
+) -> None:
+    """Equal prefixes need removal because ordering only swaps the winner."""
+    (tmp_path / "sample").mkdir()
+    _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api"]
+allowed = ["composition_root"]
+""",
+        "remove the duplicate prefix from group 'composition_root'",
+    )
+
+
 def test_cli_strict_flag_overrides_configuration(tmp_path: Path) -> None:
     """``--strict`` on the command line overrides a non-strict config.
 

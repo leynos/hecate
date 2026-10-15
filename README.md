@@ -60,7 +60,8 @@ hecate check --format json
 
 Hecate models policy as ordered architecture groups. The first matching group
 wins, so specific prefixes such as `beatcue.adapters.outbound` should appear
-before broader prefixes such as `beatcue.adapters`.
+before broader prefixes such as `beatcue.adapters`; unreachable later prefixes
+are rejected during configuration validation.
 
 Each group declares the groups it may import. This supports common hexagonal
 architecture shapes:
