@@ -1378,3 +1378,30 @@ acceptance, and the review is right to reject it: the breach is now recorded as
 **pending** acceptance by the human reviewer, with the reasons for continuing
 rather than halting stated separately and explicitly not equated with approval.
 This revision adds to the breached tolerance rather than resetting it.
+
+Revision 9, 2026-10-16. Repairs a type-check failure introduced by Revision 8's
+own container validation, found by running the commit gates before pushing that
+work rather than by review.
+
+The Revision 8 helpers each narrowed their container with `isinstance` and then
+returned it under a signature describing a different type. `ty` rejected all
+three diagnostics: the return of `_existing_table` and `_existing_entries`, and
+the subscript assignment to an element the loader had left as `object`. The
+narrowing was real but local, so each helper had to state again what it had just
+proved. The deeper fault was that the writer's check and the loader's were two
+implementations of one question. They had already drifted apart in wording: the
+loader said a container "must be a table with string keys" where the writer said
+"must be a table", so the same wrongly typed file produced two different
+diagnostics depending on whether the gate was reading or writing it.
+
+`_existing_table` now delegates to the loader's `_config_mapping`, so one
+function decides what a table is and what to say when the value is something
+else, and the cast restores for the checker what parsing already guarantees. The
+two remaining casts are each attached to the runtime check that justifies them.
+The container tests were tightened from a prefix match to the whole diagnostic
+before the fix, so they now distinguish the four nested containers rather than
+accepting any message beginning "configuration error"; two of the four failed
+against the unfixed helpers, on the wording divergence. A top-level scalar
+`tool` case was added, since the loader reaches it through `root.get` and an
+earlier probe of mine composed the document wrongly and so suggested it was
+unreachable, when it is in fact reported cleanly.

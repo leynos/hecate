@@ -293,7 +293,12 @@ def append_allow_entry(
         for index, raw_entry in enumerate(entries):
             parsed = _allow_entry(raw_entry, index=index)
             if _same_allow_target(parsed.keys, target):
-                raw_entry["reason"] = reason
+                # ``_allow_entry`` above has already established that this
+                # element is a table, so the cast restores for the type checker
+                # what was proved at runtime, and the element actually edited
+                # is the one that was checked.
+                revised = typ.cast("cabc.MutableMapping[str, object]", raw_entry)
+                revised["reason"] = reason
                 _write_document(pyproject_path, document)
                 return
         entries.append(_new_entry(target, reason))
@@ -311,8 +316,10 @@ def _existing_table(
     ``setdefault`` is not enough here: when the key holds a scalar it returns
     that scalar, and the fault then surfaces as an ``AttributeError`` from the
     next ``setdefault`` or a ``TypeError`` from an iteration. A mistyped
-    manifest should read as a mistyped manifest, so the container is checked
-    before it is used.
+    manifest should read as a mistyped manifest, so the container is put
+    through the same check the loader uses. Sharing that helper is what keeps
+    the reader and the writer agreeing on what a table is, and on the words
+    used when the value is something else.
 
     Parameters
     ----------
@@ -337,11 +344,10 @@ def _existing_table(
         created = tomlkit.table(is_super_table=key == "tool")
         parent[key] = created
         return created
-    existing = parent[key]
-    if not isinstance(existing, cabc.MutableMapping):
-        msg = f"{context} must be a table"
-        raise GateConfigError(msg)
-    return existing
+    # Every mapping a ``tomlkit`` document yields is a mutable table, so this
+    # cast states what parsing guarantees rather than narrowing by hand.
+    checked = _config_mapping(parent[key], context=context)
+    return typ.cast("cabc.MutableMapping[str, object]", checked)
 
 
 def _existing_entries(
@@ -373,7 +379,10 @@ def _existing_entries(
     ):
         msg = f"{context} must be an array of tables"
         raise GateConfigError(msg)
-    return existing
+    # ``isinstance`` can only narrow this to a sequence of unknown elements;
+    # the declaration is what the callers rely on, and each element is checked
+    # by ``_allow_entry`` before it is read.
+    return typ.cast("cabc.MutableSequence[object]", existing)
 
 
 def _new_entry(keys: tuple[str, ...], reason: str) -> tomlkit.items.Table:
