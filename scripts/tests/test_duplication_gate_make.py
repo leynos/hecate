@@ -175,6 +175,69 @@ class TestMakeDuplicationAllow:
         assert entries[0].reason == reason, "Make must preserve quoted reasons."
         assert not marker.exists(), "Quoted values must not execute shell fragments."
 
+    @pytest.mark.parametrize(
+        ("template", "explanation"),
+        [
+            pytest.param(
+                "hecate/`id>{0}`b.py",
+                "A backtick substitution reaches the shell as written, because "
+                "`make` has no reason to touch it.",
+                id="backtick",
+            ),
+            pytest.param(
+                "hecate/$(id>{0}).py",
+                "A `$(...)` substitution survives `$(value ...)` unexpanded, "
+                "which is precisely what leaves it live for the shell.",
+                id="dollar-parens",
+            ),
+        ],
+    )
+    def test_make_duplication_allow_forwards_member_text_without_executing_it(
+        self, tmp_path: Path, template: str, explanation: str
+    ) -> None:
+        """A member key is forwarded as data, never placed in the recipe as code.
+
+        A key is structured into the recipe that runs the gate, so any command
+        substitution it carries is executable text in that position: the
+        substitution runs as the recipe does, and the key the gate receives is
+        the substitution's result rather than the operator's own text. The
+        assertion therefore has two halves -- nothing ran, *and* the recorded
+        key is the one supplied -- because a recipe that executed the
+        substitution while still forwarding the right key would be a different
+        defect with the same first symptom.
+
+        Both payloads redirect `id`'s output into the marker file rather than
+        merely printing it, which is what makes the execution observable, and
+        neither contains a space, which keeps this a test of *execution* rather
+        than of word splitting. Splitting is a separate and documented limit of
+        the interface, so a space-bearing payload here would fail for the wrong
+        reason and hide the defect this case exists to catch.
+        """
+        workspace, _script = copied_gate_workspace(tmp_path)
+        marker = tmp_path / "member-injection"
+        key = template.format(marker)
+        stub = write_stub_nose(
+            tmp_path,
+            report=_report_covering(("hecate/a.py", None), (key, None)),
+        )
+        result = _make_allow(
+            workspace,
+            request=_MakeAllowRequest(
+                first="hecate/a.py", second=key, reason="reviewed exception"
+            ),
+            environment=gate_environment(NOSE_BIN=str(stub)),
+        )
+
+        assert not marker.exists(), (
+            f"{explanation} The substitution ran, so `SECOND` reached the "
+            "shell as code rather than as an argument."
+        )
+        assert result.returncode == 0, result.stderr
+        entries = allowlist.load_allowlist(workspace / "pyproject.toml")
+        assert entries[0].keys == ("hecate/a.py", key), (
+            "Make must record the member key the operator supplied, verbatim."
+        )
+
     def test_make_duplication_allow_supports_repeated_members(
         self, tmp_path: Path
     ) -> None:
