@@ -226,6 +226,14 @@ duplication-test: ## Run the duplication-gate helper tests
 # named-exception interface. Episodic's Makefile explains why: `NAME` is
 # ambient under WSL, which injects the hostname there, so an ambient-looking
 # variable is not a trustworthy signal that the operator meant to pass it.
+#
+# `$(value ...)` stops make from expanding the variable, but not from writing
+# its text into the recipe, where that text becomes part of the shell's own
+# program. A member such as hecate/`id`.py is then command-substituted by the
+# shell before the gate ever sees it. Every argument therefore reaches the
+# recipe only through the environment, whose *values* a shell never re-expands
+# as code, and the repeated options are rebuilt from that value at run time
+# rather than interpolated into the recipe text.
 cli_value = $(if $(filter command line,$(origin $(1))),$(value $(1)))
 
 duplication-allow: export DUPLICATION_FIRST = $(call cli_value,FIRST)
@@ -234,9 +242,10 @@ duplication-allow: export DUPLICATION_REASON = $(call cli_value,REASON)
 duplication-allow: ## Record one reasoned duplication exception
 	@test -n "$${DUPLICATION_FIRST}" || { printf "Error: FIRST is required (path[::name])\\n" >&2; exit 2; }
 	@test -n "$${DUPLICATION_REASON}" || { printf "Error: REASON is required for a duplication exception\\n" >&2; exit 2; }
-	$(DUPLICATION_GATE) allow --first "$${DUPLICATION_FIRST}" \
-		$(foreach key,$(DUPLICATION_SECOND),--second "$(key)") \
-		--reason "$${DUPLICATION_REASON}"
+	@case "$${DUPLICATION_SECOND}" in *[![:print:][:space:]]*) printf "Error: SECOND members must be printable text\\n" >&2; exit 2;; esac
+	@set -f; set --; for key in $${DUPLICATION_SECOND}; do set -- "$$@" --second "$$key"; done; \
+		$(DUPLICATION_GATE) allow --first "$${DUPLICATION_FIRST}" "$$@" \
+			--reason "$${DUPLICATION_REASON}"
 
 nixie: ## Validate Mermaid diagrams
 	$(call ensure_tool,$(NIXIE))
