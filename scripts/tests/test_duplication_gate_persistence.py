@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import dataclasses as dc
+import os
 import subprocess  # noqa: S404 - tests exercise copied gate commands.
+import sys
 import time
 import tomllib
 from pathlib import Path
@@ -34,13 +37,11 @@ _TWO_FAMILY_REPORT: dict[str, object] = {
     ],
 }
 
-#: Kernel wait channel reported by Linux while a process sleeps inside
-#: `fcntl.flock`. Matched as a substring so a neighbouring kernel revision
-#: naming the same wait differently still counts as evidence of blocking.
-_FLOCK_WAIT_CHANNELS = ("locks_lock_inode_wait", "flock")
-
-#: How long the contention probe waits for both writers to reach the lock.
+#: How long the blocking probe waits for both writers to reach the lock.
 _CONTENTION_TIMEOUT_SECONDS = 30.0
+
+#: How long a process is given to finish once the lock has been released.
+_WRITER_GRACE_SECONDS = 60.0
 
 
 def _start_writer(
@@ -57,41 +58,75 @@ def _start_writer(
     )
 
 
-def _is_blocked_on_a_lock(pid: int) -> bool:
-    """Report whether ``pid`` is currently sleeping in a lock wait.
+def _before_the_lock() -> subprocess.Popen[str]:
+    """Start a process that waits, holding nothing.
 
-    The kernel exposes the wait channel and the in-progress syscall for a
-    sleeping task, and ``flock`` shows up as both. A reader that cannot see
-    ``/proc`` -- a platform without it, or a hardened kernel -- reports
-    ``False``, and the caller falls back to the timestamp check rather than
-    treating the absence of evidence as evidence of contention.
+    It is the negative control for the lock probe: alive for every moment the
+    probe samples it, so a probe that reported a lock wait from liveness
+    rather than from the kernel would report this process too.
+    """
+    return subprocess.Popen(  # noqa: S603 - fixed interpreter, literal source.
+        [sys.executable, "-c", "import time; time.sleep(600)"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+
+
+def _is_blocked_on_the_lock(pid: int) -> bool:
+    """Report whether ``pid`` is sleeping in a lock wait.
+
+    The kernel names the wait channel and the in-progress syscall for a
+    sleeping task, and an ``flock`` wait shows up in both, so a process
+    reported here has genuinely reached the contested lock rather than merely
+    started. Liveness cannot answer that: a process still importing modules is
+    equally alive. Where ``/proc`` is unreadable -- macOS, or a hardened
+    kernel -- this reports ``False`` because the question cannot be answered,
+    and the callers that need an answer skip rather than read the silence as
+    contention.
     """
     try:
         channel = Path(f"/proc/{pid}/wchan").read_text(encoding="utf-8").strip()
         syscall = Path(f"/proc/{pid}/syscall").read_text(encoding="utf-8")
     except OSError:
         return False
-    return any(marker in channel for marker in _FLOCK_WAIT_CHANNELS) or (
+    return "flock" in channel or "locks_lock_inode_wait" in channel or (
         "flock" in syscall
     )
 
 
-def _await_blocked_on_lock(
-    writers: list[subprocess.Popen[str]],
+def _has_kernel_wait_channel() -> bool:
+    """Report whether this host exposes the wait channel the probe reads.
+
+    The wait channel is Linux-only, so the tests that need it guard
+    themselves with this check. They skip with a stated reason instead of
+    passing on weaker evidence, because a contention claim that silently
+    degrades to "both processes are alive" would also hold with the lock
+    removed, and would then be worth nothing.
+    """
+    try:
+        Path(f"/proc/{os.getpid()}/wchan").read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
+def _await_blocked(
+    writers: tuple[subprocess.Popen[str], ...],
     *,
     blocked_at: dict[str, float],
     deadline_seconds: float = _CONTENTION_TIMEOUT_SECONDS,
 ) -> bool:
-    """Wait until every writer is provably blocked on the held lock.
+    """Wait until every writer is in a lock wait, or the deadline passes.
 
-    Records each writer's blocking timestamp in ``blocked_at`` as it is
-    observed, so the caller can show that the writers overlapped on the lock
-    rather than passing through it one at a time.
+    Each writer's wait is recorded in ``blocked_at`` as it is observed, so the
+    caller can show the writers overlapped on the lock rather than reaching it
+    one after the other.
 
     Returns
     -------
     bool
-        ``True`` once every writer has been observed waiting on the lock.
+        ``True`` once every writer has been observed in a lock wait.
     """
     deadline = time.monotonic() + deadline_seconds
     pending = list(writers)
@@ -99,7 +134,7 @@ def _await_blocked_on_lock(
         for writer in list(pending):
             if writer.poll() is not None:
                 return False
-            if _is_blocked_on_a_lock(writer.pid):
+            if _is_blocked_on_the_lock(writer.pid):
                 blocked_at[str(writer.pid)] = time.monotonic()
                 pending.remove(writer)
         if pending:
@@ -107,9 +142,114 @@ def _await_blocked_on_lock(
     return not pending
 
 
+@dc.dataclass(frozen=True, slots=True)
+class _ContendedRun:
+    """Two ``allow`` commands started while the test held the lock.
+
+    Attributes
+    ----------
+    writers : tuple[subprocess.Popen[str], ...]
+        The two ``allow`` processes, both started before the lock was
+        released.
+    bystander : subprocess.Popen[str]
+        The control process, alive throughout and holding nothing.
+    pyproject : pathlib.Path
+        The manifest both writers were asked to update.
+    blocked_at : dict[str, float]
+        Monotonic times at which each writer was seen waiting on the lock,
+        keyed by process id as text.
+    bystander_blocked : bool
+        Whether the probe ever reported the control as waiting. It must not,
+        and a ``True`` here means the probe is measuring something other than
+        contention.
+    """
+
+    writers: tuple[subprocess.Popen[str], ...]
+    bystander: subprocess.Popen[str]
+    pyproject: Path
+    blocked_at: dict[str, float]
+    bystander_blocked: bool
+
+    def reap(self, *, grace_seconds: float = _WRITER_GRACE_SECONDS) -> None:
+        """Wait for every process this run started, killing any straggler.
+
+        A writer still waiting on the lock holds its stdout and stderr pipes
+        open, so a failing assertion above would otherwise leak processes and
+        descriptors into the rest of the run.
+
+        The control is killed rather than waited for: it sleeps far longer
+        than any grace period here on purpose, precisely so that it is still
+        alive after the observation, so waiting on it could only ever burn the
+        whole grace period.
+        """
+        self.bystander.kill()
+        self.bystander.wait(timeout=grace_seconds)
+        for writer in self.writers:
+            try:
+                writer.wait(timeout=grace_seconds)
+            except subprocess.TimeoutExpired:
+                writer.kill()
+                writer.wait(timeout=grace_seconds)
+
+    def recorded_units(self) -> set[str]:
+        """Return the unit keys the writers recorded in the manifest.
+
+        Each ``allow`` command is a read-modify-write of the same file, so an
+        entry missing here is one a concurrent writer overwrote rather than
+        appended beside.
+        """
+        document = tomllib.loads(self.pyproject.read_text(encoding="utf-8"))
+        entries = document["tool"]["duplication_gate"]["allow"]
+        return {entry["unit"] for entry in entries}
+
+    @classmethod
+    def start_and_release(cls, tmp_path: Path) -> _ContendedRun:
+        """Start both writers against a held lock, then release it.
+
+        The lock is taken through the module's own ``_locked_file`` rather
+        than with a hand-rolled ``flock``, so the writers queue against the
+        same helper the gate uses. Both are started before the lock is
+        released, which is what makes the run concurrent whoever wins; the
+        observations recorded here say whether that concurrency was *proved*
+        at the moment of contention.
+        """
+        _workspace, script = copied_gate_workspace(tmp_path)
+        stub = write_stub_nose(tmp_path, report=_TWO_FAMILY_REPORT)
+        environment = gate_environment(NOSE_BIN=str(stub))
+        pyproject = script.parent.parent / "pyproject.toml"
+        blocked_at: dict[str, float] = {}
+        bystander = _before_the_lock()
+        writers: list[subprocess.Popen[str]] = []
+        bystander_blocked = False
+        try:
+            with allowlist._locked_file(pyproject):
+                writers.extend(
+                    _start_writer(script, key, reason, environment)
+                    for key, reason in (
+                        ("hecate/a.py", "first writer"),
+                        ("hecate/b.py", "second writer"),
+                    )
+                )
+                _await_blocked(tuple(writers), blocked_at=blocked_at)
+                bystander_blocked = _is_blocked_on_the_lock(bystander.pid)
+        except BaseException:
+            for writer in writers:
+                writer.kill()
+                writer.wait(timeout=_WRITER_GRACE_SECONDS)
+            bystander.kill()
+            bystander.wait(timeout=_WRITER_GRACE_SECONDS)
+            raise
+        return cls(
+            writers=tuple(writers),
+            bystander=bystander,
+            pyproject=pyproject,
+            blocked_at=blocked_at,
+            bystander_blocked=bystander_blocked,
+        )
+
+
 class TestLoadAllowEntry:
     """Reading reasoned entries without touching the file."""
-
     def test_loader_never_reaches_the_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -316,58 +456,84 @@ class TestAppendAllowEntry:
     ) -> None:
         """Two blocked writers retain both exceptions after the lock releases.
 
-        Liveness alone would not evidence contention: a process that has only
-        reached an ``import`` is also alive and not yet finished. The test
-        therefore waits until the children have started, then proves the
-        contested lock is actually held by watching it from outside, and only
-        then releases it. Without that step the assertion below would hold
-        even if both writers ran serially.
+        Contention here is a kernel observation, not an inference from two
+        live processes: each writer is seen inside an ``flock`` wait while the
+        test holds the lock, and the timestamps show they waited at the same
+        time rather than one after the other. The bystander is the control for
+        that claim -- it stays alive throughout and must never be seen in a
+        lock wait -- and the test skips on a host whose kernel does not expose
+        the wait channel, because without it the assertion could pass with the
+        lock removed and would prove nothing.
         """
-        _workspace, script = copied_gate_workspace(tmp_path)
-        stub = write_stub_nose(tmp_path, report=_TWO_FAMILY_REPORT)
-        environment = gate_environment(NOSE_BIN=str(stub))
-        pyproject = script.parent.parent / "pyproject.toml"
-        blocked_at: dict[str, float] = {}
-
-        with allowlist._locked_file(pyproject):
-            writers = [
-                _start_writer(script, key, reason, environment)
-                for key, reason in (
-                    ("hecate/a.py", "first writer"),
-                    ("hecate/b.py", "second writer"),
-                )
-            ]
-            assert [writer.poll() for writer in writers] == [None, None], (
-                "Both writers must be running while the lock is held."
+        if not _has_kernel_wait_channel():
+            pytest.skip(
+                "this host exposes no /proc wait channel, so contention "
+                "cannot be observed here; the entry-preservation assertion "
+                "would hold even for two serial writers."
             )
-            # A live process may still be importing; only a kernel wait on the
-            # lock file proves it reached the contested operation. Recording
-            # the moment of that proof is what lets the overlap assertion below
-            # be about contention rather than about two processes merely
-            # existing at the same time.
-            assert _await_blocked_on_lock(writers, blocked_at=blocked_at), (
-                "Both writers must block on the lock the test is holding."
-            )
-
-        first, second = writers
+        run = _ContendedRun.start_and_release(tmp_path)
         try:
-            assert first.wait(timeout=20) == 0, "First writer must exit successfully."
-            assert second.wait(timeout=20) == 0, "Second writer must exit successfully."
+            assert len(run.blocked_at) == 2, (
+                "Both writers must be observed waiting on the lock the test "
+                "held, or this is not a contention test."
+            )
+            assert not run.bystander_blocked, (
+                "A process holding nothing was reported as waiting on the "
+                "lock, so the probe is not measuring contention."
+            )
+            assert run.bystander.poll() is None, (
+                "The control process must outlive the observation, or it "
+                "cannot distinguish liveness from a lock wait."
+            )
+            for writer in run.writers:
+                assert writer.wait(timeout=_WRITER_GRACE_SECONDS) == 0, (
+                    "Each writer must complete successfully once the lock is "
+                    "free."
+                )
         finally:
-            # A timed-out writer blocks on the lock holding its stdout and
-            # stderr pipes open. Reap both on the way out so a failure here
-            # cannot leak processes or descriptors into the rest of the run.
-            for writer in writers:
-                if writer.poll() is None:
-                    writer.kill()
-                writer.wait(timeout=10)
+            run.reap()
 
-        assert len(blocked_at) == 2, "Both writers must have been shown to block."
-        assert first.pid != second.pid, "The writers must be distinct processes."
-        entries = tomllib.loads(pyproject.read_text(encoding="utf-8"))["tool"][
-            "duplication_gate"
-        ]["allow"]
-        recorded_units = {entry["unit"] for entry in entries}
-        assert recorded_units == {"hecate/a.py", "hecate/b.py"}, (
-            "Concurrent commands must preserve both independently added entries."
+        assert len({writer.pid for writer in run.writers}) == 2, (
+            "The writers must be distinct processes."
         )
+        assert run.recorded_units() == {"hecate/a.py", "hecate/b.py"}, (
+            "Concurrent commands must preserve both independently added "
+            "entries."
+        )
+
+    def test_liveness_alone_does_not_prove_contention(
+        self, tmp_path: Path
+    ) -> None:
+        """The negative control: the probe answers the lock, not the process.
+
+        A writer that never reaches the lock -- still importing, or simply
+        doing something else -- is as alive as one that has, so a probe built
+        on liveness would report both. This starts the control process first
+        and samples it for far longer than a real writer needs to reach the
+        lock, then asserts it was never reported. It is the test above's other
+        half: that one shows a real wait is found, this one shows merely being
+        alive is not counted as one.
+        """
+        if not _has_kernel_wait_channel():
+            pytest.skip(
+                "this host exposes no /proc wait channel, so there is no "
+                "probe here whose silence could mean anything."
+            )
+        bystander = _before_the_lock()
+        blocked_at: dict[str, float] = {}
+        try:
+            observed = _await_blocked(
+                (bystander,), blocked_at=blocked_at, deadline_seconds=2.0
+            )
+            assert not observed, (
+                "A process that never enters a lock wait must not be reported "
+                "as blocked."
+            )
+            assert blocked_at == {}, (
+                "No wait was entered, so none must be recorded."
+            )
+        finally:
+            # The control sleeps far longer than the observation on purpose,
+            # so it is stopped rather than waited out.
+            bystander.kill()
+            bystander.wait(timeout=_WRITER_GRACE_SECONDS)
