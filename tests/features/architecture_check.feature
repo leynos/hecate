@@ -61,6 +61,28 @@ Feature: Hexagonal architecture checking
     Then the exit code is "0"
     And the diagnostics contain "architecture check passed"
 
+  Scenario: The specialized adapter prefix remains valid when all imports are allowed
+    Given the "application_imports_adapter" fixture package
+    And an override config that permits every fixture group
+    When I run Hecate with the override config
+    Then the exit code is "0"
+    And the diagnostics contain "architecture check passed"
+
+  Scenario: A broad earlier group cannot shadow a later exception prefix
+    Given a "broad-first" composition-root exception fixture
+    When I run Hecate against the fixture
+    Then the exit code is "2"
+    And stderr contains "hecate:"
+    And stderr contains "inbound_adapter"
+    And stderr contains "composition_root"
+    And stderr contains "sample.api.runtime"
+
+  Scenario: A correctly ordered composition-root exception wins
+    Given a "narrow-first" composition-root exception fixture
+    When I run Hecate against the fixture
+    Then the exit code is "0"
+    And the diagnostics contain "architecture check passed"
+
   Scenario: Invalid config exits with code 2
     Given an invalid Hecate config
     When I run Hecate against the fixture

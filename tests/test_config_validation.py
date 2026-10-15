@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from hecate.config import ConfigError, load_config
-from hecate.policy import Severity
+from hecate.policy import Severity, first_matching_group
 
 
 def _assert_config_rejects(
@@ -30,6 +30,105 @@ def _assert_config_rejects(
     for expected in expected_substrings:
         assert expected in error_text, (
             f"expected {expected!r} in error message: {error_text}"
+        )
+
+
+@pytest.mark.parametrize(
+    ("roots", "toml_text", "classifications"),
+    [
+        (
+            ("sample",),
+            """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api.runtime"]
+allowed = ["composition_root", "inbound_adapter"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter", "composition_root"]
+""",
+            (("sample.api.runtime", "composition_root"),),
+        ),
+        (
+            ("sample",),
+            """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "api"
+prefixes = ["sample.api", "sample.canonical.ingestion"]
+allowed = ["api", "siblings"]
+
+[[tool.hecate.groups]]
+name = "siblings"
+prefixes = ["sample.apis", "sample.api_extra", "sample.canonical.ingestion_ports"]
+allowed = ["api", "siblings"]
+""",
+            (
+                ("sample.api", "api"),
+                ("sample.apis", "siblings"),
+                ("sample.api_extra", "siblings"),
+                ("sample.canonical.ingestion_ports", "siblings"),
+            ),
+        ),
+        (
+            ("alpha", "beta"),
+            """
+[tool.hecate]
+root_packages = ["alpha", "beta"]
+
+[[tool.hecate.groups]]
+name = "alpha_api"
+prefixes = ["alpha.api"]
+allowed = ["alpha_api", "beta_api"]
+
+[[tool.hecate.groups]]
+name = "beta_api"
+prefixes = ["beta.api"]
+allowed = ["alpha_api", "beta_api"]
+""",
+            (("alpha.api.runtime", "alpha_api"), ("beta.api.runtime", "beta_api")),
+        ),
+        (
+            ("sample",),
+            """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["sample", "sample.domain"]
+allowed = ["domain"]
+""",
+            (("sample.domain.model", "domain"),),
+        ),
+    ],
+)
+def test_config_loads_reachable_ordered_group_prefixes(
+    tmp_path: Path,
+    roots: tuple[str, ...],
+    toml_text: str,
+    classifications: tuple[tuple[str, str], ...],
+) -> None:
+    """Reachable exceptions, dotted siblings, roots and redundancy load."""
+    for package_root in roots:
+        (tmp_path / package_root).mkdir()
+    config = tmp_path / "pyproject.toml"
+    config.write_text(toml_text, encoding="utf-8")
+
+    loaded = load_config(config)
+
+    for module, expected_group in classifications:
+        group = first_matching_group(module, loaded.policy.groups)
+        assert group is not None, f"expected a group for {module!r}"
+        assert group.name == expected_group, (
+            f"expected {module!r} to classify as {expected_group!r}, got {group!r}"
         )
 
 
