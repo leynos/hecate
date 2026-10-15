@@ -8,6 +8,7 @@ import typing as typ
 from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
+from shadowed_prefix_fixtures import write_composition_root_config
 
 from hecate.cli import main
 
@@ -73,6 +74,19 @@ prefixes = ["sample.domain"]
 allowed = ["missing"]
 """,
         encoding="utf-8",
+    )
+    return FixtureContext(root=tmp_path, config=config)
+
+
+@given(
+    parsers.parse('a "{order}" composition-root exception fixture'),
+    target_fixture="fixture_ctx",
+)
+def given_composition_root_fixture(tmp_path: Path, order: str) -> FixtureContext:
+    """Create a broad-first or narrow-first composition-root policy."""
+    assert order in {"broad-first", "narrow-first"}, f"unknown order {order!r}"
+    config = write_composition_root_config(
+        tmp_path, narrow_first=order == "narrow-first"
     )
     return FixtureContext(root=tmp_path, config=config)
 
