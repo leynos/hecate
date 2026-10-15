@@ -266,6 +266,65 @@ class TestAllowCommand:
             "requires a non-empty reason\n"
         ), "Malformed allows must use the configuration diagnostic."
 
+    @pytest.mark.parametrize(
+        "document",
+        [
+            pytest.param(
+                "[tool]\nduplication_gate = 1\n",
+                id="scalar-gate-table",
+            ),
+            pytest.param(
+                "[tool.duplication_gate]\nallow = 3\n",
+                id="scalar-allow-array",
+            ),
+            pytest.param(
+                '[tool.duplication_gate]\nallow = "nope"\n',
+                id="string-allow-array",
+            ),
+        ],
+    )
+    def test_allow_reports_malformed_parent_containers(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        document: str,
+    ) -> None:
+        """A wrongly typed container is a configuration error, not a traceback.
+
+        A malformed *entry* is already reported, but a malformed *container*
+        reaches `append` with a scalar where a table belongs. That is the case
+        a half-edited manifest actually produces: someone types
+        `duplication_gate = 1` above the entries, or replaces the array of
+        tables with a string. Without validation the fault surfaces as an
+        `AttributeError` from `setdefault` or a `TypeError` from iteration --
+        a traceback rather than the gate's own diagnostic, and a failure mode
+        that looks like a crash in the gate instead of a fault in the file.
+
+        The document must also survive: a rejected manifest is never rewritten,
+        so the operator's next step is to fix the line they just typed.
+        """
+        pyproject = tmp_path / "pyproject.toml"
+        original = f"[project]\nname = 'x'\n\n{document}"
+        pyproject.write_text(original, encoding="utf-8")
+        monkeypatch.setattr(gate, "PYPROJECT", pyproject)
+        self._stub_detector(monkeypatch)
+
+        with pytest.raises(SystemExit) as error:
+            gate.allow(
+                first="hecate/a.py",
+                second=["hecate/b.py"],
+                reason="reviewed exception",
+            )
+
+        assert error.value.code == 2, "A malformed container must return two."
+        assert "configuration error:" in capsys.readouterr().err, (
+            "A malformed container must use the configuration diagnostic."
+        )
+        assert pyproject.read_text(encoding="utf-8") == original, (
+            "A rejected document must be left exactly as it was found."
+        )
+
     def test_allow_reports_write_failures(
         self,
         monkeypatch: pytest.MonkeyPatch,
