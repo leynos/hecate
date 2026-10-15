@@ -266,6 +266,74 @@ def test_removes_the_temporary_file_when_its_sync_fails(
     )
 
 
+@dc.dataclass
+class _FailingStream:
+    """Wrap a temporary-file stream so one method raises on use.
+
+    ``atomic_write`` records the temporary path before it writes anything, so
+    the window these cases cover is the earliest one in which a sibling
+    exists with the destination still untouched. Nothing else on the
+    filesystem names that file, so a leak here is invisible to the caller
+    beyond the error it already sees.
+    """
+
+    stream: typ.IO[bytes]
+    method: str
+
+    def __enter__(self) -> _FailingStream:
+        """Enter the wrapped stream's context as this wrapper."""
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        """Close the wrapped stream, letting any failure propagate."""
+        self.stream.close()
+
+    def __getattr__(self, name: str) -> object:
+        """Fail the requested method, delegating everything else."""
+        if name == self.method:
+
+            def fail(*_args: object, **_kwargs: object) -> None:
+                message = f"temporary file {self.method} failed"
+                raise OSError(message)
+
+            return fail
+        return getattr(self.stream, name)
+
+
+@pytest.mark.parametrize("method", ["write", "flush"])
+def test_removes_the_temporary_file_when_an_early_write_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    method: str,
+) -> None:
+    """Failing to write or flush the temporary file must not leak it.
+
+    The sync-failure case above covers a fault after the stream has closed;
+    these two cover the earlier ones. Each is asserted separately because
+    ``flush`` is the point at which buffered content would otherwise be lost
+    silently, and a cleanup path that handled only an outright write failure
+    would pass a test that exercised just the first.
+    """
+    destination = tmp_path / "config.toml"
+    destination.write_bytes(b"original\n")
+    open_stream = atomic_write.tempfile.NamedTemporaryFile
+
+    def failing(*args: object, **kwargs: object) -> _FailingStream:
+        return _FailingStream(open_stream(*args, **kwargs), method)
+
+    monkeypatch.setattr(atomic_write.tempfile, "NamedTemporaryFile", failing)
+
+    with pytest.raises(OSError, match=f"temporary file {method} failed"):
+        atomic_write.atomic_write(destination, b"payload\n")
+
+    assert list(tmp_path.glob(f".{destination.name}.*")) == [], (
+        f"A failed {method} must not leave the temporary sibling behind."
+    )
+    assert destination.read_bytes() == b"original\n", (
+        f"A failed {method} must leave the destination untouched."
+    )
+
+
 def test_syncs_the_temporary_file_when_requested(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
