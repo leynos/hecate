@@ -17,6 +17,36 @@ if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
 
 
+def test_config_validation_rejects_shadowed_narrower_prefix(
+    tmp_path: Path,
+) -> None:
+    """A later exception cannot silently lose to an earlier broad group."""
+    (tmp_path / "sample").mkdir()
+    assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter", "composition_root"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api.runtime"]
+allowed = ["composition_root", "inbound_adapter"]
+""",
+        "inbound_adapter",
+        "sample.api",
+        "composition_root",
+        "sample.api.runtime",
+        "place group 'composition_root' before group 'inbound_adapter'",
+        "narrower classification effective",
+    )
+
+
 def test_config_validation_rejects_unknown_allowed_group(tmp_path: Path) -> None:
     """Policy validation reports unknown group names."""
     assert_config_rejects(
