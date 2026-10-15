@@ -22,6 +22,7 @@ from .policy import (
     IgnoredImport,
     ModuleGroup,
     Severity,
+    ShadowedPrefix,
     find_shadowed_prefixes,
 )
 
@@ -338,27 +339,30 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
         raise ConfigError(msg)
 
 
+def _shadowed_prefix_remedy(shadow: ShadowedPrefix) -> str:
+    """Describe how to make one shadowed prefix effective."""
+    if shadow.shadowed_prefix == shadow.winning_prefix:
+        return (
+            f"remove the duplicate prefix from group {shadow.shadowed_group!r} "
+            f"or group {shadow.winning_group!r}"
+        )
+    return (
+        f"place group {shadow.shadowed_group!r} before group "
+        f"{shadow.winning_group!r} to make the narrower "
+        "classification effective"
+    )
+
+
 def _validate_group_prefix_order(policy: ArchitecturePolicy, path: Path) -> None:
     """Reject prefixes made unreachable by earlier groups."""
     loc = _Loc(path=path, context="tool.hecate.groups")
-    diagnostics: list[str] = []
-    for shadow in find_shadowed_prefixes(policy.groups):
-        remedy = (
-            f"remove the duplicate prefix from group {shadow.shadowed_group!r} "
-            f"or group {shadow.winning_group!r}"
-            if shadow.shadowed_prefix == shadow.winning_prefix
-            else (
-                f"place group {shadow.shadowed_group!r} before group "
-                f"{shadow.winning_group!r} to make the narrower "
-                "classification effective"
-            )
-        )
-        diagnostics.append(
-            f"{loc.path}: {loc.context}: prefix {shadow.shadowed_prefix!r} in "
-            f"group {shadow.shadowed_group!r} is shadowed by earlier prefix "
-            f"{shadow.winning_prefix!r} in group {shadow.winning_group!r}; "
-            f"{remedy}"
-        )
+    diagnostics = [
+        f"{loc.path}: {loc.context}: prefix {shadow.shadowed_prefix!r} in "
+        f"group {shadow.shadowed_group!r} is shadowed by earlier prefix "
+        f"{shadow.winning_prefix!r} in group {shadow.winning_group!r}; "
+        f"{_shadowed_prefix_remedy(shadow)}"
+        for shadow in find_shadowed_prefixes(policy.groups)
+    ]
     if diagnostics:
         raise ConfigError("\n".join(diagnostics))
 

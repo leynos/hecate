@@ -71,7 +71,7 @@ unresolved internal edges.
 rule; `_validate_policy` in `config.py` enforces it while loading TOML.
 Policies constructed directly bypass loader validation, as they do for the
 other configuration checks. Shadowing is a configuration error rather than an
-opt-in flag or warning so an unreachable group cannot silently support a green
+opt-in flag or warning, so an unreachable group cannot silently support a green
 architecture check.
 
 `checker.py` orchestrates the run. `check_architecture` analyses namespaces,

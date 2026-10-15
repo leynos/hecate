@@ -121,6 +121,24 @@ def first_matching_group(
     return None
 
 
+def _first_shadowed_prefix(
+    group: ModuleGroup,
+    prefix: str,
+    earlier_groups: tuple[ModuleGroup, ...],
+) -> ShadowedPrefix | None:
+    """Return the earliest earlier-group prefix that contains ``prefix``."""
+    for earlier_group in earlier_groups:
+        for earlier_prefix in earlier_group.prefixes:
+            if module_prefix_contains(earlier_prefix, prefix):
+                return ShadowedPrefix(
+                    shadowed_group=group.name,
+                    shadowed_prefix=prefix,
+                    winning_group=earlier_group.name,
+                    winning_prefix=earlier_prefix,
+                )
+    return None
+
+
 def find_shadowed_prefixes(
     groups: tuple[ModuleGroup, ...],
 ) -> tuple[ShadowedPrefix, ...]:
@@ -134,25 +152,9 @@ def find_shadowed_prefixes(
     shadowed: list[ShadowedPrefix] = []
     for group_index, group in enumerate(groups):
         for prefix in group.prefixes:
-            for earlier_group in groups[:group_index]:
-                winning_prefix = next(
-                    (
-                        earlier_prefix
-                        for earlier_prefix in earlier_group.prefixes
-                        if module_prefix_contains(earlier_prefix, prefix)
-                    ),
-                    None,
-                )
-                if winning_prefix is not None:
-                    shadowed.append(
-                        ShadowedPrefix(
-                            shadowed_group=group.name,
-                            shadowed_prefix=prefix,
-                            winning_group=earlier_group.name,
-                            winning_prefix=winning_prefix,
-                        )
-                    )
-                    break
+            match = _first_shadowed_prefix(group, prefix, groups[:group_index])
+            if match is not None:
+                shadowed.append(match)
     return tuple(shadowed)
 
 
