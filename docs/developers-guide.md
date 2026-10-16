@@ -67,6 +67,13 @@ configured group containing a module. `IgnoredImport` is one documented ignore;
 also carries `strict`, `include_external_packages`, and the severity for
 unresolved internal edges.
 
+`find_shadowed_prefixes` in `policy.py` defines the pure cross-group shadowing
+rule; `_validate_policy` in `config.py` enforces it while loading TOML.
+Policies constructed directly bypass loader validation, as they do for the
+other configuration checks. Shadowing is a configuration error rather than an
+opt-in flag or warning, so an unreachable group cannot silently support a green
+architecture check.
+
 `checker.py` orchestrates the run. `check_architecture` analyses namespaces,
 builds the origin index, evaluates every statement under each package root, and
 returns an `ArchitectureCheckResult` whose `ok` property is true only when
