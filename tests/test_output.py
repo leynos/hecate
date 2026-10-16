@@ -8,11 +8,25 @@ from pathlib import Path
 from hecate.checker import ArchitectureCheckResult
 from hecate.diagnostics import (
     ArchitectureViolation,
+    ArchitectureWarning,
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
 )
 from hecate.output import render_json, render_text
 from hecate.policy import EdgeState, Severity
+
+
+def _warning(source_path: Path) -> ArchitectureWarning:
+    """Return the shared warning-level diagnostic for renderer tests."""
+    return ArchitectureWarning(
+        rule_id="HEC001",
+        importer="pkg.application.service",
+        imported="pkg.adapters.database",
+        importer_group="application",
+        imported_group="adapter",
+        source_path=source_path,
+        line=7,
+    )
 
 
 def test_text_and_json_output_include_violation_identity(tmp_path: Path) -> None:
@@ -58,6 +72,105 @@ def test_json_output_reports_coverage_by_default(tmp_path: Path) -> None:
         f"expected an empty coverage list, got {payload!r}"
     )
     assert payload["ok"] is True, f"expected a passing payload, got {payload!r}"
+
+
+def test_json_output_always_includes_an_empty_warnings_list(tmp_path: Path) -> None:
+    """The warnings key is present even for an unconfigured policy.
+
+    Warning-level edges are visible by design rather than behind a flag, so a
+    consumer reads the key unconditionally. Emitting nothing when there are no
+    warnings would make "none to report" indistinguishable from "not asked
+    for", which is the distinction the coverage flag already relies on.
+    """
+    result = ArchitectureCheckResult(violations=())
+
+    payload = json.loads(render_json(result))
+
+    assert payload["warnings"] == [], (
+        f"expected an empty warnings list, got {payload!r}"
+    )
+
+
+def test_json_output_serializes_a_warning_with_its_severity(tmp_path: Path) -> None:
+    """A warning-level edge keeps its whole identity and its severity in JSON.
+
+    A machine consumer decides whether to act on the edge from ``severity``
+    alone, so a payload that dropped or mislabelled it would read as a
+    violation or as a silent pass.
+    """
+    warning = _warning(tmp_path / "pkg/application/service.py")
+    result = ArchitectureCheckResult(violations=(), warnings=(warning,))
+
+    payload = json.loads(render_json(result))
+    entry = payload["warnings"][0]
+
+    assert payload["ok"] is True, (
+        f"a warning must not fail the check by default, got {payload!r}"
+    )
+    assert entry == {
+        "state": "warned",
+        "severity": "warning",
+        "rule_id": "HEC001",
+        "importer": "pkg.application.service",
+        "imported": "pkg.adapters.database",
+        "line": 7,
+        "importer_group": "application",
+        "imported_group": "adapter",
+        "source_path": str(tmp_path / "pkg/application/service.py"),
+    }, f"expected the full warning identity, got {entry!r}"
+
+
+def test_text_output_shows_warnings_on_a_passing_run(tmp_path: Path) -> None:
+    """A warned edge renders even when the check passes.
+
+    Warnings are advisory, so the run stays green; if they only appeared on a
+    failing run they would vanish precisely when a migration needs them.
+    """
+    warning = _warning(tmp_path / "pkg/application/service.py")
+    result = ArchitectureCheckResult(violations=(), warnings=(warning,))
+
+    output = render_text(result)
+
+    assert "hecate: architecture check passed" in output, (
+        f"a warning must not fail the run, got {output!r}"
+    )
+    assert "HEC001 (warning): pkg.application.service:7" in output, (
+        f"expected the warning diagnostic in stdout, got {output!r}"
+    )
+    assert "warning-level module pkg.adapters.database" in output, (
+        f"expected the warning to name its target, got {output!r}"
+    )
+    assert "(application -> adapter)" in output, (
+        f"expected the warning to name both groups, got {output!r}"
+    )
+
+
+def test_text_output_keeps_warnings_alongside_violations(tmp_path: Path) -> None:
+    """A failing run reports its warnings as well as its violations."""
+    violation = ArchitectureViolation(
+        rule_id="HEC001",
+        importer="pkg.domain.model",
+        imported="pkg.adapters.db",
+        importer_group="domain",
+        imported_group="adapter",
+        source_path=tmp_path / "pkg/domain/model.py",
+        line=1,
+    )
+    warning = _warning(tmp_path / "pkg/application/service.py")
+    result = ArchitectureCheckResult(violations=(violation,), warnings=(warning,))
+
+    output = render_text(result)
+
+    assert not result.ok, f"the violation must still fail the run, got {result!r}"
+    assert "pkg.domain.model:1 imports forbidden" in output, (
+        f"expected the violation in stdout, got {output!r}"
+    )
+    assert "HEC001 (warning): pkg.application.service:7" in output, (
+        f"expected the warning beside the violation, got {output!r}"
+    )
+    assert "architecture check passed" not in output, (
+        f"expected no pass notice on a failing run, got {output!r}"
+    )
 
 
 def test_json_output_serializes_a_real_coverage_entry(tmp_path: Path) -> None:

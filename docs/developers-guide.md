@@ -9,18 +9,19 @@ namespace model, provenance, policy, and output stay separable and another
 engine could replace the parser without changing the TOML policy schema. See
 [ADR 001](adr-001-stdlib-ast-import-engine.md) for the decision and its limits.
 
-| Module            | Responsibility                                                     |
-| ----------------- | ------------------------------------------------------------------ |
-| `source.py`       | Read and parse one scanned file, reporting `SourceError`.          |
-| `imports.py`      | Collect `Import` and `ImportFrom` statements from source text.     |
-| `module_scope.py` | Yield the statements that run at module scope, with nesting flags. |
-| `all_sequence.py` | Evaluate a module's `__all__` sequence, or report it unknowable.   |
-| `namespaces.py`   | Model bindings and wildcard exports per module.                    |
-| `origins.py`      | Resolve an import target to the modules that supply it.            |
-| `policy.py`       | Classify edges against groups, allow-lists, and ignores.           |
-| `checker.py`      | Orchestrate the traversal and assemble the result.                 |
-| `diagnostics.py`  | Hold the stable, ordered diagnostic dataclasses.                   |
-| `output.py`       | Render text and JSON output.                                       |
+| Module              | Responsibility                                                     |
+| ------------------- | ------------------------------------------------------------------ |
+| `source.py`         | Read and parse one scanned file, reporting `SourceError`.          |
+| `imports.py`        | Collect `Import` and `ImportFrom` statements from source text.     |
+| `module_scope.py`   | Yield the statements that run at module scope, with nesting flags. |
+| `all_sequence.py`   | Evaluate a module's `__all__` sequence, or report it unknowable.   |
+| `namespaces.py`     | Model bindings and wildcard exports per module.                    |
+| `origins.py`        | Resolve an import target to the modules that supply it.            |
+| `policy.py`         | Hold the validated group, allow-list, warn-list, and ignore model. |
+| `classification.py` | Classify one resolved edge against the policy.                     |
+| `checker.py`        | Orchestrate the traversal and assemble the result.                 |
+| `diagnostics.py`    | Hold the stable, ordered diagnostic dataclasses.                   |
+| `output.py`         | Render text and JSON output.                                       |
 
 `source.py` is the only place the scanner crosses the filesystem and parser
 boundary, so every failure mode of that boundary surfaces as one `SourceError`:
@@ -62,17 +63,52 @@ tell".
 
 `policy.py` holds the validated policy. `ModuleGroup` is a named group matched
 by ordered dotted prefixes, and `first_matching_group` returns the first
-configured group containing a module. `IgnoredImport` is one documented ignore;
-`ignore_matches` matches both endpoints by dotted prefix. `ArchitecturePolicy`
-also carries `strict`, `include_external_packages`, and the severity for
-unresolved internal edges.
+configured group containing a module. A group carries `allowed` targets, which
+pass silently, and `warn` targets, which are reported without failing; the two
+are disjoint, and configuration rejects a target listed in both.
+`IgnoredImport` is one documented ignore; `ignore_matches` matches both
+endpoints by dotted prefix. `ArchitecturePolicy` also carries `strict`,
+`include_external_packages`, and the severity for unresolved internal edges.
 
 `checker.py` orchestrates the run. `check_architecture` analyses namespaces,
 builds the origin index, evaluates every statement under each package root, and
 returns an `ArchitectureCheckResult` whose `ok` property is true only when
-there are no violations and no coverage diagnostic at error severity.
+there are no violations and no coverage diagnostic at error severity. The walk
+and the per-statement expansion of wildcards live here; deciding what one
+resolved edge means does not.
+
+`classification.py` owns that decision, so the precedence order below is
+readable without following the filesystem walk that produced the edge. It holds
+the accumulator (`CheckContext`), the edge under evaluation (`Edge`), and
+`classify_origin`, which every resolved origin passes through exactly once.
+
 `diagnostics.py` defines `ArchitectureViolation` for a forbidden classified
-edge and `CoverageDiagnostic` for an edge that could not be fully evaluated.
+edge, `ArchitectureWarning` for a tolerated one, and `CoverageDiagnostic` for
+an edge that could not be fully evaluated.
+
+### Edge classification precedence
+
+`classify_origin` in `classification.py` fixes one order, and it is the
+observable contract of the policy model:
+
+1. an out-of-scope external edge is skipped; an unclassified or unresolved one
+   is exempted or recorded as coverage, and neither continues;
+2. an `allowed` target returns silently;
+3. a matching `ignore_imports` entry records an exemption;
+4. a `warn` target records an `ArchitectureWarning`; and
+5. everything left is an `ArchitectureViolation`.
+
+`allowed` must precede the ignore check. An allowed edge was never a finding,
+so an ignore covering it suppressed nothing; returning before the ignore makes
+that ignore read as unmatched, which is exactly how a stale entry stays
+detectable under `--fail-on-unmatched-ignore`. Reversing steps 2 and 3 would
+let an ignore silently mask an allowed edge and hide its own staleness.
+
+Warnings accumulate in their own collection keyed by identity, and `ok`
+deliberately ignores them: a warned edge is tolerated by policy, so only
+`--fail-on-warnings` turns one into a non-zero exit. Keeping warnings out of
+`violations` is what leaves the existing violation identity, exit codes and
+`ok` semantics untouched.
 
 ### Bindings and wildcard exports
 
@@ -100,7 +136,9 @@ it:
 3. Walk each package root, collect import statements from each scanned file
    (`imports.py`, parsing through `source.py` again), and resolve named and
    wildcard edges against the index.
-4. Classify each edge against policy, honouring ignores first (`policy.py`).
+4. Classify each edge against policy in the fixed order given under
+   [edge classification precedence](#edge-classification-precedence)
+   (`classification.py`, over `policy.py`).
 5. Assemble `ArchitectureCheckResult`, then render it (`diagnostics.py`,
    `output.py`).
 
@@ -110,16 +148,17 @@ so parsing is not a step that must happen before namespace analysis; the same
 
 Skipping or reordering a stage leaves edges unexamined, which the coverage
 model reports rather than hides: each in-scope edge receives exactly one of
-`permitted`, `forbidden`, `exempted`, `unclassified`, or `unresolved`. A green
-result means no forbidden violation was found and no coverage diagnostic
-carried error severity — not that every edge was understood.
-`coverage_severity` reports unclassified and unresolved edges as warnings
-outside strict mode, and as errors under it (with unresolved internal edges
-using the configured `unresolved_internal_severity`). A non-strict run can
-therefore pass while those warnings are still recorded; JSON always carries the
-coverage section, and text output shows the warnings under `--show-coverage`
-(entries that fail the check are always shown). An unmatched ignore fails the
-run separately at exit code 2, but only under `--fail-on-unmatched-ignore`.
+`permitted`, `forbidden`, `warned`, `exempted`, `unclassified`, or
+`unresolved`. A green result means no forbidden violation was found and no
+coverage diagnostic carried error severity — not that every edge was understood
+or silently permitted. `coverage_severity` reports unclassified and unresolved
+edges as warnings outside strict mode, and as errors under it (with unresolved
+internal edges using the configured `unresolved_internal_severity`). A
+non-strict run can therefore pass while those warnings are still recorded; JSON
+always carries the coverage section, and text output shows the warnings under
+`--show-coverage` (entries that fail the check are always shown). An unmatched
+ignore fails the run separately at exit code 2, but only under
+`--fail-on-unmatched-ignore`.
 
 `hecate/reexports.py` no longer exists. Its responsibilities are now split
 between `namespaces.py` (bindings and wildcard selection) and `origins.py`

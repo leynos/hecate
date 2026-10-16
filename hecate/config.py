@@ -12,6 +12,7 @@ from .config_helpers import (
     _Loc,
     _read_bool,
     _read_mapping,
+    _read_optional_string_tuple,
     _read_severity,
     _read_string,
     _read_string_tuple,
@@ -256,6 +257,7 @@ def _parse_group_item(
         name=_read_string(group_item, "name", loc),
         prefixes=_read_string_tuple(group_item, "prefixes", loc),
         allowed=_read_string_tuple(group_item, "allowed", loc),
+        warn=_read_optional_string_tuple(group_item, "warn", loc),
     )
 
 
@@ -305,7 +307,7 @@ def _check_duplicate_group_names(group_names: list[str], path: Path) -> None:
 def _validate_group_references(
     group: ModuleGroup, declared_names: set[str], path: Path
 ) -> None:
-    """Validate prefixes and allowed-group references for one group."""
+    """Validate prefixes and allowed/warn group references for one group."""
     _validate_dotted_strings(
         group.prefixes, _Loc(path=path, context=f"group {group.name}")
     )
@@ -314,6 +316,29 @@ def _validate_group_references(
         msg = (
             f"{path}: group {group.name} allows undeclared groups: "
             f"{', '.join(unknown_allowed)}"
+        )
+        raise ConfigError(msg)
+    unknown_warned = sorted(set(group.warn) - declared_names)
+    if unknown_warned:
+        msg = (
+            f"{path}: group {group.name} warns undeclared groups: "
+            f"{', '.join(unknown_warned)}"
+        )
+        raise ConfigError(msg)
+
+
+def _validate_target_overlap(group: ModuleGroup, path: Path) -> None:
+    """Reject a target listed as both allowed and warning-level.
+
+    The two outcomes contradict: an allowed target is silent and a warning
+    target stays visible. Rejecting the overlap keeps each edge's outcome a
+    single decidable thing rather than one that depends on evaluation order.
+    """
+    conflicting = sorted(set(group.allowed) & set(group.warn))
+    if conflicting:
+        msg = (
+            f"{path}: group {group.name} lists targets as both allowed and "
+            f"warn: {', '.join(conflicting)}"
         )
         raise ConfigError(msg)
 
@@ -338,6 +363,7 @@ def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
     declared_names = set(group_names)
     for group in policy.groups:
         _validate_group_references(group, declared_names, path)
+        _validate_target_overlap(group, path)
     for ignored_import in policy.ignores:
         _validate_ignore_reason(ignored_import, path)
 

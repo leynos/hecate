@@ -49,6 +49,7 @@ class _OutputArgs:
     show_ignored: bool = False
     show_coverage: bool = False
     fail_on_unmatched_ignore: bool = False
+    fail_on_warnings: bool = False
 
 
 _DEFAULT_SOURCE_ARGS = _SourceArgs()
@@ -106,7 +107,8 @@ def check(
     0
         The architecture check passed.
     1
-        Architecture violations were found.
+        Architecture violations were found, or ``--fail-on-warnings`` was set
+        and warning-level edges were reported.
     2
         Configuration, command-line, or input validation failed. This includes
         a scanned source file that could not be read or parsed.
@@ -138,7 +140,12 @@ def check(
         show_ignored=out.show_ignored,
         show_coverage=out.show_coverage,
     )
-    return 0 if result.ok else 1
+    # Warnings are rendered before this point, so an enforced run still shows
+    # the edges it is failing on.
+    warned_edges_fail = out.fail_on_warnings and bool(result.warnings)
+    if not result.ok or warned_edges_fail:
+        return 1
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -3,17 +3,20 @@
 from __future__ import annotations
 
 import ast
+import json
 from pathlib import Path
 
 from hypothesis import given
 from hypothesis import strategies as st
 
 from hecate.all_sequence import literal_all_names
+from hecate.checker import ArchitectureCheckResult
 from hecate.config import PackageRoot
-from hecate.diagnostics import ArchitectureViolation
+from hecate.diagnostics import ArchitectureViolation, ArchitectureWarning
 from hecate.imports import compute_module_name, relative_import_base
 from hecate.namespaces import analyse_namespaces
 from hecate.origins import build_origin_index
+from hecate.output import render_json, render_text
 from hecate.policy import ModuleGroup, first_matching_group
 
 IDENTIFIER = st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True)
@@ -134,6 +137,85 @@ def test_text_json_diagnostics_preserve_violation_identity(tmp_path: Path) -> No
     )
     assert payload["line"] == identity[3], (
         f"expected line {identity[3]!r}, got {payload['line']!r}"
+    )
+
+
+def _warning_for(name: str, line: int) -> ArchitectureWarning:
+    """Return a warning diagnostic for one imported module and source line."""
+    return ArchitectureWarning(
+        rule_id="HEC001",
+        importer="pkg.application.service",
+        imported=f"pkg.adapters.{name}",
+        importer_group="application",
+        imported_group="adapter",
+        source_path=Path("pkg/application/service.py"),
+        line=line,
+    )
+
+
+@given(st.lists(IDENTIFIER, min_size=1, max_size=4))
+def test_text_and_json_preserve_every_warning_identity(names: list[str]) -> None:
+    """Each warning keeps its identity through both renderers.
+
+    The two renderers are the only views a consumer has of a warning, and the
+    identity fields are what a consumer keys on. Generating several warnings
+    makes the assertion cover the whole rendered collection rather than a
+    single entry whose position happened to be stable.
+    """
+    warnings = tuple(_warning_for(name, line) for line, name in enumerate(names, 1))
+    result = ArchitectureCheckResult(violations=(), warnings=warnings)
+
+    text_output = render_text(result)
+    entries = json.loads(render_json(result))["warnings"]
+
+    assert len(entries) == len(warnings), (
+        f"expected one JSON entry per warning, got {entries!r}"
+    )
+    for warning, entry in zip(warnings, entries, strict=True):
+        rule_id, importer, imported, line = warning.identity()
+        assert entry["rule_id"] == rule_id, (
+            f"expected rule_id {rule_id!r}, got {entry['rule_id']!r}"
+        )
+        assert entry["importer"] == importer, (
+            f"expected importer {importer!r}, got {entry['importer']!r}"
+        )
+        assert entry["imported"] == imported, (
+            f"expected imported {imported!r}, got {entry['imported']!r}"
+        )
+        assert entry["line"] == line, f"expected line {line!r}, got {entry['line']!r}"
+        assert f"{importer}:{line}" in text_output, (
+            f"expected {importer}:{line} in text output, got {text_output!r}"
+        )
+        assert imported in text_output, (
+            f"expected {imported} in text output, got {text_output!r}"
+        )
+
+
+@given(st.lists(IDENTIFIER, min_size=1, max_size=5))
+def test_renderers_preserve_warning_order(names: list[str]) -> None:
+    """Renderers preserve the order warnings arrive in, and drop none.
+
+    ``check_architecture`` sorts and de-duplicates warnings before they reach a
+    result, so canonical ordering is the checker's job. A renderer that
+    reordered instead would undo that determinism, and one that dropped entries
+    would silently hide a tolerated edge; ordering both halves from one
+    generated collection also pins that text and JSON agree on which warning
+    came first.
+    """
+    warnings = tuple(_warning_for(name, line) for line, name in enumerate(names, 1))
+    result = ArchitectureCheckResult(violations=(), warnings=warnings)
+
+    entries = json.loads(render_json(result))["warnings"]
+    assert [entry["imported"] for entry in entries] == [
+        warning.imported for warning in warnings
+    ], f"JSON reordered or dropped warnings: {entries!r}"
+
+    text_output = render_text(result)
+    positions = [
+        text_output.index(f"{warning.importer}:{warning.line}") for warning in warnings
+    ]
+    assert positions == sorted(positions), (
+        f"text output reordered the warnings: {text_output!r}"
     )
 
 
