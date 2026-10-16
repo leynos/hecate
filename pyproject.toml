@@ -25,6 +25,12 @@ dev = [
     "pytest-xdist",
     "pyyaml>=6.0.3",
     "packaging>=26.2,<27",
+    # `make typecheck` runs `ty check` over the gate modules as well as the
+    # application, and those modules import tomlkit. The dev group supplies
+    # the import so the type checker can resolve it; the gate itself never
+    # uses this copy. Keep the range compatible with the pin in
+    # scripts/duplication_gate.py's inline script metadata.
+    "tomlkit>=0.15.1,<0.16",
 ]
 
 [tool.ruff]
@@ -322,6 +328,14 @@ pytest_add_cli_args_test_selection = ["tests/"]
 [tool.pytest.ini_options]
 # Tests automatically killed after seconds elapsed
 timeout = 30
+# Application test discovery is restricted to `tests/`. The gate's own tests
+# under `scripts/tests/` run on a separately pinned interpreter through
+# `make duplication-test`, and `make spelling-helper-test` stages its own
+# run, so collecting them here would run Python 3.14 tooling tests under the
+# application virtualenv and in the coverage job. This setting is the only
+# discovery control that also reaches the shared coverage action, which
+# invokes pytest itself rather than through a Make file target.
+testpaths = ["tests"]
 
 [tool.uv]
 package = true
@@ -371,3 +385,35 @@ default_rule_id = "HEC001"
 name = "hecate"
 prefixes = ["hecate"]
 allowed = ["hecate"]
+
+# Scan scope and ranking policy for the blocking duplication gate
+# (`make duplication`, wired into `make lint`). The scope is the maintained
+# production package only: the test suites, the maintenance scripts and the
+# BDD feature files are deliberately out of scope, so a family that also
+# repeats inside a test is judged on its production copies alone. `min-size`
+# is nose's intermediate-language token count, not Python lines or AST nodes,
+# so it is not a span a reviewer can count by eye. `surface = "all"` widens
+# the view to families the ranked dashboard hides, and `top = 30` adjudicates
+# the thirty highest-value families of that widened view. Never lower the
+# size floor or raise the ranking bound to obtain a green gate: the report
+# says how many families were shown, not how many exist.
+[tool.nose]
+version = "0.20.0"
+roots = ["hecate"]
+mode = "syntax,semantic,near"
+min-size = 24
+surface = "all"
+top = 30
+
+# Reasoned exceptions for the duplication gate. Entries key on locations, not
+# line spans: `path` (a POSIX glob) matches any location in a matching file,
+# and `path::name` additionally requires nose's unit name for that location.
+# A `unit` entry names one key; a `members` entry names two or more. Either
+# silences a family only when *every* location in it matches one of the
+# entry's keys, so a new copy in an unlisted file still blocks the gate, and
+# partial coverage from several entries never adds up. Record entries with
+# `make duplication-allow FIRST='...' [SECOND='...'] REASON='...'`.
+# An entry the gate cannot match is reported as stale, meaning unmatched in
+# that scan rather than proven gone: the scan stops at `top`, so widen it
+# before deleting an entry.
+[tool.duplication_gate]

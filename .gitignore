@@ -103,6 +103,14 @@ ipython_config.py
 .uv-tools/
 .skylos-whitelist.lock
 
+# Duplication gate
+#   The pinned nose detector is provisioned per checkout by `make install-nose`
+#   and cached by its version in CI, so it is never committed. The gate takes
+#   an advisory lock beside pyproject.toml while rewriting the allow entries;
+#   the lock file is transient state, not configuration.
+.tools/
+.*.duplication-gate.lock
+
 # poetry
 #   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
 #   This is especially recommended for binary packages to ensure reproducibility, and is more
