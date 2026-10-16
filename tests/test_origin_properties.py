@@ -16,6 +16,7 @@ import contextlib
 import tempfile
 from pathlib import Path
 
+from discovery_fixtures import discover_package_roots
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -78,7 +79,9 @@ def _chain_index(links: list[str], *, is_cyclic: bool) -> cabc.Iterator[OriginIn
     """
     with tempfile.TemporaryDirectory() as tmp_dir:
         packages = _write_chain(Path(tmp_dir), links, is_cyclic=is_cyclic)
-        yield build_origin_index(packages, analyse_namespaces(packages))
+        yield build_origin_index(
+            packages, analyse_namespaces(discover_package_roots(packages))
+        )
 
 
 def _chain_supplies(links: list[str]) -> list[bool]:

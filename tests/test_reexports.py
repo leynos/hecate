@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from discovery_fixtures import discover_package_roots
+
 from hecate.config import PackageRoot
 from hecate.namespaces import analyse_namespaces
 from hecate.origins import OriginIndex, Resolution, build_origin_index
@@ -31,7 +33,9 @@ def _write(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> Path:
 def _index(tmp_path: Path, files: dict[str, str], package: str = "pkg") -> OriginIndex:
     """Build a package from ``files`` and return its origin index."""
     packages = _packages(tmp_path, files, package=package)
-    return build_origin_index(packages, analyse_namespaces(packages))
+    return build_origin_index(
+        packages, analyse_namespaces(discover_package_roots(packages))
+    )
 
 
 def _packages(
@@ -200,7 +204,7 @@ def test_wildcard_import_binding_resolves_through_origin(tmp_path: Path) -> None
             "nested.py": "class Thing: ...\n",
         },
     )
-    namespaces = analyse_namespaces(packages)
+    namespaces = analyse_namespaces(discover_package_roots(packages))
     index = build_origin_index(packages, namespaces)
 
     assert not namespaces["pkg"].bindings, (
@@ -258,7 +262,7 @@ def test_augmented_all_without_a_known_prefix_stays_unknowable(
             "adapter.py": "class First: ...\n",
         },
     )
-    namespaces = analyse_namespaces(packages)
+    namespaces = analyse_namespaces(discover_package_roots(packages))
     index = build_origin_index(packages, namespaces)
 
     assert namespaces["pkg"].all_names is None, (
@@ -366,7 +370,9 @@ def test_all_name_never_bound_stays_visible_as_unresolved(tmp_path: Path) -> Non
             "adapter.py": "class Adapter: ...\n",
         },
     )
-    index = build_origin_index(packages, analyse_namespaces(packages))
+    index = build_origin_index(
+        packages, analyse_namespaces(discover_package_roots(packages))
+    )
 
     assert index.wildcard_exports("pkg") == (
         "pkg.Adapter",

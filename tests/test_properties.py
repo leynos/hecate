@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+from discovery_fixtures import discover_package_roots
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -74,8 +75,12 @@ def test_origin_index_is_idempotent_for_unchanged_package(tmp_path: Path) -> Non
     (package_root / "adapter.py").write_text("class Adapter: ...\n", encoding="utf-8")
     package = (PackageRoot("pkg", package_root),)
 
-    first = build_origin_index(package, analyse_namespaces(package))
-    second = build_origin_index(package, analyse_namespaces(package))
+    first = build_origin_index(
+        package, analyse_namespaces(discover_package_roots(package))
+    )
+    second = build_origin_index(
+        package, analyse_namespaces(discover_package_roots(package))
+    )
 
     assert first == second, (
         f"expected unchanged package origin index to be idempotent, "

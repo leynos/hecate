@@ -15,6 +15,9 @@ from .config import ConfigError, ConfigOverrides, load_config
 from .output import render_json, render_text
 from .source import SourceError
 
+if typ.TYPE_CHECKING:
+    from .policy import ArchitecturePolicy
+
 
 class OutputFormat(enum.StrEnum):
     """Supported output formats."""
@@ -58,20 +61,32 @@ _DEFAULT_OUTPUT_ARGS = _OutputArgs()
 def _emit_check_output(
     result: ArchitectureCheckResult,
     *,
-    output_format: OutputFormat,
-    show_ignored: bool,
-    show_coverage: bool,
+    out: _OutputArgs,
+    policy: ArchitecturePolicy,
 ) -> None:
     """Render and print the architecture-check result to stdout.
 
     JSON always carries the coverage section, so machine consumers can see
     unclassified and unresolved edges without a second invocation. Text keeps
     coverage behind an explicit flag to preserve existing snapshot output.
+
+    Unclassified-module diagnostics take neither route: the configured mode
+    already asked for them, so both formats carry them whenever the mode is
+    anything other than ``ignore``. That decision is read from ``policy``
+    rather than passed separately, so a rendered run and an exit code can never
+    disagree about which mode was in force.
     """
     output = (
-        render_json(result, show_ignored=show_ignored, show_coverage=True)
-        if output_format is OutputFormat.JSON
-        else render_text(result, show_ignored=show_ignored, show_coverage=show_coverage)
+        render_json(
+            result,
+            show_ignored=out.show_ignored,
+            show_coverage=True,
+            include_unclassified=policy.unclassified_modules != "ignore",
+        )
+        if out.output_format is OutputFormat.JSON
+        else render_text(
+            result, show_ignored=out.show_ignored, show_coverage=out.show_coverage
+        )
     )
     print(output, end="")
 
@@ -104,12 +119,17 @@ def check(
     Exit codes
     ----------
     0
-        The architecture check passed.
+        The architecture check passed. Warnings, including unclassified-module
+        diagnostics under ``unclassified_modules = "warn"``, do not change this
+        code.
     1
-        Architecture violations were found.
+        Architecture violations, or error-severity coverage findings, were
+        found. ``unclassified_modules = "error"`` reaches this code through an
+        unclassified module.
     2
         Configuration, command-line, or input validation failed. This includes
-        a scanned source file that could not be read or parsed.
+        a scanned source file that could not be read or parsed, and an
+        unmatched ignore under ``--fail-on-unmatched-ignore``.
     """
     try:
         hecate_config = load_config(
@@ -132,12 +152,7 @@ def check(
         for unmatched_ignore in result.unmatched_ignores:
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
-    _emit_check_output(
-        result,
-        output_format=out.output_format,
-        show_ignored=out.show_ignored,
-        show_coverage=out.show_coverage,
-    )
+    _emit_check_output(result, out=out, policy=hecate_config.policy)
     return 0 if result.ok else 1
 
 
