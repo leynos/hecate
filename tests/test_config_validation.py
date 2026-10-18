@@ -64,7 +64,33 @@ name = "composition_root"
 prefixes = ["sample.api"]
 allowed = ["composition_root"]
 """,
-        "remove the duplicate prefix from group 'composition_root'",
+        "remove the duplicate prefix 'sample.api' from later group 'composition_root'",
+    )
+
+
+def test_duplicate_prefix_diagnostic_covers_all_earlier_containing_prefixes(
+    tmp_path: Path,
+) -> None:
+    """A repair must remove every earlier prefix that still shadows the later one."""
+    (tmp_path / "pkg").mkdir()
+    _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+
+[[tool.hecate.groups]]
+name = "earlier"
+prefixes = ["pkg.api", "pkg"]
+allowed = ["earlier", "later"]
+
+[[tool.hecate.groups]]
+name = "later"
+prefixes = ["pkg.api"]
+allowed = ["later", "earlier"]
+""",
+        "remove the duplicate prefix 'pkg.api' from later group 'later'",
+        "remove every earlier prefix that contains 'pkg.api'",
     )
 
 

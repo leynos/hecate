@@ -31,12 +31,16 @@ def _shadowed_prefix_remedy(shadow: ShadowedPrefix) -> str:
     """Describe how to repair one shadowed prefix diagnostic."""
     if shadow.shadowed_prefix == shadow.winning_prefix:
         return (
-            f"remove the duplicate prefix from group {shadow.shadowed_group!r} "
-            f"or group {shadow.winning_group!r}"
+            f"remove the duplicate prefix {shadow.shadowed_prefix!r} from "
+            f"later group {shadow.shadowed_group!r}, or remove every earlier "
+            f"prefix that contains {shadow.shadowed_prefix!r}"
         )
     return (
         f"place group {shadow.shadowed_group!r} before group "
-        f"{shadow.winning_group!r} to make the narrower "
-        "classification effective, remove the unreachable prefix, or move it "
-        "to the group that should own it"
+        f"{shadow.winning_group!r} and every other earlier group with a "
+        f"prefix that contains {shadow.shadowed_prefix!r} to make the narrower "
+        f"classification effective, remove the unreachable prefix "
+        f"{shadow.shadowed_prefix!r} from group {shadow.shadowed_group!r}, "
+        f"remove every earlier prefix that contains "
+        f"{shadow.shadowed_prefix!r}, or move it to the group that should own it"
     )
