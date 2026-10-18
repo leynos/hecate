@@ -24,7 +24,7 @@ def assert_config_rejects(
     tmp_path: Path,
     toml_text: str,
     *expected_substrings: str,
-) -> None:
+) -> str:
     """Scaffold a temp config and assert ``load_config`` raises ``ConfigError``.
 
     The config file path and every string in *expected_substrings* must appear
@@ -39,6 +39,11 @@ def assert_config_rejects(
         TOML content to write to the temporary config.
     expected_substrings : str
         Strings that must appear in the resulting error message.
+
+    Returns
+    -------
+    str
+        The validated configuration error message.
     """
     config = tmp_path / "pyproject.toml"
     (tmp_path / "pkg").mkdir(exist_ok=True)
@@ -55,3 +60,4 @@ def assert_config_rejects(
         assert expected in error_text, (
             f"expected {expected!r} in error message: {error_text}"
         )
+    return error_text

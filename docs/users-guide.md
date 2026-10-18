@@ -51,6 +51,13 @@ scanned source file that Hecate could not read or parse: the file and the
 reason are reported on standard error, so a broken checkout is never mistaken
 for an architecture finding.
 
+Configuration validation also rejects a prefix in a later group when an earlier
+group's equal or broader prefix already claims it. The diagnostic names both
+groups and prefixes and exits with code `2`. Move a narrower exception group
+before the broader group, remove a dead prefix, or correct the group that
+should own the prefix. Equal prefixes cannot be fixed by reordering; remove the
+duplicate from one group.
+
 ## Import outcome states
 
 Hecate evaluates every in-scope import edge it finds and records exactly one

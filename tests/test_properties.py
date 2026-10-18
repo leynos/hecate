@@ -15,7 +15,12 @@ from hecate.diagnostics import ArchitectureViolation
 from hecate.imports import compute_module_name, relative_import_base
 from hecate.namespaces import analyse_namespaces
 from hecate.origins import build_origin_index
-from hecate.policy import ModuleGroup, first_matching_group
+from hecate.policy import (
+    ModuleGroup,
+    ShadowedPrefix,
+    find_shadowed_prefixes,
+    first_matching_group,
+)
 
 IDENTIFIER = st.from_regex(r"[a-z][a-z0-9_]{0,8}", fullmatch=True)
 
@@ -62,6 +67,63 @@ def test_group_classification_is_first_match_deterministic(suffix: str) -> None:
 
     assert matched == groups[0], (
         f"expected first group for overlapping prefix, got {matched!r}"
+    )
+
+
+@given(IDENTIFIER, IDENTIFIER, IDENTIFIER)
+def test_shadowed_prefix_records_match_first_group_classification(
+    root: str, package: str, child: str
+) -> None:
+    """Every reported narrow prefix resolves to its earlier winning group."""
+    broad_prefix = f"{root}.{package}"
+    narrow_prefix = f"{broad_prefix}.{child}"
+    groups = (
+        ModuleGroup("winner", (broad_prefix,), ("winner",)),
+        ModuleGroup("shadowed", (narrow_prefix,), ("shadowed",)),
+    )
+
+    shadows = find_shadowed_prefixes(groups)
+
+    assert shadows == (
+        ShadowedPrefix(
+            shadowed_group="shadowed",
+            shadowed_prefix=narrow_prefix,
+            winning_group="winner",
+            winning_prefix=broad_prefix,
+        ),
+    ), f"expected the narrow prefix shadow record, got {shadows!r}"
+    matched = first_matching_group(narrow_prefix, groups)
+    assert matched == groups[0], (
+        f"expected winning group {groups[0]!r}, got {matched!r}"
+    )
+
+
+@given(
+    root=IDENTIFIER,
+    suffixes=st.lists(IDENTIFIER, min_size=2, max_size=2, unique=True),
+)
+def test_unshadowed_prefixes_with_unique_owners_keep_their_classification(
+    root: str, suffixes: list[str]
+) -> None:
+    """Disjoint sibling prefixes remain owned by their configured groups."""
+    first_prefix = f"{root}.{suffixes[0]}"
+    second_prefix = f"{root}.{suffixes[1]}"
+    groups = (
+        ModuleGroup("first", (first_prefix,), ("first",)),
+        ModuleGroup("second", (second_prefix,), ("second",)),
+    )
+
+    shadows = find_shadowed_prefixes(groups)
+    assert not shadows, (
+        f"expected disjoint prefixes to stay unshadowed, got {shadows!r}"
+    )
+    first_match = first_matching_group(first_prefix, groups)
+    assert first_match == groups[0], (
+        f"expected {first_prefix!r} to match {groups[0]!r}, got {first_match!r}"
+    )
+    second_match = first_matching_group(second_prefix, groups)
+    assert second_match == groups[1], (
+        f"expected {second_prefix!r} to match {groups[1]!r}, got {second_match!r}"
     )
 
 

@@ -165,6 +165,52 @@ allowed = ["domain"]
     )
 
 
+def test_cli_rejects_shadowed_prefix_with_exit_code_two(
+    tmp_path: Path,
+    capsys: CaptureFixture[str],
+) -> None:
+    """Shadowed configuration is reported on stderr before checking imports."""
+    (tmp_path / "sample").mkdir()
+    config = tmp_path / "pyproject.toml"
+    config.write_text(
+        """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter", "composition_root"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api.runtime"]
+allowed = ["composition_root", "inbound_adapter"]
+""",
+        encoding="utf-8",
+    )
+
+    exit_code = main(["check", "--config", str(config)])
+    captured = capsys.readouterr()
+
+    assert exit_code == 2, f"expected configuration exit 2, got {exit_code}"
+    assert not captured.out, f"expected empty stdout, got {captured.out!r}"
+    for expected in (
+        "hecate:",
+        "inbound_adapter",
+        "sample.api",
+        "composition_root",
+        "sample.api.runtime",
+        "place group 'composition_root' before group 'inbound_adapter'",
+        "narrower classification effective",
+        "remove the unreachable prefix",
+        "move it to the group that should own it",
+    ):
+        assert expected in captured.err, (
+            f"expected {expected!r} in stderr, got {captured.err!r}"
+        )
+
+
 def test_cli_strict_flag_overrides_configuration(tmp_path: Path) -> None:
     """``--strict`` on the command line overrides a non-strict config.
 

@@ -179,11 +179,23 @@ inside an `if`, `try`, or loop body adds an origin instead of replacing one.
 A boundary violation can no longer hide behind a barrel that re-exports a
 forbidden module explicitly while omitting it from `__all__`.
 
+## Shadowed group prefixes
+
+Configuration loading now rejects a later group's prefix when an earlier
+group's equal or dotted-ancestor prefix makes it unreachable under ordered
+matching. `hecate check` reports the configuration error and exits with code 2,
+even when strict mode is disabled. For a broad-before-narrow overlap, move the
+narrower group earlier, remove the unreachable prefix, or correct the group
+that owns the prefix. For equal prefixes in different groups, remove one
+duplicate or correct its group ownership; reordering cannot resolve the
+conflict while both groups retain the prefix.
+
 ## Migration checklist
 
 1. Re-run `hecate check` after upgrading. A non-strict run keeps its current
-   exit code, except where the corrected origin model surfaces a violation that
-   the previous model hid.
+   exit code except that shadowed group prefixes now fail configuration loading
+   with exit code 2, even without strict mode, and the corrected origin model
+   may surface a violation that the previous model hid.
 2. Review coverage with `hecate check --show-coverage`, and fix a missing
    group prefix or package subtree rather than suppressing the finding.
 3. Adopt strict mode deliberately: set `strict = true` in `[tool.hecate]`, or

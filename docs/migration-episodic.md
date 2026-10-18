@@ -82,6 +82,9 @@ prefixes = [
 allowed = ["outbound_adapter", "application", "domain_ports"]
 ```
 
+Compatibility note: the composition-root prefixes above precede the broader
+inbound prefixes, so this policy satisfies Hecate's shadowed-prefix validation.
+
 ## Migration checklist
 
 1. Add the translated policy to Episodic's `pyproject.toml`.

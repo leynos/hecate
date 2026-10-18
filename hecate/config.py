@@ -19,6 +19,7 @@ from .config_helpers import (
     _read_string_tuple,
     _validate_dotted_strings,
 )
+from .config_validation import _shadowed_prefix_diagnostics
 from .diagnostics import UNCLASSIFIED_MODULE_RULE_ID
 from .policy import (
     ArchitecturePolicy,
@@ -26,6 +27,7 @@ from .policy import (
     ModuleGroup,
     Severity,
     UnclassifiedModules,
+    find_shadowed_prefixes,
 )
 
 
@@ -346,6 +348,15 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
         raise ConfigError(msg)
 
 
+def _validate_group_prefix_order(policy: ArchitecturePolicy, path: Path) -> None:
+    """Reject prefixes made unreachable by earlier groups."""
+    diagnostics = _shadowed_prefix_diagnostics(
+        find_shadowed_prefixes(policy.groups), path
+    )
+    if diagnostics:
+        raise ConfigError("\n".join(diagnostics))
+
+
 def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
     _validate_rule_id(policy.default_rule_id, path)
     group_names = [group.name for group in policy.groups]
@@ -353,16 +364,22 @@ def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
     declared_names = set(group_names)
     for group in policy.groups:
         _validate_group_references(group, declared_names, path)
+    _validate_group_prefix_order(policy, path)
     for ignored_import in policy.ignores:
         _validate_ignore_reason(ignored_import, path)
 
 
-def _validate_rule_id(rule_id: str, path: Path) -> None:
-    """Raise ConfigError when ``rule_id`` claims a reserved identifier.
+def _resolve_config_path(config_path: Path, configured_path: Path) -> Path:
+    if configured_path.is_absolute():
+        return configured_path
+    return config_path.parent / configured_path
 
-    Module diagnostics always carry HEC002. Edge diagnostics carry the
-    configured identifier, so the two would be indistinguishable, and the
-    guarantee the users' guide gives would be false.
+
+def _validate_rule_id(rule_id: str, path: Path) -> None:
+    """Reserve HEC002 for module diagnostics.
+
+    Edge diagnostics use the configured identifier, so reusing HEC002 would
+    make the two kinds indistinguishable.
     """
     if rule_id != UNCLASSIFIED_MODULE_RULE_ID:
         return
@@ -381,9 +398,3 @@ def _validate_package_roots(packages: tuple[PackageRoot, ...], path: Path) -> No
         if not package_root.root.is_dir():
             msg = f"{path}: package root {package_root.root} is not a directory"
             raise ConfigError(msg)
-
-
-def _resolve_config_path(config_path: Path, configured_path: Path) -> Path:
-    if configured_path.is_absolute():
-        return configured_path
-    return config_path.parent / configured_path

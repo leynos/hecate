@@ -8,7 +8,9 @@ from hecate.policy import (
     IgnoredImport,
     ModuleGroup,
     Severity,
+    ShadowedPrefix,
     coverage_severity,
+    find_shadowed_prefixes,
     first_matching_group,
     ignore_matches,
     is_group_allowed,
@@ -23,6 +25,130 @@ def test_group_classification_uses_first_match() -> None:
     )
 
     assert first_matching_group("pkg.adapters.outbound.db", groups) == groups[0]
+
+
+def test_find_shadowed_prefixes_reports_equal_and_descendant_prefixes() -> None:
+    """Earlier cross-group prefixes shadow equal and narrower entries."""
+    groups = (
+        ModuleGroup("inbound_adapter", ("sample.api",), ("inbound_adapter",)),
+        ModuleGroup(
+            "composition_root",
+            ("sample.api.runtime", "sample.api"),
+            ("composition_root",),
+        ),
+    )
+
+    shadows = find_shadowed_prefixes(groups)
+    assert shadows == (
+        ShadowedPrefix(
+            shadowed_group="composition_root",
+            shadowed_prefix="sample.api.runtime",
+            winning_group="inbound_adapter",
+            winning_prefix="sample.api",
+        ),
+        ShadowedPrefix(
+            shadowed_group="composition_root",
+            shadowed_prefix="sample.api",
+            winning_group="inbound_adapter",
+            winning_prefix="sample.api",
+        ),
+    ), f"expected equal and descendant shadow records, got {shadows!r}"
+
+
+def test_find_shadowed_prefixes_respects_dotted_boundaries() -> None:
+    """Lookalike and sibling prefixes do not shadow one another."""
+    groups = (
+        ModuleGroup(
+            "api",
+            ("sample.api", "sample.canonical.ingestion"),
+            ("api",),
+        ),
+        ModuleGroup(
+            "siblings",
+            ("sample.apis", "sample.api_extra", "sample.canonical.ingestion_ports"),
+            ("siblings",),
+        ),
+    )
+
+    shadows = find_shadowed_prefixes(groups)
+    assert not shadows, f"expected no dotted-boundary shadows, got {shadows!r}"
+
+
+def test_find_shadowed_prefixes_accepts_narrow_before_broad_order() -> None:
+    """A specific exception remains reachable before its broader group."""
+    groups = (
+        ModuleGroup("composition_root", ("sample.api.runtime",), ("root",)),
+        ModuleGroup("inbound_adapter", ("sample.api",), ("adapter",)),
+    )
+
+    shadows = find_shadowed_prefixes(groups)
+    assert not shadows, f"expected no shadows for narrow-first order, got {shadows!r}"
+    matched = first_matching_group("sample.api.runtime", groups)
+    assert matched == groups[0], (
+        f"expected 'sample.api.runtime' to match {groups[0]!r}, got {matched!r}"
+    )
+
+
+def test_find_shadowed_prefixes_ignores_same_group_redundancy() -> None:
+    """Redundant prefixes within one group remain valid policy."""
+    groups = (ModuleGroup("domain", ("sample", "sample.domain"), ("domain",)),)
+
+    shadows = find_shadowed_prefixes(groups)
+    assert not shadows, f"expected same-group prefixes to remain valid, got {shadows!r}"
+
+
+def test_find_shadowed_prefixes_uses_first_containing_prefix_in_order() -> None:
+    """Records follow later-prefix order and the earliest winning prefix."""
+    groups = (
+        ModuleGroup("broad", ("sample", "sample.api"), ("broad",)),
+        ModuleGroup("intermediate", ("sample.api.runtime",), ("intermediate",)),
+        ModuleGroup(
+            "later",
+            ("sample.api.handlers", "sample.api.jobs"),
+            ("later",),
+        ),
+    )
+
+    shadows = find_shadowed_prefixes(groups)
+    assert shadows == (
+        ShadowedPrefix(
+            shadowed_group="intermediate",
+            shadowed_prefix="sample.api.runtime",
+            winning_group="broad",
+            winning_prefix="sample",
+        ),
+        ShadowedPrefix(
+            shadowed_group="later",
+            shadowed_prefix="sample.api.handlers",
+            winning_group="broad",
+            winning_prefix="sample",
+        ),
+        ShadowedPrefix(
+            shadowed_group="later",
+            shadowed_prefix="sample.api.jobs",
+            winning_group="broad",
+            winning_prefix="sample",
+        ),
+    ), f"expected deterministic earliest-prefix records, got {shadows!r}"
+
+
+def test_find_shadowed_prefixes_does_not_cross_package_roots() -> None:
+    """Independent package roots do not shadow, while beta ordering does."""
+    groups = (
+        ModuleGroup("alpha", ("alpha.api",), ("alpha",)),
+        ModuleGroup("beta", ("beta.api",), ("beta",)),
+        ModuleGroup("beta_exception", ("beta.api.runtime",), ("beta_exception",)),
+    )
+
+    shadows = find_shadowed_prefixes(groups)
+    assert shadows == (
+        ShadowedPrefix(
+            shadowed_group="beta_exception",
+            shadowed_prefix="beta.api.runtime",
+            winning_group="beta",
+            winning_prefix="beta.api",
+        ),
+    ), f"expected only beta root shadow record, got {shadows!r}"
 
 
 def test_allowed_group_predicate_uses_declared_policy() -> None:
