@@ -106,6 +106,41 @@ classifies edges and knows nothing about module discovery, while
 passed in rather than returned so the checker's single result object stays the
 one place diagnostics are merged and sorted.
 
+For screen readers: The following sequence diagram shows the checker running
+the module-coverage pass. The checker walks each package root once through
+`discover_modules`, then hands the discovered modules, the policy, and the
+accumulator to `collect_unclassified_modules`. That pass asks the policy for
+each module's group. Under the `ignore` mode it records nothing; otherwise a
+module no group claims is recorded as an `UnclassifiedModuleDiagnostic`. The
+checker returns the assembled result, and the CLI renders it as text or JSON.
+
+```mermaid
+sequenceDiagram
+    participant CLI
+    participant Checker
+    participant Discovery as discover_modules
+    participant Coverage as collect_unclassified_modules
+    participant Policy as ArchitecturePolicy
+    participant Output
+
+    CLI->>Checker: check_architecture(config)
+    Checker->>Discovery: discover_modules(root, package)
+    Discovery-->>Checker: Discovery(modules)
+    Checker->>Coverage: collect_unclassified_modules(modules, policy, report)
+    Coverage->>Policy: group_for(module)
+    Policy-->>Coverage: matching group or None
+    alt unclassified_modules = ignore
+        Coverage-->>Checker: no diagnostic
+    else module has no matching group
+        Coverage-->>Checker: UnclassifiedModuleDiagnostic
+    end
+    Checker-->>CLI: ArchitectureCheckResult
+    CLI->>Output: render_text or render_json
+    Output-->>CLI: HEC002 diagnostic or unclassified_modules array
+```
+
+_Figure 1: Module-coverage pass from discovery through diagnostic rendering._
+
 ### Bindings and wildcard exports
 
 These are separate concepts and must stay separate. A module **binds** a name
