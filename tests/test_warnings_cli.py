@@ -258,6 +258,32 @@ def test_cli_fail_on_warnings_fails_a_warning_only_run(
     assert "(warning):" in run.stdout, (
         f"expected the warned edge to survive into the failing run, got {run!r}"
     )
+    assert "architecture check passed" not in run.stdout, (
+        f"a run that exits 1 must not claim it passed, got {run!r}"
+    )
+
+
+def test_cli_fail_on_warnings_reports_unmet_status_in_json(
+    warned_edge_config: Path, capsys: CaptureFixture[str]
+) -> None:
+    """JSON marks an enforced warning run as unmet rather than passed.
+
+    ``ok`` describes the architecture result and deliberately ignores
+    warnings, so the command outcome needs its own key. Without it a machine
+    consumer reads ``ok: true`` from a run whose exit code is 1.
+    """
+    run = _run_checker(
+        warned_edge_config, capsys, "--fail-on-warnings", "--format", "json"
+    )
+
+    payload = json.loads(run.stdout)
+    assert run.exit_code == 1, f"expected the flag to fail the run, got {run!r}"
+    assert payload["ok"] is True, (
+        f"warnings must not clear the architecture result, got {payload!r}"
+    )
+    assert payload["status"] == "failed", (
+        f"the command outcome must reflect the exit code, got {payload!r}"
+    )
 
 
 def test_cli_json_reports_warning_severity_and_ok(

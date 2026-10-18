@@ -306,8 +306,14 @@ HEC001 (warning): sample.application.service:1 imports warning-level module samp
 
 Warnings are shown whether the run passes or fails, so a run that also has a
 real violation reports both rather than hiding the warnings behind the failure.
-JSON output always carries a `warnings` array, empty when there is nothing to
-report, so a consumer can read the key unconditionally:
+
+`ok` in JSON output describes the architecture result alone, so it stays `true`
+for a warning-only run even under `--fail-on-warnings`. The command outcome is
+reported separately as `status`, which is `"failed"` whenever the process exits
+non-zero. A consumer deciding whether the command succeeded should read
+`status`; `ok` answers whether the package itself passed. JSON output always
+carries a `warnings` array, empty when there is nothing to report, so a
+consumer can read the key unconditionally:
 
 ```bash
 hecate check --format json | jq '.warnings'
