@@ -66,3 +66,27 @@ Feature: Hexagonal architecture checking
     When I run Hecate against the fixture
     Then the exit code is "2"
     And stderr contains "undeclared groups"
+
+  Scenario: Warn mode names an unclassified package without failing the check
+    Given the "application_imports_unclassified_subtree" fixture package
+    And a Hecate config with unclassified modules set to "warn"
+    When I run Hecate against the fixture
+    Then the exit code is "0"
+    And the diagnostics contain "HEC002 warning sample.newthing"
+    And the diagnostics contain "no architecture group matched this module"
+    And the diagnostics contain "architecture check passed"
+
+  Scenario: Error mode fails the check for an unclassified package
+    Given the "application_imports_unclassified_subtree" fixture package
+    And a Hecate config with unclassified modules set to "error"
+    When I run Hecate against the fixture
+    Then the exit code is "1"
+    And the diagnostics contain "HEC002 error sample.newthing"
+    And the diagnostics omit "architecture check passed"
+
+  Scenario: A package tree covered by specific groups passes in error mode
+    Given the "clean_package" fixture package
+    And a Hecate config with unclassified modules set to "error"
+    When I run Hecate against the fixture
+    Then the exit code is "0"
+    And the diagnostics contain "architecture check passed"

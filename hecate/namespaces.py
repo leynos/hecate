@@ -29,14 +29,14 @@ import dataclasses as dc
 import typing as typ
 
 from .all_sequence import literal_all_names
-from .imports import compute_module_name, resolve_import_from
+from .imports import resolve_import_from
 from .module_scope import module_level_statements
 from .source import parse_source
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
-    from .config import PackageRoot
+    from .imports import Discovery
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -102,14 +102,14 @@ class ModuleNamespace:
 
 
 def analyse_namespaces(
-    packages: tuple[PackageRoot, ...],
+    discoveries: tuple[Discovery, ...],
 ) -> dict[str, ModuleNamespace]:
-    """Analyse every module under ``packages`` into a namespace model.
+    """Analyse every discovered module into a namespace model.
 
     Parameters
     ----------
-    packages : tuple of PackageRoot
-        Package roots to scan.
+    discoveries : tuple of Discovery
+        One already-walked package root per entry.
 
     Returns
     -------
@@ -117,12 +117,19 @@ def analyse_namespaces(
         Analysed namespaces keyed by dotted module name.
     """
     namespaces: dict[str, ModuleNamespace] = {}
-    for package_root in packages:
-        for source_path in sorted(package_root.root.rglob("*.py")):
-            module = compute_module_name(
-                package_root.root, package_root.name, source_path
+    for discovery in discoveries:
+        for module in discovery.modules:
+            if module.module in namespaces:
+                # Two records can share a dotted name. Within one root that is
+                # ``pkg/foo/__init__.py`` beside ``pkg/foo.py``, and sorting
+                # visits the initializer first; across roots the earlier
+                # configuration entry wins. Keeping the first record matches
+                # discovery order and the module pass, and models the file
+                # Python actually imports.
+                continue
+            namespaces[module.module] = analyse_module(
+                module.source_path, module=module.module
             )
-            namespaces[module] = analyse_module(source_path, module=module)
     return namespaces
 
 

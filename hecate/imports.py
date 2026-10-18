@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import ast
 import dataclasses as dc
+import typing as typ
 from pathlib import Path
 
 from .source import parse_source
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
+
+class DiscoveryError(ValueError):
+    """Raised when a package root cannot be walked completely."""
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -51,6 +59,89 @@ def compute_module_name(root: Path, package: str, source_path: Path) -> str:
     return ".".join((package, *parts))
 
 
+@dc.dataclass(frozen=True, slots=True)
+class DiscoveredModule:
+    """One ``*.py`` file beneath a package root, paired with its dotted name."""
+
+    module: str
+    source_path: Path
+    is_package_init: bool = False
+    """Whether this record is a package ``__init__.py``.
+
+    Python resolves a name to the package's initializer in preference to a
+    sibling module spelled the same way, so a caller deciding which record owns
+    a dotted name needs this rather than the path alone.
+    """
+
+
+@dc.dataclass(frozen=True, slots=True)
+class Discovery:
+    """One package root's modules, walked once and shared by every pass.
+
+    Carrying the root's identity alongside its files keeps this record free of
+    any dependency on the configuration model, so discovery stays a property of
+    the tree rather than of how a caller happened to declare it.
+    """
+
+    package: str
+    root: Path
+    modules: tuple[DiscoveredModule, ...]
+
+
+def discover_modules(root: Path, package: str) -> Discovery:
+    """Return every module beneath ``root``, ordered by source path.
+
+    One walk serves every pass that needs to know which files a root holds, so
+    the passes cannot disagree about what exists. Sorting here rather than in
+    each caller makes traversal order a property of the tree instead of the
+    filesystem, and gives a caller that keys a mapping by module name
+    first-record semantics from this order alone.
+
+    Every record carries ``is_package_init`` so a caller can tell the module a
+    package resolves to from a plain module with the same dotted name, without
+    re-deriving it from the path.
+
+    Raises
+    ------
+    DiscoveryError
+        A directory beneath ``root`` could not be listed. Discovery never
+        silently returns a partial tree: a missing subtree would read as clean
+        coverage of files the walk never saw.
+    """
+    source_paths = sorted(_walk_source_paths(root))
+    return Discovery(
+        package=package,
+        root=root,
+        modules=tuple(
+            DiscoveredModule(
+                module=compute_module_name(root, package, source_path),
+                source_path=source_path,
+                is_package_init=source_path.name == "__init__.py",
+            )
+            for source_path in source_paths
+        ),
+    )
+
+
+def _walk_source_paths(root: Path) -> cabc.Iterator[Path]:
+    """Yield every ``*.py`` file beneath ``root``, surfacing traversal errors.
+
+    ``Path.rglob`` and ``Path.glob`` swallow ``OSError`` and return whatever
+    they managed to list, so an unreadable subtree would look like an empty
+    one. ``Path.walk`` reports the failure to ``on_error`` instead, which this
+    walk turns into :class:`DiscoveryError` naming the directory to fix.
+    """
+
+    def fail_with_context(error: OSError) -> typ.NoReturn:
+        msg = f"{error.filename}: cannot list directory: {error.strerror}"
+        raise DiscoveryError(msg) from error
+
+    for directory, _, filenames in root.walk(on_error=fail_with_context):
+        for filename in filenames:
+            if filename.endswith(".py"):
+                yield directory / filename
+
+
 def relative_import_base(module_name: str, *, is_package_init: bool, level: int) -> str:
     """Return the absolute base module for a relative import level."""
     assert module_name
@@ -70,17 +161,21 @@ ImportStatement = DirectImport | FromImport
 def collect_import_statements(
     source_path: Path,
     *,
-    root: Path,
-    package: str,
+    module: str,
 ) -> tuple[ImportStatement, ...]:
     """Collect import statements from a Python source file.
+
+    ``module`` is the dotted name for ``source_path``, as supplied by
+    :func:`discover_modules`. Taking it rather than deriving it here keeps one
+    mapping from path to name, so the importer recorded on each statement is the
+    same name the rest of the run knows the file by.
 
     Statements are returned in source order so that later analysis can apply
     Python's last-binding-wins rules when several statements bind one name.
     ``ast.walk`` yields breadth-first, which is not source order once an import
     is nested in a block, so the collected nodes are sorted before conversion.
     """
-    module_name = compute_module_name(root, package, source_path)
+    module_name = module
     tree = parse_source(source_path)
     is_package_init = source_path.name == "__init__.py"
     statements: list[ImportStatement] = []

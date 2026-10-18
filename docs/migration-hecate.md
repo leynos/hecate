@@ -110,6 +110,49 @@ Ignores match dotted descendants: an ignore for `sample.config` importing
 `--fail-on-unmatched-ignore` fails the run when an entry exempts no edge. The
 ignored section itself is shown when `--show-ignored` is passed.
 
+## Unclassified-module reporting
+
+Coverage reporting watches edges. A module no configured group claims is a
+related but separate gap: every import it makes or receives sits outside
+group-based enforcement, so a package added without a matching prefix can drift
+unchecked while every edge check still passes.
+
+`unclassified_modules` reports the module itself:
+
+```toml
+[tool.hecate]
+unclassified_modules = "error"
+```
+
+The mode is one of `ignore`, `warn`, or `error`:
+
+- `ignore` is the default and preserves earlier behaviour. The module pass runs
+  but asks no classification question and records nothing, and the JSON payload
+  is unchanged.
+- `warn` records each unclaimed module as a warning without changing the exit
+  code.
+- `error` records each unclaimed module as an error and fails the check with
+  exit code 1.
+
+Module findings carry the fixed rule identifier `HEC002`, so a consumer can
+tell them apart from edge diagnostics, which use the configured
+`default_rule_id`. `HEC002` is therefore reserved: a configuration that sets
+`default_rule_id = "HEC002"` is rejected, so the two kinds of diagnostic cannot
+become indistinguishable.
+
+Discovery covers every `*.py` file beneath a configured package root, including
+`__init__.py` and files with no imports, so a new package is reported on its
+first run. A package initializer is claimed when any configured prefix lies
+beneath it, because it re-exports what its submodules bind; specific groups
+such as `sample.domain` therefore cover the `sample.domain` package without a
+recursive group for `sample`. Plain modules get no containment, so
+`sample.newthing` is still reported.
+
+JSON output carries an `unclassified_modules` array under `warn` and `error`,
+sorted by module name, and the array is present and empty when the tree is
+fully classified. Under `ignore` the key is absent. Text output shows module
+findings only under `warn` and `error`.
+
 ## Re-export and `__all__` semantics
 
 Re-export origins are corrected in this release. Hecate keeps two views of
@@ -156,3 +199,8 @@ forbidden module explicitly while omitting it from `__all__`.
    `__all__` omits it, so a finding there reflects the import Python performs.
 8. Enable `include_external_packages` only where groups claim the external
    prefixes that should be enforced; unclaimed prefixes stay skipped.
+9. Decide whether to enforce module coverage. The default `ignore` is
+   backwards compatible, so this is opt-in. Trial
+   `unclassified_modules = "warn"` to surface packages no group claims, then
+   switch to `"error"` once the policy covers the tree. Do not set
+   `default_rule_id = "HEC002"`, which is reserved for module findings.

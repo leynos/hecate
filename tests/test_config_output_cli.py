@@ -7,45 +7,19 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from config_fixtures import assert_config_rejects
 
 from hecate.cli import main
-from hecate.config import ConfigError, load_config
+from hecate.config import load_config
 from hecate.policy import Severity
 
 if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
 
 
-def _assert_config_rejects(
-    tmp_path: Path,
-    toml_text: str,
-    *expected_substrings: str,
-) -> None:
-    """Scaffold a temp config and assert ``load_config`` raises ``ConfigError``.
-
-    The config file path and every string in *expected_substrings* must appear in
-    the resulting error message.
-    """
-    config = tmp_path / "pyproject.toml"
-    (tmp_path / "pkg").mkdir(exist_ok=True)
-    config.write_text(toml_text, encoding="utf-8")
-
-    with pytest.raises(ConfigError) as exc_info:
-        load_config(config)
-
-    error_text = str(exc_info.value)
-    assert str(config) in error_text, (
-        f"expected config path {config!r} in error message: {error_text}"
-    )
-    for expected in expected_substrings:
-        assert expected in error_text, (
-            f"expected {expected!r} in error message: {error_text}"
-        )
-
-
 def test_config_validation_rejects_unknown_allowed_group(tmp_path: Path) -> None:
     """Policy validation reports unknown group names."""
-    _assert_config_rejects(
+    assert_config_rejects(
         tmp_path,
         """
 [tool.hecate]
@@ -64,7 +38,7 @@ def test_config_validation_rejects_malformed_ignore_import(
     tmp_path: Path,
 ) -> None:
     """Policy validation rejects malformed ignore dotted strings."""
-    _assert_config_rejects(
+    assert_config_rejects(
         tmp_path,
         """
 [tool.hecate]
@@ -89,7 +63,7 @@ def test_config_validation_rejects_invalid_dotted_identifier_segment(
     tmp_path: Path,
 ) -> None:
     """Policy validation rejects dotted strings with invalid identifiers."""
-    _assert_config_rejects(
+    assert_config_rejects(
         tmp_path,
         """
 [tool.hecate]
@@ -146,7 +120,7 @@ allowed = ["domain"]
 
 def test_config_rejects_unknown_unresolved_severity(tmp_path: Path) -> None:
     """An unknown severity name is a configuration error."""
-    _assert_config_rejects(
+    assert_config_rejects(
         tmp_path,
         """
 [tool.hecate]

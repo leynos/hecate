@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from discovery_fixtures import discover_package_roots
+
 from hecate.config import PackageRoot
 from hecate.namespaces import ModuleNamespace, analyse_namespaces
 
@@ -27,7 +29,9 @@ def _analyse(
         target = package_root / relative_path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(contents, encoding="utf-8")
-    return analyse_namespaces((PackageRoot(package, package_root),))
+    return analyse_namespaces(
+        discover_package_roots((PackageRoot(package, package_root),))
+    )
 
 
 def test_import_inside_module_level_if_is_seen(tmp_path: Path) -> None:

@@ -4,8 +4,19 @@ from __future__ import annotations
 
 import dataclasses as dc
 import enum
+import typing as typ
 
 from .imports import is_module_prefix
+
+UnclassifiedModules = typ.Literal["ignore", "warn", "error"]
+"""How an internal module no configured group classifies is reported."""
+
+UNCLASSIFIED_MODULE_MODES: tuple[str, ...] = typ.get_args(UnclassifiedModules)
+"""Permitted :data:`UnclassifiedModules` values, in the order the literal spells.
+
+Derived from the literal rather than written out a second time, so the type a
+reader sees and the set the configuration validator accepts cannot drift apart.
+"""
 
 
 class Severity(enum.StrEnum):
@@ -85,9 +96,43 @@ class ArchitecturePolicy:
     unresolved_internal_severity: Severity = Severity.ERROR
     """Severity applied to unresolved internal edges under strict mode."""
 
+    unclassified_modules: UnclassifiedModules = "ignore"
+    """How a discovered module no configured group classifies is reported.
+
+    ``ignore`` preserves the historical behaviour of saying nothing about a
+    module no group claims. ``warn`` and ``error`` make the policy's coverage
+    gap visible by naming each such module rather than waiting for an import
+    edge to expose it.
+    """
+
     def group_for(self, module: str) -> ModuleGroup | None:
         """Return the first matching group for ``module``."""
         return first_matching_group(module, self.groups)
+
+    def claims_module(self, module: str, *, is_package_init: bool = False) -> bool:
+        """Return whether ``module`` falls inside the scope of some group.
+
+        This answers the module-coverage question, not the edge question. A
+        package initializer is claimed when any of its own submodules is: an
+        initializer imports and re-exports what its submodules bind, so a
+        policy that governs ``pkg.domain`` already governs the package
+        ``pkg.domain`` itself. Without this, every conventional package would
+        need an extra recursive group for its root, and that group would in
+        turn claim every future subpackage the module pass exists to find.
+
+        A plain module is claimed only through its own containing prefix, so a
+        new ``pkg.newfeature`` stays unclassified even when ``pkg`` itself is an
+        initializer some sibling group covers.
+        """
+        if self.group_for(module) is not None:
+            return True
+        if not is_package_init:
+            return False
+        return any(
+            module_prefix_contains(module, group_prefix)
+            for group in self.groups
+            for group_prefix in group.prefixes
+        )
 
     def is_allowed(self, importer_group: str, imported_group: str) -> bool:
         """Return whether one classified group may import another."""

@@ -5,13 +5,21 @@ from __future__ import annotations
 import dataclasses as dc
 import typing as typ
 
-from .config import HecateConfig, PackageRoot
+from .config import HecateConfig
 from .diagnostics import (
     ArchitectureViolation,
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
+    UnclassifiedModuleDiagnostic,
 )
-from .imports import FromImport, ImportStatement, collect_import_statements
+from .imports import (
+    DiscoveredModule,
+    FromImport,
+    ImportStatement,
+    collect_import_statements,
+    discover_modules,
+)
+from .module_coverage import collect_unclassified_modules
 from .namespaces import analyse_namespaces
 from .origins import OriginIndex, Resolution, build_origin_index
 from .policy import (
@@ -33,6 +41,7 @@ class ArchitectureCheckResult:
     ignored: tuple[IgnoredImportDiagnostic, ...] = ()
     coverage: tuple[CoverageDiagnostic, ...] = ()
     unmatched_ignores: tuple[str, ...] = ()
+    unclassified_modules: tuple[UnclassifiedModuleDiagnostic, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -40,10 +49,14 @@ class ArchitectureCheckResult:
 
         Coverage diagnostics only fail the check when they carry error
         severity, which happens for unclassified and unresolved internal edges
-        under strict mode.
+        under strict mode. Unclassified-module diagnostics fail it the same
+        way, so a warning-only run stays green.
         """
+        failures = (self.coverage, self.unclassified_modules)
         return not self.violations and not any(
-            diagnostic.is_failure for diagnostic in self.coverage
+            diagnostic.is_failure
+            for diagnostics in failures
+            for diagnostic in diagnostics
         )
 
     @property
@@ -94,17 +107,27 @@ class _CheckContext:
     coverage: dict[tuple[str, str, str, str, int], CoverageDiagnostic] = dc.field(
         default_factory=dict
     )
+    unclassified: dict[str, UnclassifiedModuleDiagnostic] = dc.field(
+        default_factory=dict
+    )
 
 
 def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
     """Check every package root declared in ``config``."""
-    namespaces = analyse_namespaces(config.packages)
+    discoveries = tuple(
+        discover_modules(package_root.root, package_root.name)
+        for package_root in config.packages
+    )
+    namespaces = analyse_namespaces(discoveries)
     ctx = _CheckContext(
         policy=config.policy,
         origins=build_origin_index(config.packages, namespaces),
     )
-    for package_root in config.packages:
-        _collect_package_edges(package_root, ctx)
+    for discovery in discoveries:
+        _collect_package_edges(discovery.modules, ctx)
+        collect_unclassified_modules(
+            discovery.modules, policy=config.policy, report=ctx.unclassified
+        )
     unmatched_ignores = _find_unmatched_ignores(config.policy, ctx.ignored)
     return ArchitectureCheckResult(
         violations=tuple(
@@ -113,15 +136,18 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         ignored=tuple(sorted(ctx.ignored.values(), key=lambda item: item.render())),
         coverage=tuple(sorted(ctx.coverage.values(), key=lambda item: item.identity())),
         unmatched_ignores=unmatched_ignores,
+        unclassified_modules=tuple(
+            sorted(ctx.unclassified.values(), key=lambda item: item.identity())
+        ),
     )
 
 
-def _collect_package_edges(package_root: PackageRoot, ctx: _CheckContext) -> None:
+def _collect_package_edges(
+    discovered: tuple[DiscoveredModule, ...], ctx: _CheckContext
+) -> None:
     """Evaluate every import edge in one package root against policy."""
-    for source_path in sorted(package_root.root.rglob("*.py")):
-        statements = collect_import_statements(
-            source_path, root=package_root.root, package=package_root.name
-        )
+    for source in discovered:
+        statements = collect_import_statements(source.source_path, module=source.module)
         for statement in statements:
             _evaluate_statement(statement, ctx=ctx)
 

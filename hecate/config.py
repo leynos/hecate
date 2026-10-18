@@ -8,16 +8,25 @@ import typing as typ
 from pathlib import Path
 
 from .config_helpers import (
+    _UNCLASSIFIED_MODULES_CHOICE,
     ConfigError,
     _Loc,
     _read_bool,
+    _read_choice,
     _read_mapping,
     _read_severity,
     _read_string,
     _read_string_tuple,
     _validate_dotted_strings,
 )
-from .policy import ArchitecturePolicy, IgnoredImport, ModuleGroup, Severity
+from .diagnostics import UNCLASSIFIED_MODULE_RULE_ID
+from .policy import (
+    ArchitecturePolicy,
+    IgnoredImport,
+    ModuleGroup,
+    Severity,
+    UnclassifiedModules,
+)
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -95,6 +104,10 @@ def load_config(
         data, "include_external_packages", default=False, path=config_path
     )
     configured_strict = _read_bool(data, "strict", default=False, path=config_path)
+    unclassified_modules = typ.cast(
+        "UnclassifiedModules",
+        _read_choice(data, _UNCLASSIFIED_MODULES_CHOICE, _Loc(path=config_path)),
+    )
     policy = ArchitecturePolicy(
         groups=groups,
         ignores=ignores,
@@ -107,6 +120,7 @@ def load_config(
             else ov.include_external_packages
         ),
         strict=configured_strict if ov.strict is None else ov.strict,
+        unclassified_modules=unclassified_modules,
         unresolved_internal_severity=_read_severity(
             data,
             "unresolved_internal_severity",
@@ -333,6 +347,7 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
 
 
 def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
+    _validate_rule_id(policy.default_rule_id, path)
     group_names = [group.name for group in policy.groups]
     _check_duplicate_group_names(group_names, path)
     declared_names = set(group_names)
@@ -340,6 +355,22 @@ def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
         _validate_group_references(group, declared_names, path)
     for ignored_import in policy.ignores:
         _validate_ignore_reason(ignored_import, path)
+
+
+def _validate_rule_id(rule_id: str, path: Path) -> None:
+    """Raise ConfigError when ``rule_id`` claims a reserved identifier.
+
+    Module diagnostics always carry HEC002. Edge diagnostics carry the
+    configured identifier, so the two would be indistinguishable, and the
+    guarantee the users' guide gives would be false.
+    """
+    if rule_id != UNCLASSIFIED_MODULE_RULE_ID:
+        return
+    msg = (
+        f"{path}: default_rule_id {UNCLASSIFIED_MODULE_RULE_ID!r} is reserved "
+        "for unclassified-module diagnostics; choose another rule identifier"
+    )
+    raise ConfigError(msg)
 
 
 def _validate_package_roots(packages: tuple[PackageRoot, ...], path: Path) -> None:
