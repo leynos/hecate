@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from discovery_fixtures import make_directory_unlistable
 
 from hecate.imports import (
     DiscoveryError,
@@ -94,8 +95,8 @@ def test_discover_modules_reports_a_directory_it_cannot_list(
     locked.mkdir(parents=True)
     (package_root / "__init__.py").write_text("", encoding="utf-8")
     (locked / "hidden.py").write_text("", encoding="utf-8")
-    locked.chmod(0)
     try:
+        make_directory_unlistable(locked)
         with pytest.raises(DiscoveryError) as exc_info:
             discover_modules(package_root, "pkg")
     finally:

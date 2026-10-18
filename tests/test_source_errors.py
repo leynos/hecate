@@ -16,6 +16,7 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from discovery_fixtures import make_directory_unlistable
 
 from hecate.cli import main
 from hecate.source import SourceError, parse_source
@@ -157,10 +158,10 @@ def test_cli_reports_a_package_root_it_cannot_walk(
     locked.mkdir(parents=True)
     (package_root / "__init__.py").write_text("", encoding="utf-8")
     (locked / "hidden.py").write_text("", encoding="utf-8")
-    locked.chmod(0)
     config = tmp_path / "pyproject.toml"
     config.write_text(_CONFIG, encoding="utf-8")
     try:
+        make_directory_unlistable(locked)
         exit_code = main(["check", "--config", str(config)])
     finally:
         locked.chmod(0o755)
@@ -188,7 +189,13 @@ def test_cli_reports_an_unreadable_scanned_path(
     package_root = tmp_path / "pkg"
     package_root.mkdir()
     (package_root / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "unreadable.py").symlink_to(tmp_path / "missing.py")
+    try:
+        (package_root / "unreadable.py").symlink_to(tmp_path / "missing.py")
+    except OSError:
+        # Windows refuses symlinks unless the process holds a privilege, so the
+        # fixture cannot be built there. The CLI input-error path is still
+        # covered by the unparsable-source cases in this module.
+        pytest.skip("platform does not allow creating symlinks")
     config = tmp_path / "pyproject.toml"
     config.write_text(_CONFIG, encoding="utf-8")
 

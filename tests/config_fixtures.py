@@ -30,6 +30,15 @@ def assert_config_rejects(
     The config file path and every string in *expected_substrings* must appear
     in the resulting error message. A ``pkg`` directory is created beside the
     config so that a rejection cannot come from a missing package root.
+
+    Parameters
+    ----------
+    tmp_path : Path
+        Temporary directory in which to create the config and package root.
+    toml_text : str
+        TOML content to write to the temporary config.
+    expected_substrings : str
+        Strings that must appear in the resulting error message.
     """
     config = tmp_path / "pyproject.toml"
     (tmp_path / "pkg").mkdir(exist_ok=True)
