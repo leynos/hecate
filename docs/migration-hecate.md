@@ -179,6 +179,14 @@ inside an `if`, `try`, or loop body adds an origin instead of replacing one.
 A boundary violation can no longer hide behind a barrel that re-exports a
 forbidden module explicitly while omitting it from `__all__`.
 
+## Shadowed group prefixes
+
+Configuration loading now rejects a later group's prefix when an earlier
+group's equal or dotted-ancestor prefix makes it unreachable under ordered
+matching. `hecate check` reports the configuration error and exits with code 2.
+Move the narrower group earlier, remove the unreachable prefix, or assign the
+prefix to the group that should own it.
+
 ## Migration checklist
 
 1. Re-run `hecate check` after upgrading. A non-strict run keeps its current

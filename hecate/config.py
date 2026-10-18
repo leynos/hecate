@@ -18,15 +18,14 @@ from .config_helpers import (
     _read_string,
     _read_string_tuple,
     _validate_dotted_strings,
-    _validate_package_roots,
-    _validate_rule_id,
 )
+from .config_validation import _shadowed_prefix_diagnostics
+from .diagnostics import UNCLASSIFIED_MODULE_RULE_ID
 from .policy import (
     ArchitecturePolicy,
     IgnoredImport,
     ModuleGroup,
     Severity,
-    ShadowedPrefix,
     UnclassifiedModules,
     find_shadowed_prefixes,
 )
@@ -132,7 +131,7 @@ def load_config(
         ),
     )
     _validate_policy(policy, config_path)
-    _validate_package_roots(tuple(package.root for package in packages), config_path)
+    _validate_package_roots(packages, config_path)
     return HecateConfig(
         packages=packages,
         policy=policy,
@@ -349,30 +348,11 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
         raise ConfigError(msg)
 
 
-def _shadowed_prefix_remedy(shadow: ShadowedPrefix) -> str:
-    """Describe how to make one shadowed prefix effective."""
-    if shadow.shadowed_prefix == shadow.winning_prefix:
-        return (
-            f"remove the duplicate prefix from group {shadow.shadowed_group!r} "
-            f"or group {shadow.winning_group!r}"
-        )
-    return (
-        f"place group {shadow.shadowed_group!r} before group "
-        f"{shadow.winning_group!r} to make the narrower "
-        "classification effective"
-    )
-
-
 def _validate_group_prefix_order(policy: ArchitecturePolicy, path: Path) -> None:
     """Reject prefixes made unreachable by earlier groups."""
-    context = "tool.hecate.groups"
-    diagnostics = [
-        f"{path}: {context}: prefix {shadow.shadowed_prefix!r} in "
-        f"group {shadow.shadowed_group!r} is shadowed by earlier prefix "
-        f"{shadow.winning_prefix!r} in group {shadow.winning_group!r}; "
-        f"{_shadowed_prefix_remedy(shadow)}"
-        for shadow in find_shadowed_prefixes(policy.groups)
-    ]
+    diagnostics = _shadowed_prefix_diagnostics(
+        find_shadowed_prefixes(policy.groups), path
+    )
     if diagnostics:
         raise ConfigError("\n".join(diagnostics))
 
@@ -393,3 +373,28 @@ def _resolve_config_path(config_path: Path, configured_path: Path) -> Path:
     if configured_path.is_absolute():
         return configured_path
     return config_path.parent / configured_path
+
+
+def _validate_rule_id(rule_id: str, path: Path) -> None:
+    """Reserve HEC002 for module diagnostics.
+
+    Edge diagnostics use the configured identifier, so reusing HEC002 would
+    make the two kinds indistinguishable.
+    """
+    if rule_id != UNCLASSIFIED_MODULE_RULE_ID:
+        return
+    msg = (
+        f"{path}: default_rule_id {UNCLASSIFIED_MODULE_RULE_ID!r} is reserved "
+        "for unclassified-module diagnostics; choose another rule identifier"
+    )
+    raise ConfigError(msg)
+
+
+def _validate_package_roots(packages: tuple[PackageRoot, ...], path: Path) -> None:
+    if not packages:
+        msg = f"{path}: at least one package root is required"
+        raise ConfigError(msg)
+    for package_root in packages:
+        if not package_root.root.is_dir():
+            msg = f"{path}: package root {package_root.root} is not a directory"
+            raise ConfigError(msg)
