@@ -109,6 +109,31 @@ class ArchitecturePolicy:
         """Return the first matching group for ``module``."""
         return first_matching_group(module, self.groups)
 
+    def claims_module(self, module: str, *, is_package_init: bool = False) -> bool:
+        """Return whether ``module`` falls inside the scope of some group.
+
+        This answers the module-coverage question, not the edge question. A
+        package initializer is claimed when any of its own submodules is: an
+        initializer imports and re-exports what its submodules bind, so a
+        policy that governs ``pkg.domain`` already governs the package
+        ``pkg.domain`` itself. Without this, every conventional package would
+        need an extra recursive group for its root, and that group would in
+        turn claim every future subpackage the module pass exists to find.
+
+        A plain module is claimed only through its own containing prefix, so a
+        new ``pkg.newfeature`` stays unclassified even when ``pkg`` itself is an
+        initializer some sibling group covers.
+        """
+        if self.group_for(module) is not None:
+            return True
+        if not is_package_init:
+            return False
+        return any(
+            module_prefix_contains(module, group_prefix)
+            for group in self.groups
+            for group_prefix in group.prefixes
+        )
+
     def is_allowed(self, importer_group: str, imported_group: str) -> bool:
         """Return whether one classified group may import another."""
         return is_group_allowed(importer_group, imported_group, self.groups)

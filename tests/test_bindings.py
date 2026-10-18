@@ -206,6 +206,30 @@ def test_bare_dotted_import_originates_at_its_leading_package(
     )
 
 
+def test_package_initializer_wins_a_shared_dotted_name(tmp_path: Path) -> None:
+    """``pkg/foo.py`` and ``pkg/foo/__init__.py`` share a name; the package wins.
+
+    Python prefers the package initializer, and discovery sorts the initializer
+    first, so the namespace pass must keep the first record rather than letting
+    the later ``foo.py`` overwrite it. Otherwise the namespace pass models one
+    file while the module pass reports another.
+    """
+    packages = _packages(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "foo.py": "FromPlainModule = 1\n",
+            "foo/__init__.py": "FromPackageInit = 2\n",
+        },
+    )
+    namespaces = analyse_namespaces(discover_package_roots(packages))
+
+    namespace = namespaces["pkg.foo"]
+    assert namespace.bound_names == {"FromPackageInit"}, (
+        f"the package initializer must supply the namespace, not foo.py: {namespace!r}"
+    )
+
+
 def test_unpacking_assignment_binds_every_name(tmp_path: Path) -> None:
     """Tuple, list, and starred targets each bind their names.
 

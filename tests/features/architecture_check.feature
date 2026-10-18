@@ -84,9 +84,9 @@ Feature: Hexagonal architecture checking
     And the diagnostics contain "HEC002 error sample.newthing"
     And the diagnostics omit "architecture check passed"
 
-  Scenario: A fully classified package tree passes in error mode
+  Scenario: A package tree covered by specific groups passes in error mode
     Given the "clean_package" fixture package
-    And a Hecate config with unclassified modules set to "error" and a catch-all group
+    And a Hecate config with unclassified modules set to "error"
     When I run Hecate against the fixture
     Then the exit code is "0"
     And the diagnostics contain "architecture check passed"

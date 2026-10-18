@@ -39,13 +39,19 @@ def collect_unclassified_modules(
     and the report keeps the first record for a name. Declaration order is the
     tie-break for the same reason group matching is ordered: a reader who
     ordered the configuration should be able to predict which one applies.
+
+    A package initializer is claimed once any group covers something beneath
+    it, so the two modules a conventional package root contributes — ``pkg``
+    and its first subpackage — do not need two recursive groups. See
+    :meth:`ArchitecturePolicy.claims_module` for why that containment stops at
+    the initializer.
     """
     mode = policy.unclassified_modules
     if mode not in UNCLASSIFIED_MODULE_MODES or mode == "ignore":
         return
     severity = unclassified_module_severity(mode)
     for source in discovered:
-        if policy.group_for(source.module) is not None:
+        if policy.claims_module(source.module, is_package_init=source.is_package_init):
             continue
         report.setdefault(
             source.module,

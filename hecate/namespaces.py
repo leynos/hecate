@@ -119,6 +119,14 @@ def analyse_namespaces(
     namespaces: dict[str, ModuleNamespace] = {}
     for discovery in discoveries:
         for module in discovery.modules:
+            if module.module in namespaces:
+                # Two records can share a dotted name. Within one root that is
+                # ``pkg/foo/__init__.py`` beside ``pkg/foo.py``, and sorting
+                # visits the initializer first; across roots the earlier
+                # configuration entry wins. Keeping the first record matches
+                # discovery order and the module pass, and models the file
+                # Python actually imports.
+                continue
             namespaces[module.module] = analyse_module(
                 module.source_path, module=module.module
             )

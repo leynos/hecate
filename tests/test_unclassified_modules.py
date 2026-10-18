@@ -73,8 +73,10 @@ def _check(
     return check_architecture(config)
 
 
-#: A package tree whose every module, including the root initializer, matches a
-#: configured group. Nothing here may be reported as unclassified.
+#: A package tree whose every module, including the root initializer, is
+#: claimed by policy. The initializer is claimed by containment rather than by
+#: a group of its own, which is the configuration a conventional project
+#: declares. Nothing here may be reported as unclassified.
 _FULLY_CLASSIFIED_TREE = {
     "__init__.py": "",
     "domain/__init__.py": "",
@@ -83,23 +85,13 @@ _FULLY_CLASSIFIED_TREE = {
     "adapters/database.py": "",
 }
 
-#: ``_SAMPLE_GROUPS`` plus a group covering the root package module itself.
-#: A discovered module includes ``pkg/__init__.py``, whose dotted name is just
-#: ``pkg``, so a tree is only fully classified when some group claims that
-#: prefix too. Group matching is first-match, so the root prefix must come last
-#: or it would claim every module beneath it.
-_FULLY_CLASSIFIED_GROUPS = (
-    *_SAMPLE_GROUPS,
-    ModuleGroup("root", ("pkg",), ("root",)),
-)
-
 #: The same tree plus a package no group claims, carrying both a module with an
-#: import and one without. The root ``__init__.py`` and ``newfeature.helper``
-#: are the import-free modules: an unclassified module must be reported whether
-#: or not it imports anything.
+#: import and one without. ``newfeature`` imports a classified module, while
+#: ``newfeature.helper`` and the root ``__init__.py`` import nothing: an
+#: unclassified module must be reported whether or not it imports anything.
 _TREE_WITH_NEW_PACKAGE = {
     **_FULLY_CLASSIFIED_TREE,
-    "newfeature/__init__.py": "",
+    "newfeature/__init__.py": "from pkg.domain import model\n",
     "newfeature/helper.py": "",
 }
 
@@ -131,7 +123,7 @@ def test_fully_classified_tree_reports_no_unclassified_modules(
     result = _check(
         tmp_path,
         _FULLY_CLASSIFIED_TREE,
-        policy=_policy(groups=_FULLY_CLASSIFIED_GROUPS, unclassified_modules=mode),
+        policy=_policy(unclassified_modules=mode),
     )
 
     assert not result.unclassified_modules, (
@@ -165,7 +157,7 @@ def test_new_package_is_reported_at_the_configured_severity(
         )
         assert result.ok, f"{mode}: the default must pass, got {result!r}"
         return
-    assert set(reported) == {"pkg", "pkg.newfeature", "pkg.newfeature.helper"}, (
+    assert set(reported) == {"pkg.newfeature", "pkg.newfeature.helper"}, (
         f"{mode}: expected every unclassified module, got {sorted(reported)}"
     )
     for diagnostic in reported.values():
@@ -198,6 +190,58 @@ def test_classified_modules_are_not_reported(tmp_path: Path) -> None:
         )
 
 
+def test_package_initializer_is_claimed_by_its_subpackages(tmp_path: Path) -> None:
+    """Specific groups classify the root initializer without a root group.
+
+    A conventional package has specific groups such as ``pkg.domain`` but no
+    group for ``pkg`` itself. The initializer imports and re-exports what its
+    subpackages bind, so the policy already governs it; reporting ``pkg`` would
+    force a recursive ``pkg`` group, and that group would classify every future
+    subpackage the module pass exists to detect.
+    """
+    result = _check(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "domain/__init__.py": "",
+            "domain/model.py": "",
+        },
+        policy=_policy(groups=_SAMPLE_GROUPS, unclassified_modules="error"),
+    )
+
+    assert not result.unclassified_modules, (
+        "a root initializer covered by a subpackage group must not be reported, "
+        f"got {result.unclassified_modules!r}"
+    )
+    assert result.ok, f"the check must pass without a catch-all group, got {result!r}"
+
+
+def test_package_initializer_does_not_claim_a_new_subpackage(tmp_path: Path) -> None:
+    """Covering the root initializer must not classify everything beneath it.
+
+    This is the other half of the containment rule: ``pkg`` is claimed because
+    ``pkg.domain`` is, but ``pkg.newfeature`` matches no group and must still be
+    reported.
+    """
+    result = _check(
+        tmp_path,
+        {
+            "__init__.py": "",
+            "domain/__init__.py": "",
+            "domain/model.py": "",
+            "newfeature/__init__.py": "",
+            "newfeature/helper.py": "",
+        },
+        policy=_policy(groups=_SAMPLE_GROUPS, unclassified_modules="error"),
+    )
+
+    reported = set(_unclassified_by_module(result))
+    assert reported == {"pkg.newfeature", "pkg.newfeature.helper"}, (
+        f"a new subpackage must stay visible: {sorted(reported)}"
+    )
+    assert not result.ok, f"an unclassified subpackage must fail: {result!r}"
+
+
 def test_group_prefix_does_not_classify_a_lookalike_sibling(tmp_path: Path) -> None:
     """``pkg.domain`` must not classify ``pkg.domainx``.
 
@@ -218,7 +262,7 @@ def test_group_prefix_does_not_classify_a_lookalike_sibling(tmp_path: Path) -> N
     )
 
     reported = set(_unclassified_by_module(result))
-    assert reported == {"pkg", "pkg.domainx", "pkg.domainx.plugin"}, (
+    assert reported == {"pkg.domainx", "pkg.domainx.plugin"}, (
         f"a lookalike sibling must not inherit the pkg.domain group: {sorted(reported)}"
     )
 
@@ -315,9 +359,6 @@ def test_external_imports_do_not_become_unclassified_modules(tmp_path: Path) -> 
     )
 
     reported = set(_unclassified_by_module(result))
-    assert reported == {"pkg"}, (
+    assert not reported, (
         f"an external import must not be reported as a module, got {sorted(reported)}"
-    )
-    assert not any("sqlalchemy" in item for item in reported), (
-        f"external prefixes are not discovered modules, got {sorted(reported)}"
     )

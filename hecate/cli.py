@@ -12,6 +12,7 @@ import cyclopts
 
 from .checker import ArchitectureCheckResult, check_architecture
 from .config import ConfigError, ConfigOverrides, load_config
+from .imports import DiscoveryError
 from .output import render_json, render_text
 from .source import SourceError
 
@@ -128,8 +129,9 @@ def check(
         unclassified module.
     2
         Configuration, command-line, or input validation failed. This includes
-        a scanned source file that could not be read or parsed, and an
-        unmatched ignore under ``--fail-on-unmatched-ignore``.
+        a package root that could not be walked, a scanned source file that
+        could not be read or parsed, and an unmatched ignore under
+        ``--fail-on-unmatched-ignore``.
     """
     try:
         hecate_config = load_config(
@@ -145,7 +147,7 @@ def check(
             ),
         )
         result = check_architecture(hecate_config)
-    except (ConfigError, SourceError) as error:
+    except (ConfigError, DiscoveryError, SourceError) as error:
         print(f"hecate: {error}", file=sys.stderr)
         return 2
     if out.fail_on_unmatched_ignore and result.unmatched_ignores:

@@ -161,14 +161,12 @@ def policy_toml(
     *,
     allow_everything: bool = False,
     unclassified_modules: str | None = None,
-    catch_all: bool = False,
 ) -> str:
     """Return the sample policy TOML, optionally allowing every group edge.
 
-    ``catch_all`` appends a last group covering the whole package, which is how
-    a scenario reaches a fully classified tree without the build-up of specific
-    groups first: matching is first-match, so a leading catch-all would swallow
-    every module and hide the classification it was meant to prove.
+    The groups are deliberately specific — one per subtree — so a scenario
+    asking for ``unclassified_modules = "error"`` proves that specific groups
+    classify the package root's own initializer without a catch-all prefix.
     """
     allowed = (
         '["composition_root", "domain", "application", "inbound_adapter", '
@@ -184,16 +182,6 @@ def policy_toml(
     unclassified_line = (
         f'unclassified_modules = "{unclassified_modules}"\n'
         if unclassified_modules is not None
-        else ""
-    )
-    catch_all_group = (
-        f"""
-[[tool.hecate.groups]]
-name = "package_root"
-prefixes = ["sample"]
-allowed = {allowed}
-"""
-        if catch_all
         else ""
     )
     return f"""
@@ -236,4 +224,4 @@ allowed = {allowed}
 name = "infrastructure"
 prefixes = ["sqlalchemy"]
 allowed = ["infrastructure"]
-{catch_all_group}"""
+"""

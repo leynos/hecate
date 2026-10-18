@@ -138,7 +138,8 @@ HEC002 error sample.newthing: no architecture group matched this module
 
 Module findings carry the fixed rule identifier `HEC002`, so a consumer can
 tell them apart from edge diagnostics, which use the configured
-`default_rule_id`.
+`default_rule_id`. For that reason `HEC002` is reserved: a configuration that
+sets `default_rule_id = "HEC002"` is rejected as invalid.
 
 ### What counts as a discovered module
 
@@ -149,6 +150,11 @@ tell them apart from edge diagnostics, which use the configured
   [group tables](configuration.md#group-tables). A dotted prefix matches at a
   boundary, so a group for `sample.domain` does not classify a lookalike
   `sample.domainx`.
+- A package `__init__.py` is claimed when any configured prefix lies beneath
+  it. An initializer imports and re-exports what its submodules bind, so groups
+  for `sample.domain` already cover the `sample.domain` package without a
+  recursive group for `sample`. That containment stops at the initializer:
+  `sample.newthing` is a plain module and is still reported.
 - External imports are not modules for this purpose. They continue to follow
   `include_external_packages` and the external prefixes groups declare.
 

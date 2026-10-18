@@ -143,19 +143,52 @@ def test_cli_reports_unparsable_source_with_the_validation_exit_code(
     )
 
 
+def test_cli_reports_a_package_root_it_cannot_walk(
+    tmp_path: Path, capsys: CaptureFixture[str]
+) -> None:
+    """A directory the walk cannot list is an input error, not clean coverage.
+
+    The module pass reports what discovery found. If an unreadable subtree
+    silently shortened that list, ``error`` mode could pass while never having
+    examined the files beneath it, so the CLI must refuse the run.
+    """
+    package_root = tmp_path / "pkg"
+    locked = package_root / "locked"
+    locked.mkdir(parents=True)
+    (package_root / "__init__.py").write_text("", encoding="utf-8")
+    (locked / "hidden.py").write_text("", encoding="utf-8")
+    locked.chmod(0)
+    config = tmp_path / "pyproject.toml"
+    config.write_text(_CONFIG, encoding="utf-8")
+    try:
+        exit_code = main(["check", "--config", str(config)])
+    finally:
+        locked.chmod(0o755)
+
+    captured = capsys.readouterr()
+    assert exit_code == 2, (
+        f"an unwalkable package root must be an input error, got exit code "
+        f"{exit_code} with {captured!r}"
+    )
+    assert "locked" in captured.err, (
+        f"stderr must name the directory to fix, got {captured.err!r}"
+    )
+
+
 def test_cli_reports_an_unreadable_scanned_path(
     tmp_path: Path, capsys: CaptureFixture[str]
 ) -> None:
     """A path the scan cannot read is reported instead of crashing the run.
 
-    The package root is walked for ``*.py``, which also matches a directory of
-    that name. Reading one fails, and the run must say so rather than letting
-    the underlying filesystem error escape as a traceback.
+    A dangling symlink named ``*.py`` is discovered as a module but cannot be
+    read. The choice of fixture is deliberate: a directory named ``*.py`` is
+    traversed rather than scanned, and chmod-0 is unenforceable for root, so
+    neither would reliably reach the read failure this test is about.
     """
     package_root = tmp_path / "pkg"
     package_root.mkdir()
     (package_root / "__init__.py").write_text("", encoding="utf-8")
-    (package_root / "unreadable.py").mkdir()
+    (package_root / "unreadable.py").symlink_to(tmp_path / "missing.py")
     config = tmp_path / "pyproject.toml"
     config.write_text(_CONFIG, encoding="utf-8")
 

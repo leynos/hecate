@@ -4,9 +4,17 @@ from __future__ import annotations
 
 import ast
 import dataclasses as dc
+import typing as typ
 from pathlib import Path
 
 from .source import parse_source
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
+
+
+class DiscoveryError(ValueError):
+    """Raised when a package root cannot be walked completely."""
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -57,6 +65,13 @@ class DiscoveredModule:
 
     module: str
     source_path: Path
+    is_package_init: bool = False
+    """Whether this record is a package ``__init__.py``.
+
+    Python resolves a name to the package's initializer in preference to a
+    sibling module spelled the same way, so a caller deciding which record owns
+    a dotted name needs this rather than the path alone.
+    """
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -81,7 +96,19 @@ def discover_modules(root: Path, package: str) -> Discovery:
     each caller makes traversal order a property of the tree instead of the
     filesystem, and gives a caller that keys a mapping by module name
     first-record semantics from this order alone.
+
+    Every record carries ``is_package_init`` so a caller can tell the module a
+    package resolves to from a plain module with the same dotted name, without
+    re-deriving it from the path.
+
+    Raises
+    ------
+    DiscoveryError
+        A directory beneath ``root`` could not be listed. Discovery never
+        silently returns a partial tree: a missing subtree would read as clean
+        coverage of files the walk never saw.
     """
+    source_paths = sorted(_walk_source_paths(root))
     return Discovery(
         package=package,
         root=root,
@@ -89,10 +116,30 @@ def discover_modules(root: Path, package: str) -> Discovery:
             DiscoveredModule(
                 module=compute_module_name(root, package, source_path),
                 source_path=source_path,
+                is_package_init=source_path.name == "__init__.py",
             )
-            for source_path in sorted(root.rglob("*.py"))
+            for source_path in source_paths
         ),
     )
+
+
+def _walk_source_paths(root: Path) -> cabc.Iterator[Path]:
+    """Yield every ``*.py`` file beneath ``root``, surfacing traversal errors.
+
+    ``Path.rglob`` and ``Path.glob`` swallow ``OSError`` and return whatever
+    they managed to list, so an unreadable subtree would look like an empty
+    one. ``Path.walk`` reports the failure to ``on_error`` instead, which this
+    walk turns into :class:`DiscoveryError` naming the directory to fix.
+    """
+
+    def fail_with_context(error: OSError) -> typ.NoReturn:
+        msg = f"{error.filename}: cannot list directory: {error.strerror}"
+        raise DiscoveryError(msg) from error
+
+    for directory, _, filenames in root.walk(on_error=fail_with_context):
+        for filename in filenames:
+            if filename.endswith(".py"):
+                yield directory / filename
 
 
 def relative_import_base(module_name: str, *, is_package_init: bool, level: int) -> str:

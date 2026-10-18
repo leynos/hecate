@@ -31,6 +31,13 @@ rather than calling `ast.parse` themselves, and the CLI treats `SourceError`
 like `ConfigError` and exits with its input-validation code, so a broken
 checkout is reported rather than raised as a traceback.
 
+Discovery has its own failure mode. `Path.rglob` swallows `OSError` and returns
+whatever it managed to list, so an unreadable subtree would look like an empty
+one and the module pass would report clean coverage of files the walk never saw.
+`discover_modules` therefore walks with `Path.walk(on_error=...)` and turns a
+failed listing into `DiscoveryError` naming the directory; the CLI treats that
+like `SourceError` and exits 2 rather than trusting a partial tree.
+
 `imports.py` exposes `DirectImport` and `FromImport`, plus the helpers
 `compute_module_name` (dotted name for a source path under a package root) and
 `relative_import_base` (absolute base for a relative import level).
@@ -39,13 +46,14 @@ can apply Python's ordering rules; `FromImport.names` preserves `"*"` entries
 verbatim, so wildcard handling is decided downstream rather than assumed here.
 `discover_modules` is the one recursive walk of a package root. It returns a
 `Discovery` holding the root's name and a tuple of `DiscoveredModule` records,
-each pairing one `*.py` path with its dotted name, sorted by path.
-`check_architecture` walks every root once, up front, and hands the same
-`Discovery` records to the namespace pass, the edge pass, and the module pass,
-so a root is walked once per run rather than once per pass and the three cannot
-disagree about which files exist. `Discovery` carries the root's identity
-rather than a `PackageRoot` so discovery stays a property of the tree and
-`imports.py` keeps no dependency on the configuration model.
+each pairing one `*.py` path with its dotted name and a flag saying whether it
+is a package `__init__.py`, sorted by path. `check_architecture` walks every
+root once, up front, and hands the same `Discovery` records to the namespace
+pass, the edge pass, and the module pass, so a root is walked once per run
+rather than once per pass and the three cannot disagree about which files exist.
+`Discovery` carries the root's identity rather than a `PackageRoot` so
+discovery stays a property of the tree and `imports.py` keeps no dependency on
+the configuration model.
 
 `module_scope.py` answers only which statements run at module scope: an `if`,
 `try`, loop, `with`, or `match` body still executes at import time, so its
@@ -98,21 +106,45 @@ invoked in every mode, but under `ignore` it returns before classifying
 anything and records nothing, so the default traversal does no extra work.
 
 `module_coverage.py` owns the second pass. It reads the policy's
-`unclassified_modules` mode and records a `UnclassifiedModuleDiagnostic` for
-every discovered module `policy.group_for` does not claim. Keeping it out of
-`checker.py` separates the two questions the passes ask: `checker.py`
-classifies edges and knows nothing about module discovery, while
-`module_coverage.py` knows only which modules policy claims. The accumulator is
-passed in rather than returned so the checker's single result object stays the
-one place diagnostics are merged and sorted.
+`unclassified_modules` mode and records an `UnclassifiedModuleDiagnostic` for
+every discovered module `policy.claims_module` does not claim. Keeping the
+predicate in `policy.py` and the traversal in `module_coverage.py` separates
+the two questions the passes ask: `checker.py` owns discovery, namespace
+analysis, and edge classification, but delegates the policy question "does some
+group own this file?" to the module pass, which knows only the discovered
+records and the policy. The accumulator is passed in rather than returned so
+the checker's single result object stays the one place diagnostics are merged
+and sorted.
+
+Claiming is a different predicate from edge classification. `group_for` answers
+"which group classifies this module?", while `claims_module` answers "is this
+module inside some group's scope?". They differ for one record: a package
+initializer is claimed when any configured prefix lies beneath it, because the
+initializer imports and re-exports what its submodules bind. A conventional
+package declared with specific groups such as `pkg.domain` thus needs no group
+for `pkg` itself, and adding a recursive `pkg` group would classify every
+future subpackage the module pass exists to detect. Plain modules get no
+containment, so `pkg.newfeature` remains reported.
+
+`ArchitectureCheckResult` carries `unclassified_modules` beside `violations`,
+`ignored`, and `coverage`, and `ok` treats an error-severity module finding
+exactly like an error-severity coverage entry. Rendering is deliberately
+asymmetric across the two formats. `render_text` always prints module findings,
+because the configured mode already asked for them.
+`render_json(..., include_unclassified=...)` defaults to omitting the
+`unclassified_modules` array, and `check` passes `True` whenever the mode is not
+`ignore`. When included, the array is present even if empty, which a consumer
+reads as "evaluated and clean"; under `ignore` the key is absent.
 
 For screen readers: The following sequence diagram shows the checker running
 the module-coverage pass. The checker walks each package root once through
 `discover_modules`, then hands the discovered modules, the policy, and the
-accumulator to `collect_unclassified_modules`. That pass asks the policy for
-each module's group. Under the `ignore` mode it records nothing; otherwise a
-module no group claims is recorded as an `UnclassifiedModuleDiagnostic`. The
-checker returns the assembled result, and the CLI renders it as text or JSON.
+accumulator to `collect_unclassified_modules`. That pass first reads the
+policy's `unclassified_modules` mode. Under the `ignore` mode it records
+nothing and asks no further question. Otherwise it asks the policy whether each
+module is claimed; only a module no group claims is recorded as an
+`UnclassifiedModuleDiagnostic`. The checker returns the assembled result, and
+the CLI renders it as text or JSON.
 
 ```mermaid
 sequenceDiagram
@@ -127,12 +159,14 @@ sequenceDiagram
     Checker->>Discovery: discover_modules(root, package)
     Discovery-->>Checker: Discovery(modules)
     Checker->>Coverage: collect_unclassified_modules(modules, policy, report)
-    Coverage->>Policy: group_for(module)
-    Policy-->>Coverage: matching group or None
     alt unclassified_modules = ignore
         Coverage-->>Checker: no diagnostic
-    else module has no matching group
-        Coverage-->>Checker: UnclassifiedModuleDiagnostic
+    else warn or error
+        Coverage->>Policy: claims_module(module, is_package_init)
+        Policy-->>Coverage: claimed or not
+        opt no group claims the module
+            Coverage-->>Checker: UnclassifiedModuleDiagnostic
+        end
     end
     Checker-->>CLI: ArchitectureCheckResult
     CLI->>Output: render_text or render_json

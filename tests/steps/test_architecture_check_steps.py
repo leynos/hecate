@@ -68,19 +68,6 @@ def given_unclassified_modules_config(fixture_ctx: FixtureContext, mode: str) ->
     )
 
 
-@given('a Hecate config with unclassified modules set to "error" and a catch-all group')
-def given_fully_classified_config(fixture_ctx: FixtureContext) -> None:
-    """Rewrite the fixture config so every module in the tree classifies.
-
-    The catch-all group comes last so the specific groups still win; adding it
-    first would classify the whole tree by prefix and hide any classification
-    bug the scenario is meant to expose.
-    """
-    fixture_ctx.config.write_text(
-        policy_toml(unclassified_modules="error", catch_all=True), encoding="utf-8"
-    )
-
-
 @given("an invalid Hecate config", target_fixture="fixture_ctx")
 def given_invalid_config(tmp_path: Path) -> FixtureContext:
     """Create a config with an undeclared allowed group."""

@@ -19,6 +19,7 @@ from .config_helpers import (
     _read_string_tuple,
     _validate_dotted_strings,
 )
+from .diagnostics import UNCLASSIFIED_MODULE_RULE_ID
 from .policy import (
     ArchitecturePolicy,
     IgnoredImport,
@@ -346,6 +347,12 @@ def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
 
 
 def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
+    if policy.default_rule_id == UNCLASSIFIED_MODULE_RULE_ID:
+        msg = (
+            f"{path}: default_rule_id {UNCLASSIFIED_MODULE_RULE_ID!r} is reserved "
+            "for unclassified-module diagnostics; choose another rule identifier"
+        )
+        raise ConfigError(msg)
     group_names = [group.name for group in policy.groups]
     _check_duplicate_group_names(group_names, path)
     declared_names = set(group_names)

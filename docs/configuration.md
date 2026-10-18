@@ -159,6 +159,14 @@ Coverage of discovered modules is broader than coverage of scanned imports:
 - Classification uses the same ordered, first-match rule as edges. A dotted
   prefix matches at a boundary, so a group for `sample.domain` does not
   classify a lookalike `sample.domainx`.
+- A package `__init__.py` is claimed when any configured prefix lies beneath
+  it. An initializer imports and re-exports what its submodules bind, so a
+  policy that governs `sample.domain` already governs the `sample.domain`
+  package itself. Without this rule every conventional package would need a
+  recursive group for its own root, and that group would then claim every
+  future subpackage the module pass exists to find. The containment stops at
+  the initializer: `sample.newthing` is a plain module and is still reported
+  even when `sample` itself is an initializer some group covers.
 - External imports are unaffected. They continue to follow
   `include_external_packages` and the external prefixes groups declare; a
   third-party dependency is not an unclassified internal module.
@@ -176,6 +184,8 @@ Coverage of discovered modules is broader than coverage of scanned imports:
 - Ignores must include a non-empty reason.
 - `unresolved_internal_severity` must be `error`, `warning`, or `exempt`.
 - `unclassified_modules` must be `ignore`, `warn`, or `error`.
+- `default_rule_id` must not be `HEC002`, which is reserved for
+  unclassified-module diagnostics.
 - Missing or non-directory package roots fail before scanning.
 - Configuration errors include the TOML file path and the failing context.
 

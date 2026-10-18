@@ -210,7 +210,7 @@ def _unclassified(
     """Build one unclassified-module diagnostic for rendering tests."""
     return UnclassifiedModuleDiagnostic(
         module=module,
-        source_path=tmp_path / f"{module.replace('.', '/')}/__init__.py",
+        source_path=tmp_path.joinpath(*module.split("."), "__init__.py"),
         severity=severity,
     )
 

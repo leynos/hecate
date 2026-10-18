@@ -7,9 +7,8 @@ the command half (text and JSON output, the exit-code policy, and the byte
 identical default output), because a mode that parsed but did not reach the
 renderer would pass a config-only test.
 
-The configuration half shares ``_assert_config_rejects`` with
-``test_config_output_cli.py``; it is small enough that duplicating it here keeps
-each module readable on its own.
+The configuration half uses the shared ``assert_config_rejects`` helper,
+because rejection scaffolding is the same wherever a config is refused.
 """
 
 from __future__ import annotations
@@ -19,39 +18,13 @@ import typing as typ
 from pathlib import Path
 
 import pytest
+from config_fixtures import assert_config_rejects
 
 from hecate.cli import main
-from hecate.config import ConfigError, load_config
+from hecate.config import load_config
 
 if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture
-
-
-def _assert_config_rejects(
-    tmp_path: Path,
-    toml_text: str,
-    *expected_substrings: str,
-) -> None:
-    """Scaffold a temp config and assert ``load_config`` raises ``ConfigError``.
-
-    The config file path and every string in *expected_substrings* must appear in
-    the resulting error message.
-    """
-    config = tmp_path / "pyproject.toml"
-    (tmp_path / "pkg").mkdir(exist_ok=True)
-    config.write_text(toml_text, encoding="utf-8")
-
-    with pytest.raises(ConfigError) as exc_info:
-        load_config(config)
-
-    error_text = str(exc_info.value)
-    assert str(config) in error_text, (
-        f"expected config path {config!r} in error message: {error_text}"
-    )
-    for expected in expected_substrings:
-        assert expected in error_text, (
-            f"expected {expected!r} in error message: {error_text}"
-        )
 
 
 _UNCLASSIFIED_MODULES_CONFIG = """
@@ -122,7 +95,7 @@ def test_config_rejects_invalid_unclassified_modules(
     Both cases must name the permitted values, because the setting is a closed
     set and a reader needs the alternatives, not just the rejection.
     """
-    _assert_config_rejects(
+    assert_config_rejects(
         tmp_path,
         _UNCLASSIFIED_MODULES_CONFIG.format(mode=mode_setting),
         "tool.hecate.unclassified_modules",
@@ -156,6 +129,32 @@ def _write_unclassified_package(tmp_path: Path, mode: str) -> Path:
     config = tmp_path / "pyproject.toml"
     config.write_text(_UNCLASSIFIED_PACKAGE.format(mode=mode), encoding="utf-8")
     return config
+
+
+def test_config_rejects_the_reserved_module_rule_id(tmp_path: Path) -> None:
+    """``default_rule_id`` may not claim the module pass's fixed identifier.
+
+    Edge diagnostics carry the configured identifier and module diagnostics
+    always carry ``HEC002``. A consumer distinguishes the two rules by that
+    identifier, so a configuration that made them equal would break the
+    guarantee the users' guide gives.
+    """
+    assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["pkg"]
+default_rule_id = "HEC002"
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["pkg"]
+allowed = ["domain"]
+""",
+        "default_rule_id",
+        "HEC002",
+        "reserved",
+    )
 
 
 def test_cli_warn_mode_reports_without_failing(
@@ -229,7 +228,7 @@ def test_cli_error_mode_json_lists_unclassified_modules(
     assert exit_code == 1, f"error mode must fail the check, got {payload!r}"
     assert payload["ok"] is False, f"error findings must clear ok, got {payload!r}"
     modules = [entry["module"] for entry in payload["unclassified_modules"]]
-    assert modules == ["pkg", "pkg.newfeature", "pkg.newfeature.helper"], (
+    assert modules == ["pkg.newfeature", "pkg.newfeature.helper"], (
         f"expected a sorted module list, got {modules!r}"
     )
     entry = payload["unclassified_modules"][0]
@@ -238,9 +237,9 @@ def test_cli_error_mode_json_lists_unclassified_modules(
     assert entry["message"] == "no architecture group matched this module", (
         f"expected the coverage message, got {entry!r}"
     )
-    assert entry["source_path"].endswith("pkg/__init__.py"), (
-        f"expected the first source path to win, got {entry!r}"
-    )
+    assert Path(entry["source_path"]) == (
+        tmp_path / "pkg" / "newfeature" / "__init__.py"
+    ), f"expected the first finding's source path, got {entry!r}"
 
 
 def test_cli_warn_mode_json_reports_an_empty_array_when_fully_classified(
