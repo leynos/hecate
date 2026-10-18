@@ -93,6 +93,22 @@ other configuration checks. Shadowing is a configuration error rather than an
 opt-in flag or warning, so an unreachable group cannot silently support a green
 architecture check.
 
+**Figure: Ordered prefix validation.** For each prefix in a later group, Hecate
+checks earlier groups in order. An equal or dotted-ancestor prefix shadows it
+and causes configuration rejection; if no earlier prefix contains it, the
+configuration remains valid.
+
+```mermaid
+flowchart LR
+    Groups["Ordered module groups"] --> Later["Inspect each prefix in later groups"]
+    Later --> Earlier["Check earlier-group prefixes"]
+    Earlier --> Boundary["module_prefix_contains"]
+    Boundary -->|equal or dotted ancestor| Shadow["Create ShadowedPrefix"]
+    Boundary -->|not contained| Continue["Keep checking"]
+    Shadow --> Reject["Reject configuration with repair"]
+    Continue --> Accepted["Configuration remains valid"]
+```
+
 `checker.py` orchestrates the run. `check_architecture` analyses namespaces,
 builds the origin index, evaluates every statement under each package root, and
 returns an `ArchitectureCheckResult` whose `ok` property is true only when
