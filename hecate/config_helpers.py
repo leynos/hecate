@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses as dc
 import typing as typ
 
+from .diagnostics import UNCLASSIFIED_MODULE_RULE_ID
 from .policy import UNCLASSIFIED_MODULE_MODES, Severity
 
 if typ.TYPE_CHECKING:
@@ -27,6 +28,31 @@ def _validate_dotted_strings(values: tuple[str, ...], loc: _Loc) -> None:
     for value in values:
         if _is_invalid_dotted_string(value):
             msg = f"{loc.path}: {loc.context} contains invalid dotted string {value!r}"
+            raise ConfigError(msg)
+
+
+def _validate_rule_id(rule_id: str, path: Path) -> None:
+    """Reject the fixed identifier used by unclassified-module diagnostics.
+
+    Edge diagnostics carry the configured identifier, so reusing the module
+    diagnostic's identifier would make the two rules indistinguishable.
+    """
+    if rule_id != UNCLASSIFIED_MODULE_RULE_ID:
+        return
+    msg = (
+        f"{path}: default_rule_id {UNCLASSIFIED_MODULE_RULE_ID!r} is reserved "
+        "for unclassified-module diagnostics; choose another rule identifier"
+    )
+    raise ConfigError(msg)
+
+
+def _validate_package_roots(package_roots: tuple[Path, ...], path: Path) -> None:
+    if not package_roots:
+        msg = f"{path}: at least one package root is required"
+        raise ConfigError(msg)
+    for package_root in package_roots:
+        if not package_root.is_dir():
+            msg = f"{path}: package root {package_root} is not a directory"
             raise ConfigError(msg)
 
 

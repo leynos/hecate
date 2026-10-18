@@ -8,11 +8,11 @@ import typing as typ
 from pathlib import Path
 
 from pytest_bdd import given, parsers, scenarios, then, when
-from shadowed_prefix_fixtures import write_composition_root_config
 
 from hecate.cli import main
 
 from .fixture_setup import policy_toml, write_base_package, write_fixture
+from .shadowed_prefix_fixtures import write_composition_root_config
 
 if typ.TYPE_CHECKING:
     from _pytest.capture import CaptureFixture

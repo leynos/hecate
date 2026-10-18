@@ -18,8 +18,9 @@ from .config_helpers import (
     _read_string,
     _read_string_tuple,
     _validate_dotted_strings,
+    _validate_package_roots,
+    _validate_rule_id,
 )
-from .diagnostics import UNCLASSIFIED_MODULE_RULE_ID
 from .policy import (
     ArchitecturePolicy,
     IgnoredImport,
@@ -131,7 +132,7 @@ def load_config(
         ),
     )
     _validate_policy(policy, config_path)
-    _validate_package_roots(packages, config_path)
+    _validate_package_roots(tuple(package.root for package in packages), config_path)
     return HecateConfig(
         packages=packages,
         policy=policy,
@@ -386,32 +387,6 @@ def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
     _validate_group_prefix_order(policy, path)
     for ignored_import in policy.ignores:
         _validate_ignore_reason(ignored_import, path)
-
-
-def _validate_rule_id(rule_id: str, path: Path) -> None:
-    """Raise ConfigError when ``rule_id`` claims a reserved identifier.
-
-    Module diagnostics always carry HEC002. Edge diagnostics carry the
-    configured identifier, so the two would be indistinguishable, and the
-    guarantee the users' guide gives would be false.
-    """
-    if rule_id != UNCLASSIFIED_MODULE_RULE_ID:
-        return
-    msg = (
-        f"{path}: default_rule_id {UNCLASSIFIED_MODULE_RULE_ID!r} is reserved "
-        "for unclassified-module diagnostics; choose another rule identifier"
-    )
-    raise ConfigError(msg)
-
-
-def _validate_package_roots(packages: tuple[PackageRoot, ...], path: Path) -> None:
-    if not packages:
-        msg = f"{path}: at least one package root is required"
-        raise ConfigError(msg)
-    for package_root in packages:
-        if not package_root.root.is_dir():
-            msg = f"{path}: package root {package_root.root} is not a directory"
-            raise ConfigError(msg)
 
 
 def _resolve_config_path(config_path: Path, configured_path: Path) -> Path:
