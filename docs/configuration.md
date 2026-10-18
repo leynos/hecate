@@ -262,12 +262,17 @@ change that introduces it.
 
 Hecate resolves an edge against the group's policy in this order:
 
-1. an edge outside the scanned roots, or matching no group, is skipped or
-   reported as coverage;
+1. an out-of-scope external edge is skipped, and an edge with an endpoint that
+   matches no group, or an unresolved internal target, is exempted or reported
+   as coverage;
 2. an `allowed` target passes silently;
 3. a matching `ignore_imports` entry exempts the edge;
 4. a `warn` target is reported as a warning; and
 5. anything else is a violation.
+
+An external edge is in scope only when `include_external_packages` is enabled
+and a configured group claims its prefix, so a claimed external package reaches
+steps 2 to 5 like any other edge and may be allowed, warned, or forbidden.
 
 `allowed` is checked before `ignore_imports`, so an ignore aimed at an edge the
 policy already allows never matches. It stays visible as an unmatched ignore
