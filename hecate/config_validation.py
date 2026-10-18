@@ -37,5 +37,6 @@ def _shadowed_prefix_remedy(shadow: ShadowedPrefix) -> str:
     return (
         f"place group {shadow.shadowed_group!r} before group "
         f"{shadow.winning_group!r} to make the narrower "
-        "classification effective"
+        "classification effective, remove the unreachable prefix, or move it "
+        "to the group that should own it"
     )

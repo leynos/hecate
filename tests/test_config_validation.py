@@ -38,6 +38,8 @@ allowed = ["composition_root", "inbound_adapter"]
         "sample.api.runtime",
         "place group 'composition_root' before group 'inbound_adapter'",
         "narrower classification effective",
+        "remove the unreachable prefix",
+        "move it to the group that should own it",
     )
 
 
