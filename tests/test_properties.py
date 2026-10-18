@@ -91,8 +91,11 @@ def test_shadowed_prefix_records_match_first_group_classification(
             winning_group="winner",
             winning_prefix=broad_prefix,
         ),
+    ), f"expected the narrow prefix shadow record, got {shadows!r}"
+    matched = first_matching_group(narrow_prefix, groups)
+    assert matched == groups[0], (
+        f"expected winning group {groups[0]!r}, got {matched!r}"
     )
-    assert first_matching_group(narrow_prefix, groups) == groups[0]
 
 
 @given(
@@ -110,9 +113,18 @@ def test_unshadowed_prefixes_with_unique_owners_keep_their_classification(
         ModuleGroup("second", (second_prefix,), ("second",)),
     )
 
-    assert not find_shadowed_prefixes(groups)
-    assert first_matching_group(first_prefix, groups) == groups[0]
-    assert first_matching_group(second_prefix, groups) == groups[1]
+    shadows = find_shadowed_prefixes(groups)
+    assert not shadows, (
+        f"expected disjoint prefixes to stay unshadowed, got {shadows!r}"
+    )
+    first_match = first_matching_group(first_prefix, groups)
+    assert first_match == groups[0], (
+        f"expected {first_prefix!r} to match {groups[0]!r}, got {first_match!r}"
+    )
+    second_match = first_matching_group(second_prefix, groups)
+    assert second_match == groups[1], (
+        f"expected {second_prefix!r} to match {groups[1]!r}, got {second_match!r}"
+    )
 
 
 def test_origin_index_is_idempotent_for_unchanged_package(tmp_path: Path) -> None:

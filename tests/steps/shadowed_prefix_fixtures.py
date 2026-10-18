@@ -19,6 +19,7 @@ def write_composition_root_config(root: Path, *, narrow_first: bool) -> Path:
         "from sample.domain import model\n",
         encoding="utf-8",
     )
+    (package_root / "domain" / "model.py").write_text("", encoding="utf-8")
 
     composition_root = """
 [[tool.hecate.groups]]

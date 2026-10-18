@@ -11,6 +11,133 @@ from hecate.config import load_config
 from hecate.policy import Severity, first_matching_group
 
 
+def test_config_validation_rejects_shadowed_narrower_prefix(
+    tmp_path: Path,
+) -> None:
+    """A later exception cannot silently lose to an earlier broad group."""
+    (tmp_path / "sample").mkdir()
+    _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter", "composition_root"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api.runtime"]
+allowed = ["composition_root", "inbound_adapter"]
+""",
+        "inbound_adapter",
+        "sample.api",
+        "composition_root",
+        "sample.api.runtime",
+        "place group 'composition_root' before group 'inbound_adapter'",
+        "narrower classification effective",
+    )
+
+
+def test_equal_group_prefix_diagnostic_recommends_removal(
+    tmp_path: Path,
+) -> None:
+    """Equal prefixes need removal because ordering only swaps the winner."""
+    (tmp_path / "sample").mkdir()
+    _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api"]
+allowed = ["composition_root"]
+""",
+        "remove the duplicate prefix from group 'composition_root'",
+    )
+
+
+def test_config_rejection_lists_multiple_shadows_in_configuration_order(
+    tmp_path: Path,
+) -> None:
+    """Each later prefix gets one diagnostic in declared order."""
+    (tmp_path / "sample").mkdir()
+    error_text = _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "inbound_adapter"
+prefixes = ["sample.api"]
+allowed = ["inbound_adapter", "composition_root"]
+
+[[tool.hecate.groups]]
+name = "composition_root"
+prefixes = ["sample.api.runtime", "sample.api.handlers"]
+allowed = ["composition_root", "inbound_adapter"]
+""",
+        "prefix 'sample.api.runtime' in group 'composition_root'",
+        "prefix 'sample.api.handlers' in group 'composition_root'",
+    )
+
+    runtime_diagnostic = error_text.index(
+        "prefix 'sample.api.runtime' in group 'composition_root'"
+    )
+    handlers_diagnostic = error_text.index(
+        "prefix 'sample.api.handlers' in group 'composition_root'"
+    )
+    assert runtime_diagnostic < handlers_diagnostic, (
+        f"expected diagnostics in prefix order, got {error_text!r}"
+    )
+
+
+def test_config_rejection_only_reports_shadow_within_its_package_root(
+    tmp_path: Path,
+) -> None:
+    """Two roots stay independent when only beta has a broad-before-narrow pair."""
+    for package_root in ("alpha", "beta"):
+        (tmp_path / package_root).mkdir()
+    error_text = _assert_config_rejects(
+        tmp_path,
+        """
+[tool.hecate]
+root_packages = ["alpha", "beta"]
+
+[[tool.hecate.groups]]
+name = "alpha_api"
+prefixes = ["alpha.api"]
+allowed = ["alpha_api"]
+
+[[tool.hecate.groups]]
+name = "beta_api"
+prefixes = ["beta.api"]
+allowed = ["beta_api", "beta_root"]
+
+[[tool.hecate.groups]]
+name = "beta_root"
+prefixes = ["beta.api.runtime"]
+allowed = ["beta_root", "beta_api"]
+""",
+        "prefix 'beta.api.runtime' in group 'beta_root'",
+        "earlier prefix 'beta.api' in group 'beta_api'",
+    )
+
+    assert "alpha.api" not in error_text, (
+        f"the independent alpha root should not be reported: {error_text!r}"
+    )
+
+
 @pytest.mark.parametrize(
     ("roots", "toml_text", "classifications"),
     [

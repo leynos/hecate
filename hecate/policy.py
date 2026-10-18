@@ -75,7 +75,19 @@ class ModuleGroup:
 
 @dc.dataclass(frozen=True, slots=True)
 class ShadowedPrefix:
-    """A group prefix that an earlier group prefix makes unreachable."""
+    """A group prefix that an earlier group prefix makes unreachable.
+
+    Attributes
+    ----------
+    shadowed_group : str
+        Name of the later group whose prefix is unreachable.
+    shadowed_prefix : str
+        Prefix declared by the later group.
+    winning_group : str
+        Name of the earliest earlier group that contains the prefix.
+    winning_prefix : str
+        Earliest earlier-group prefix that contains the shadowed prefix.
+    """
 
     shadowed_group: str
     shadowed_prefix: str
@@ -193,6 +205,18 @@ def find_shadowed_prefixes(
     the earliest earlier group. Prefixes within one group are intentionally not
     compared, since they cannot change which group first-match classification
     selects.
+
+    Parameters
+    ----------
+    groups : tuple[ModuleGroup, ...]
+        Groups in configured first-match order.
+
+    Returns
+    -------
+    tuple[ShadowedPrefix, ...]
+        One record per shadowed later-group prefix, in group then prefix order.
+        Each record names the earliest containing prefix in the first earlier
+        group that contains it. Empty when no later prefix is shadowed.
     """
     shadowed: list[ShadowedPrefix] = []
     for group_index, group in enumerate(groups):
