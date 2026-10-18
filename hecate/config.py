@@ -364,9 +364,9 @@ def _shadowed_prefix_remedy(shadow: ShadowedPrefix) -> str:
 
 def _validate_group_prefix_order(policy: ArchitecturePolicy, path: Path) -> None:
     """Reject prefixes made unreachable by earlier groups."""
-    loc = _Loc(path=path, context="tool.hecate.groups")
+    context = "tool.hecate.groups"
     diagnostics = [
-        f"{loc.path}: {loc.context}: prefix {shadow.shadowed_prefix!r} in "
+        f"{path}: {context}: prefix {shadow.shadowed_prefix!r} in "
         f"group {shadow.shadowed_group!r} is shadowed by earlier prefix "
         f"{shadow.winning_prefix!r} in group {shadow.winning_group!r}; "
         f"{_shadowed_prefix_remedy(shadow)}"
