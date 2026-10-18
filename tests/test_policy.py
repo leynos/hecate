@@ -83,7 +83,10 @@ def test_find_shadowed_prefixes_accepts_narrow_before_broad_order() -> None:
 
     shadows = find_shadowed_prefixes(groups)
     assert not shadows, f"expected no shadows for narrow-first order, got {shadows!r}"
-    assert first_matching_group("sample.api.runtime", groups) == groups[0]
+    matched = first_matching_group("sample.api.runtime", groups)
+    assert matched == groups[0], (
+        f"expected 'sample.api.runtime' to match {groups[0]!r}, got {matched!r}"
+    )
 
 
 def test_find_shadowed_prefixes_ignores_same_group_redundancy() -> None:

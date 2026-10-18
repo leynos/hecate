@@ -9,7 +9,20 @@ if typ.TYPE_CHECKING:
 
 
 def write_composition_root_config(root: Path, *, narrow_first: bool) -> Path:
-    """Write a package where only the composition root may import domain."""
+    """Write a package where only the composition root may import domain.
+
+    Parameters
+    ----------
+    root : Path
+        Directory in which to write the package and configuration.
+    narrow_first : bool
+        Whether the composition-root group precedes the broader adapter group.
+
+    Returns
+    -------
+    Path
+        Path to the generated ``pyproject.toml`` configuration.
+    """
     package_root = root / "sample"
     for subpackage in ("", "api", "domain"):
         directory = package_root / subpackage
