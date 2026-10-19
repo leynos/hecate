@@ -423,12 +423,12 @@ the only thing that acts on them.
 
 `ok` describes the architecture result, not the command outcome. `check`
 computes the exit-code decision in a local `passed`, which differs from `ok`
-only under `--fail-on-warnings`, and passes it to the renderer as a
-keyword-only argument. Keeping the decision out of `ArchitectureCheckResult`
-means the architecture query stays a query: a result describes what was found,
-while `passed` describes what the command did about it. Both renderers accept
-`passed` explicitly and fall back to `ok` when it is omitted, so a caller with
-no enforcement policy still gets a truthful outcome. A renderer given
+only under `--fail-on-warnings`, and passes it to the renderer as a keyword.
+Keeping the decision out of `ArchitectureCheckResult` means the architecture
+query stays a query: a result describes what was found, while `passed`
+describes what the command did about it. Both renderers accept `passed`
+explicitly and fall back to `ok` when it is omitted, so a caller with no
+enforcement policy still gets a truthful outcome. A renderer given
 `passed=True` for a result that did not pass raises `ValueError` rather than
 printing a pass notice beside its own violations.
 
@@ -634,8 +634,11 @@ be explored symbolically.
 
 Rendering lives in `output.py`. A new format follows the shape of `render_text`
 and `render_json`: take an `ArchitectureCheckResult`, return a string, and keep
-the result deterministic. Both existing renderers accept `show_ignored` and
-`show_coverage` keyword-only flags, and they default `show_coverage`
+the result deterministic. Both existing renderers take their options as
+keywords described by the `RenderOptions` `TypedDict`, so a caller writes
+`render_json(result, show_coverage=False)` and ty reports an unknown or
+misspelled name. The runtime refuses an unknown keyword too, because
+`**options` alone would silently drop it. They default `show_coverage`
 differently: `render_json` to `True`, `render_text` to `False`.
 `_emit_check_output` then makes the difference user-visible by always passing
 `show_coverage=True` for JSON, so machine consumers receive coverage without an
@@ -647,16 +650,15 @@ question, and the asymmetry described under
 [Discovery and the two passes](#discovery-and-the-two-passes) is the intended
 answer.
 
-Both renderers keep the keyword-only signatures they had before warning
-support, so existing callers are unaffected; the command outcome is added as
-one more keyword-only argument rather than replacing them. `check` computes the
-exit-code decision and passes it as `passed`; omitting it falls back to `ok`,
-which is the right answer for a caller with no enforcement policy. A
-warning-only run failed by `--fail-on-warnings` therefore renders as failed,
-and a new format should take `passed` the same way and derive its outcome from
-it with `ok` as the fallback. A renderer must refuse `passed=True` for a result
-that did not pass, because output claiming success beside a violation is worse
-than an exception.
+Both renderers keep the keyword names they had before warning support, so
+existing callers are unaffected; the command outcome is added as one more
+keyword rather than replacing them. `check` computes the exit-code decision and
+passes it as `passed`; omitting it falls back to `ok`, which is the right
+answer for a caller with no enforcement policy. A warning-only run failed by
+`--fail-on-warnings` therefore renders as failed, and a new format should take
+`passed` the same way and derive its outcome from it with `ok` as the fallback.
+A renderer must refuse `passed=True` for a result that did not pass, because
+output claiming success beside a violation is worse than an exception.
 
 A new format must also be reachable from the command line, which means
 extending the `OutputFormat` `StrEnum` in `cli.py` and adding the branch to
@@ -672,12 +674,13 @@ scanned package. Whole-payload snapshots live in
 `load_config` and `check_architecture` path, normalize the temporary path to
 `<tmp>`, and compare the entire document, so a reordering or a lost section
 fails rather than slipping past substring assertions.
-`tests/test_output_signatures.py` pins the call contract — the keyword-only
-options, the explicit `passed` outcome, and the refusal of a contradicted pass
-claim. A behavioural scenario in `tests/features/architecture_check.feature` is
-warranted when the format changes what a user sees from the command line, as
-the JSON step in the unclassified-subtree scenario does: it runs the check with
-`--format json` and asserts the payload mentions the expected edge state.
+`tests/test_output_signatures.py` pins the call contract — the keyword options,
+the refusal of an unknown keyword, the explicit `passed` outcome, and the
+refusal of a contradicted pass claim. A behavioural scenario in
+`tests/features/architecture_check.feature` is warranted when the format
+changes what a user sees from the command line, as the JSON step in the
+unclassified-subtree scenario does: it runs the check with `--format json` and
+asserts the payload mentions the expected edge state.
 
 #### Adding an export form
 
