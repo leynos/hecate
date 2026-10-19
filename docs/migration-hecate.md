@@ -1,10 +1,10 @@
 # Hecate migration notes
 
 These notes record the user-facing changes in the next pre-1.0 minor release,
-relative to 0.1.0. The release introduces coverage reporting and strict mode in
-`hecate check`, and corrects re-export and `__all__` semantics. Projects
-already running `hecate check` should read this document before refreshing a
-policy or a gate that consumes Hecate output.
+relative to 0.1.0. The release introduces coverage reporting, strict mode, and
+warning-level dependency directions in `hecate check`, and corrects re-export
+and `__all__` semantics. Projects already running `hecate check` should read
+this document before refreshing a policy or a gate that consumes Hecate output.
 
 ## Coverage reporting
 
@@ -34,6 +34,8 @@ The new `hecate check` options are:
   single run.
 - `--show-coverage` adds coverage warnings to text output; JSON always
   carries them.
+- `--fail-on-warnings` exits `1` when warning-level edges were reported; see
+  [Warning-level dependency directions](#warning-level-dependency-directions).
 
 ## External edges
 
@@ -179,6 +181,72 @@ inside an `if`, `try`, or loop body adds an origin instead of replacing one.
 A boundary violation can no longer hide behind a barrel that re-exports a
 forbidden module explicitly while omitting it from `__all__`.
 
+## Warning-level dependency directions
+
+A group may name a target in a new `warn` list. Edges in that direction are
+reported without failing the run, which lets a migration declare a dependency
+it intends to remove instead of leaving it undeclared:
+
+```toml
+[[tool.hecate.groups]]
+name = "application"
+prefixes = ["sample.application"]
+allowed = ["application", "domain"]
+warn = ["legacy"]
+
+[[tool.hecate.groups]]
+name = "legacy"
+prefixes = ["sample.legacy"]
+allowed = ["legacy"]
+```
+
+Each warned edge is printed with `(warning)` in place of a violation's rule
+prefix, so the direction is visible on a green run:
+
+```plaintext
+HEC001 (warning): sample.application.service:1 imports warning-level module sample.legacy.old (application -> legacy)
+```
+
+Warnings do not change the exit code by default: a run whose only findings are
+warned edges still exits `0`. Warnings are also rendered beside violations, so
+a run that fails for a real violation still names the warned edges it found.
+
+`--fail-on-warnings` makes the run exit `1` when any warned edge was reported,
+after printing the diagnostics. Use it once a toleration is meant to be
+temporary; it turns the warning list into a ratchet that fails on the first new
+entry.
+
+Edges in a warned direction are classified before the violation check, so a
+group that warns one target still forbids every target it does not allow.
+Precedence is unchanged for everything else: an allowed direction is silent
+before `ignore_imports` is consulted, and a documented ignore suppresses a
+warned edge exactly as it suppresses a violation.
+
+### Warning output
+
+Text output always shows warnings, on passing and failing runs alike. JSON
+output always carries a `warnings` array, empty when there is nothing to
+report, so a consumer can read the key unconditionally. Each entry carries
+`state: "warned"`, `severity: "warning"`, and the same identity fields as a
+violation.
+
+JSON also carries a `status` field. `ok` still describes the architecture
+result alone, so it remains `true` for a warning-only run even under
+`--fail-on-warnings`; `status` reports the command outcome and is `"failed"`
+whenever the process exits non-zero. A consumer deciding whether the command
+succeeded should read `status`, while `ok` answers whether the package itself
+passed. Consumers that ignore unknown keys need no change.
+
+### Warning validation
+
+Warning targets follow the same rule as `allowed`: they must name declared
+groups. Configuration loading rejects, and `hecate check` exits `2` for:
+
+- a `warn` value that is not a list of non-blank strings;
+- a warning target that no group declares; and
+- a target listed in both `allowed` and `warn`, which would make the outcome
+  depend on the order the checks run in.
+
 ## Shadowed group prefixes
 
 Configuration loading now rejects a later group's prefix when an earlier
@@ -216,3 +284,12 @@ conflict while both groups retain the prefix.
    `unclassified_modules = "warn"` to surface packages no group claims, then
    switch to `"error"` once the policy covers the tree. Do not set
    `default_rule_id = "HEC002"`, which is reserved for module findings.
+10. Record dependencies planned for removal in a group's `warn` list. The run
+    stays green, and every edge in that direction is reported until the list
+    is emptied.
+11. Update JSON consumers that decide success from `ok` alone. Warnings do not
+    affect `ok`, so a warning-only run under `--fail-on-warnings` reports
+    `ok: true` beside `status: "failed"`.
+12. Once a migration is complete, move the target from `warn` to `allowed` to
+    make it silent, or delete the entry to make it forbidden again. Adopt
+    `--fail-on-warnings` when the toleration is meant to be temporary.
