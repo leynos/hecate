@@ -1,17 +1,22 @@
-"""Build deterministic diagnostics for shadowed group prefixes.
+"""Configuration validation rules and their diagnostics.
 
-The configuration loader owns the validation rule; this module only formats
-the path-qualified messages shown when a policy contains unreachable prefixes.
+The loader reads and parses TOML; this module turns the resulting model into
+the path-qualified messages a user sees when a policy is malformed. Keeping
+the rules here lets ``config.py`` stay a reader, and gives each message one
+place to live.
 """
 
 from __future__ import annotations
 
 import typing as typ
 
+from .config_helpers import ConfigError, _Loc, _validate_dotted_strings
+from .policy import ShadowedPrefix, find_shadowed_prefixes
+
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
-    from .policy import ShadowedPrefix
+    from .policy import ArchitecturePolicy, IgnoredImport, ModuleGroup
 
 
 def _shadowed_prefix_diagnostics(
@@ -44,3 +49,75 @@ def _shadowed_prefix_remedy(shadow: ShadowedPrefix) -> str:
         f"remove every earlier prefix that contains "
         f"{shadow.shadowed_prefix!r}, or move it to the group that should own it"
     )
+
+
+def _check_duplicate_group_names(group_names: list[str], path: Path) -> None:
+    """Raise ConfigError if any group name appears more than once."""
+    duplicate_names = sorted({
+        name for name in group_names if group_names.count(name) > 1
+    })
+    if duplicate_names:
+        msg = f"{path}: duplicate group names: {', '.join(duplicate_names)}"
+        raise ConfigError(msg)
+
+
+def _validate_group_references(
+    group: ModuleGroup, declared_names: set[str], path: Path
+) -> None:
+    """Validate prefixes and allowed/warn group references for one group."""
+    _validate_dotted_strings(
+        group.prefixes, _Loc(path=path, context=f"group {group.name}")
+    )
+    unknown_allowed = sorted(set(group.allowed) - declared_names)
+    if unknown_allowed:
+        msg = (
+            f"{path}: group {group.name} allows undeclared groups: "
+            f"{', '.join(unknown_allowed)}"
+        )
+        raise ConfigError(msg)
+    unknown_warned = sorted(set(group.warn) - declared_names)
+    if unknown_warned:
+        msg = (
+            f"{path}: group {group.name} warns undeclared groups: "
+            f"{', '.join(unknown_warned)}"
+        )
+        raise ConfigError(msg)
+
+
+def _validate_target_overlap(group: ModuleGroup, path: Path) -> None:
+    """Reject a target listed as both allowed and warning-level.
+
+    The two outcomes contradict: an allowed target is silent and a warning
+    target stays visible. Rejecting the overlap keeps each edge's outcome a
+    single decidable thing rather than one that depends on evaluation order.
+    """
+    conflicting = sorted(set(group.allowed) & set(group.warn))
+    if conflicting:
+        msg = (
+            f"{path}: group {group.name} lists targets as both allowed and "
+            f"warn: {', '.join(conflicting)}"
+        )
+        raise ConfigError(msg)
+
+
+def _validate_ignore_reason(ignored_import: IgnoredImport, path: Path) -> None:
+    """Raise ConfigError when an ignore entry carries no reason."""
+    _validate_dotted_strings(
+        (ignored_import.importer, ignored_import.imported),
+        _Loc(path=path, context="ignore_imports entry"),
+    )
+    if not ignored_import.reason.strip():
+        msg = (
+            f"{path}: ignore {ignored_import.importer} -> "
+            f"{ignored_import.imported} needs a reason"
+        )
+        raise ConfigError(msg)
+
+
+def _validate_group_prefix_order(policy: ArchitecturePolicy, path: Path) -> None:
+    """Reject prefixes made unreachable by earlier groups."""
+    diagnostics = _shadowed_prefix_diagnostics(
+        find_shadowed_prefixes(policy.groups), path
+    )
+    if diagnostics:
+        raise ConfigError("\n".join(diagnostics))

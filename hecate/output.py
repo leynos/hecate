@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses as dc
 import json
 import typing as typ
 
@@ -11,12 +12,35 @@ if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
 
+@dc.dataclass(frozen=True, slots=True)
+class RenderOptions:
+    """Optional sections and the command outcome shared by both renderers.
+
+    ``show_coverage`` is deliberately tri-state. Left unset, each format keeps
+    its historical default: JSON always carries coverage for machine consumers
+    while text keeps it behind an explicit flag. A caller that sets only, say,
+    ``show_ignored`` therefore does not accidentally change the coverage shape
+    of the other format.
+
+    ``include_unclassified`` is meaningful only to :func:`render_json`; text
+    always renders unclassified-module diagnostics because the configured mode
+    already asked for them. The two renderers share one options type so a
+    caller does not have to know which knobs each format supports.
+    """
+
+    show_ignored: bool = False
+    show_coverage: bool | None = None
+    include_unclassified: bool = False
+    passed: bool | None = None
+
+    def coverage_visible(self, *, default: bool) -> bool:
+        """Return the coverage setting, falling back to ``default``."""
+        return default if self.show_coverage is None else self.show_coverage
+
+
 def render_text(
     result: ArchitectureCheckResult,
-    *,
-    show_ignored: bool = False,
-    show_coverage: bool = False,
-    passed: bool | None = None,
+    options: RenderOptions | None = None,
 ) -> str:
     """Render deterministic plain text for CI and snapshots.
 
@@ -32,22 +56,26 @@ def render_text(
     flag was passed would defeat the setting. Under ``ignore`` there is nothing
     to show and the default output is unchanged.
 
-    ``passed`` is the command outcome, which can differ from ``result.ok``:
-    an enforced warning leaves the architecture result unchanged but fails the
-    run. ``None`` renders the result's own outcome, which is what a caller
-    that has no enforcement policy to apply should pass.
+    ``RenderOptions.passed`` is the command outcome, which can differ from
+    ``result.ok``: an enforced warning leaves the architecture result unchanged
+    but fails the run. ``None`` renders the result's own outcome, which is what
+    a caller that has no enforcement policy to apply should pass.
     """
+    opts = options or RenderOptions()
     lines = [
         *(violation.render() for violation in result.violations),
         *(failure.render() for failure in result.coverage_failures),
         *(diagnostic.render() for diagnostic in result.unclassified_modules),
         *(warning.render() for warning in result.warnings),
     ]
-    if show_ignored:
+    if opts.show_ignored:
         lines.extend(ignored.render() for ignored in result.ignored)
-    if show_coverage:
+    if opts.coverage_visible(default=False):
         lines.extend(_coverage_warning_lines(result))
-    return "\n".join(_with_pass_notice(lines, ok=_passed(result, passed=passed))) + "\n"
+    return (
+        "\n".join(_with_pass_notice(lines, ok=_passed(result, passed=opts.passed)))
+        + "\n"
+    )
 
 
 def _passed(result: ArchitectureCheckResult, *, passed: bool | None) -> bool:
@@ -77,11 +105,7 @@ def _with_pass_notice(lines: list[str], *, ok: bool) -> list[str]:
 
 def render_json(
     result: ArchitectureCheckResult,
-    *,
-    show_ignored: bool = False,
-    show_coverage: bool = True,
-    include_unclassified: bool = False,
-    passed: bool | None = None,
+    options: RenderOptions | None = None,
 ) -> str:
     """Render deterministic JSON output.
 
@@ -100,17 +124,18 @@ def render_json(
     fail a run it calls ``ok``. ``status`` carries that outcome instead, which
     keeps the existing ``ok`` meaning intact for current consumers.
     """
+    opts = options or RenderOptions()
     payload: dict[str, object] = {
         "ok": result.ok,
-        "status": "passed" if _passed(result, passed=passed) else "failed",
+        "status": "passed" if _passed(result, passed=opts.passed) else "failed",
         "violations": [violation.to_dict() for violation in result.violations],
         "warnings": [warning.to_dict() for warning in result.warnings],
     }
-    if show_coverage:
+    if opts.coverage_visible(default=True):
         payload["coverage"] = [diagnostic.to_dict() for diagnostic in result.coverage]
-    if show_ignored:
+    if opts.show_ignored:
         payload["ignored"] = [ignored.to_dict() for ignored in result.ignored]
-    if include_unclassified:
+    if opts.include_unclassified:
         payload["unclassified_modules"] = [
             diagnostic.to_dict() for diagnostic in result.unclassified_modules
         ]
