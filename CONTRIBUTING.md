@@ -2,8 +2,9 @@
 
 Thank you for your interest in contributing to hecate. See
 [AGENTS.md](AGENTS.md) for the project's coding, testing, and commit
-conventions, and [docs/users-guide.md](docs/users-guide.md) for user-facing
-behaviour.
+conventions, [docs/developers-guide.md](docs/developers-guide.md) for the
+architecture, test strategy, and commit gates, and
+[docs/users-guide.md](docs/users-guide.md) for user-facing behaviour.
 
 ## Workflow pins and Dependabot
 
