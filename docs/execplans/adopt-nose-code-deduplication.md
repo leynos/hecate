@@ -274,8 +274,8 @@ indiscriminate abstraction or suppression.
   and moves this branch's section above the document's existing rule and
   footnote block, so the guide still has exactly one horizontal rule and one
   footnote. The rebase also restores CI: a conflicted pull request cannot build
-  a `pull_request` merge ref, so no `CI` run had appeared for the previous head,
-  which was an absence of runs rather than a failing run.
+  a `pull_request` merge ref, so no `CI` run had appeared for the previous
+  head, which was an absence of runs rather than a failing run.
 - [x] (2026-10-19) Repair the CodeScene failure the rebase's new base exposed.
   `scripts/tests/test_duplication_gate_persistence.py` measured 8.28 with Low
   Cohesion (LCOM4) and Lines of Code findings. The module held two
@@ -283,8 +283,8 @@ indiscriminate abstraction or suppression.
   subprocess machinery plus three tests that start real `allow` processes to
   observe the lock. Splitting the contention tests and all of that machinery
   into `scripts/tests/test_duplication_gate_contention.py` restores `cs review`
-  score 10.00 on both halves. The Makefile's `duplication-test` recipe lists the
-  new module. Non-vacuity was re-checked after the move: replacing
+  score 10.00 on both halves. The Makefile's `duplication-test` recipe lists
+  the new module. Non-vacuity was re-checked after the move: replacing
   `fcntl.flock(lock.fileno(), fcntl.LOCK_EX)` with `pass` makes both contention
   tests fail from their new home, the kernel probe on `NOT_BLOCKED` and the
   portable test on "a writer exited before attempting the lock"; the mutation
@@ -319,12 +319,12 @@ indiscriminate abstraction or suppression.
   difference here is one of categorization and of work done since, not of
   arithmetic. That revision counted `AGENTS.md` and the README, 26 lines, as
   wiring where this one counts them as documentation, and the rest of the
-  movement is the repair's own test growth and this plan's. On the plan-excluded
-  measurement the net-line tolerance is still breached at 7,257 against 2,500,
-  while the file count is exactly 40 and so sits at the bound rather than over
-  it. The file-count breach appears only when the plan is included, at 41. The
-  correction changes the record, not the line-count escalation, and acceptance
-  remains pending for the breach that does stand.
+  movement is the repair's own test growth and this plan's. On the
+  plan-excluded measurement the net-line tolerance is still breached at 7,257
+  against 2,500, while the file count is exactly 40 and so sits at the bound
+  rather than over it. The file-count breach appears only when the plan is
+  included, at 41. The correction changes the record, not the line-count
+  escalation, and acceptance remains pending for the breach that does stand.
 
 ## Surprises & discoveries
 
@@ -1657,14 +1657,13 @@ the document's single rule and footnote block.
 The rebase's new base also exposed a CodeScene failure that the previous base
 had not. `scripts/tests/test_duplication_gate_persistence.py` had grown to 950
 lines over two responsibilities -- the persistence tests, and the subprocess
-machinery for observing the lock -- and scored 8.28 with Low Cohesion and
-Lines of Code findings. The contention tests and all of the machinery they need
-now live in `scripts/tests/test_duplication_gate_contention.py`, and both
-halves score 10.00. The split is a responsibility boundary rather than
-suppression: no rule was disabled, no directive was added, and no allow entry
-was recorded. Removing `fcntl.flock` still fails both contention tests from
-their new home, which is the non-vacuity evidence that the move preserved what
-they assert.
+machinery for observing the lock -- and scored 8.28 with Low Cohesion and Lines
+of Code findings. The contention tests and all of the machinery they need now
+live in `scripts/tests/test_duplication_gate_contention.py`, and both halves
+score 10.00. The split is a responsibility boundary rather than suppression: no
+rule was disabled, no directive was added, and no allow entry was recorded.
+Removing `fcntl.flock` still fails both contention tests from their new home,
+which is the non-vacuity evidence that the move preserved what they assert.
 
 The `_SeverityFailure` base class that revision 10 introduced is gone. It
 preserved the public `is_failure` attribute and stated the rule once, but the
