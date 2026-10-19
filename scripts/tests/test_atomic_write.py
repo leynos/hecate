@@ -9,6 +9,7 @@ only when a destination exists, and the descriptor discipline around fsync.
 from __future__ import annotations
 
 import dataclasses as dc
+import errno
 import inspect
 import os
 import stat
@@ -210,6 +211,65 @@ def test_closes_the_directory_descriptor_when_the_sync_fails(
     )
     assert list(tmp_path.glob(f".{destination.name}.*")) == [], (
         "A failed sync must not leave the temporary sibling behind."
+    )
+
+
+@dc.dataclass
+class _DirectorySyncRefused:
+    """Refuse the directory sync the way macOS does.
+
+    POSIX does not require ``fsync`` to accept a directory descriptor; macOS
+    rejects it with ``EINVAL``. The temporary file's own sync must still run,
+    so only a descriptor that ``os.fstat`` reports as a directory is refused.
+    """
+
+    #: The spy stands in for the whole ``os`` module, so the directory-sync
+    #: helper's ``os.O_RDONLY`` has to resolve here too.
+    O_RDONLY: typ.ClassVar[int] = os.O_RDONLY
+
+    def fsync(self, descriptor: int) -> None:
+        """Refuse a directory descriptor, syncing a file descriptor for real."""
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            message = "Invalid argument"
+            raise OSError(errno.EINVAL, message)
+        os.fsync(descriptor)
+
+    def open(self, path: Path, flags: int) -> int:
+        """Delegate descriptor opening."""
+        return os.open(path, flags)
+
+    def close(self, descriptor: int) -> None:
+        """Delegate descriptor closing."""
+        os.close(descriptor)
+
+
+def test_a_refused_directory_sync_does_not_fail_a_committed_write(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unsupported directory sync must not report a completed write as failed.
+
+    ``temporary.replace`` runs before this sync, so the mutation is already
+    committed by the time the directory descriptor is refused. Surfacing the
+    refusal would make ``make duplication-allow`` exit non-zero having in fact
+    rewritten ``pyproject.toml``. The file's own durability guarantee is
+    unaffected: that sync has already succeeded on the temporary file.
+    """
+    destination = tmp_path / "config.toml"
+    destination.write_bytes(b"original\n")
+    monkeypatch.setattr(atomic_write, "os", _DirectorySyncRefused())
+
+    atomic_write.atomic_write(
+        destination,
+        b"replacement\n",
+        options=atomic_write.AtomicWriteOptions(sync_file=True),
+    )
+
+    assert destination.read_bytes() == b"replacement\n", (
+        "A committed replacement must survive an unsupported directory sync."
+    )
+    assert list(tmp_path.glob(f".{destination.name}.*")) == [], (
+        "A completed replacement must leave no temporary sibling behind."
     )
 
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses as dc
+import errno
 import os
 import pathlib
 import tempfile
@@ -58,6 +59,29 @@ def _open_directory(directory: pathlib.Path) -> cabc.Iterator[int]:
         os.close(descriptor)
 
 
+def _sync_directory(directory: pathlib.Path) -> None:
+    """Persist the rename, tolerating a platform that cannot sync a directory.
+
+    POSIX does not require ``fsync`` to accept a directory descriptor: macOS
+    rejects it with ``EINVAL`` while Linux accepts it. A refusal here is not a
+    failed write. The temporary file has already been synced under the caller's
+    policy, and ``replace`` has already committed the rename, so propagating
+    the error would report a completed mutation as a failure and make the
+    duplication helper exit non-zero after rewriting ``pyproject.toml``.
+
+    Only the two errors that describe an unsupported operation are absorbed.
+    Any other failure, such as ``EIO``, still propagates: the caller asked for
+    durability and did not get it.
+    """
+    try:
+        with _open_directory(directory) as descriptor:
+            os.fsync(descriptor)
+    except OSError as error:
+        unsupported = {errno.EINVAL, getattr(errno, "ENOTSUP", errno.EINVAL)}
+        if error.errno not in unsupported:
+            raise
+
+
 def atomic_write(
     path: pathlib.Path,
     content: bytes,
@@ -99,8 +123,7 @@ def atomic_write(
             temporary.chmod(mode)
         temporary.replace(path)
         if options.sync_file:
-            with _open_directory(path.parent) as descriptor:
-                os.fsync(descriptor)
+            _sync_directory(path.parent)
     finally:
         # A completed replacement has already moved this file, so a missing
         # path here is the success case as well as a retried cleanup.
