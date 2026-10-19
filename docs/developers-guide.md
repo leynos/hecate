@@ -62,11 +62,13 @@ The engine choice, and the reasoning behind it, belongs to
 For screen readers: the following flowchart follows one `hecate check`
 invocation from the command line to its exit code. The Cyclopts application
 parses arguments and calls `load_config`, which discovers or reads the TOML
-policy and applies command-line overrides. `check_architecture` then analyses
-namespaces, builds the origin index over them, collects import statements, and
-classifies each edge against policy. The resulting `ArchitectureCheckResult` is
-rendered as text or JSON and turned into an exit code. A usage error leaves
-this flow before `load_config` and exits 1.
+policy, applies command-line overrides, and validates the ordered group
+prefixes. `check_architecture` then walks every package root once through
+`discover_modules`, analyses namespaces from those records, builds the origin
+index over them, collects import statements, classifies each edge against
+policy, and records every discovered module that no group claims. The resulting
+`ArchitectureCheckResult` is rendered as text or JSON and turned into an exit
+code. A usage error leaves this flow before `load_config` and exits 1.
 
 ```mermaid
 flowchart TD
@@ -76,15 +78,17 @@ flowchart TD
     C --> D{"config valid?"}
     D -->|"ConfigError"| Z2["stderr + exit 2"]
     D -->|"yes"| E["check_architecture()"]
-    E -->|"SourceError"| Z2
-    E --> F["analyse_namespaces()"]
+    E -->|"DiscoveryError, SourceError"| Z2
+    E --> W["discover_modules() per root"]
+    W --> F["analyse_namespaces()"]
     F --> G["parse_source()"]
     E --> H["build_origin_index()"]
-    E --> I["collect_import_statements() per file"]
+    W --> I["collect_import_statements() per module"]
     I --> J["resolve each target"]
     H --> J
     J --> K["classify each edge against policy"]
-    K --> L["ArchitectureCheckResult"]
+    K --> U["collect_unclassified_modules() per root"]
+    U --> L["ArchitectureCheckResult"]
     L --> P{"unmatched ignores under\n--fail-on-unmatched-ignore?"}
     P -->|"yes"| Z2
     P -->|"no"| M["render_text() or render_json()"]
@@ -98,16 +102,114 @@ All three routes to exit code 2 converge on a single stderr node; a usage error
 exits 1 through Cyclopts instead, as described under
 [Check outcome and exit codes](#check-outcome-and-exit-codes)._
 
+### Discovery and the two passes
+
+`discover_modules` in `imports.py` is the one recursive walk of a package root.
+It returns a `Discovery` holding the root's name and a tuple of
+`DiscoveredModule` records, each pairing one `*.py` path with its dotted name
+and a flag saying whether it is a package `__init__.py`, sorted by path.
+`check_architecture` walks every root once, up front, and hands the same
+`Discovery` records to the namespace pass, the edge pass, and the module pass,
+so a root is walked once per run rather than once per pass and the three cannot
+disagree about which files exist. `Discovery` carries the root's identity
+rather than a `PackageRoot` so discovery stays a property of the tree and
+`imports.py` keeps no dependency on the configuration model.
+
+Discovery has its own failure mode. `Path.rglob` swallows `OSError` and returns
+whatever it managed to list, so an unreadable subtree would look like an empty
+one and the module pass would report clean coverage of files the walk never saw.
+`discover_modules` therefore walks with `Path.walk(on_error=...)` and turns a
+failed listing into `DiscoveryError` naming the directory; the CLI treats that
+like `SourceError` and exits 2 rather than trusting a partial tree.
+
+Two passes run per package root, and they answer different questions. The edge
+pass covers the import graph: which edges exist, and whether policy permits
+them. The module pass covers the policy itself: whether every discovered `*.py`
+file is claimed by some group. A module no group claims is enforced over
+nothing, so its edges fall outside group-based checking until the other
+endpoint happens to expose them, which is why the module pass reports the
+module directly, including `__init__.py` files and files with no imports. It is
+invoked in every mode, but under `ignore` it returns before classifying
+anything and records nothing, so the default traversal does no extra work.
+
+Two details of the module pass are easy to get wrong. First, claiming is a
+different predicate from edge classification: `group_for` answers "which group
+classifies this module?", while `claims_module` answers "is this module inside
+some group's scope?". They differ for one record: a package initializer is
+claimed when any configured prefix lies beneath it, because the initializer
+imports and re-exports what its submodules bind. A conventional package
+declared with specific groups such as `pkg.domain` therefore needs no group for
+`pkg` itself, and adding a recursive `pkg` group would classify every future
+subpackage the module pass exists to detect. Plain modules get no containment,
+so `pkg.newfeature` remains reported. Second, rendering is deliberately
+asymmetric. `render_text` always prints module findings, because the configured
+mode already asked for them. `render_json(…, include_unclassified=…)` defaults
+to omitting the `unclassified_modules` array, and `check` passes `True`
+whenever the mode is not `ignore`; when included, the array is present even if
+empty, which a consumer reads as "evaluated and clean". Under `ignore` the key
+is absent.
+
+The module pass records `UnclassifiedModuleDiagnostic`, whose rule identifier
+is the fixed `HEC002` and never the configured `default_rule_id`. Because that
+identifier is reserved, `_validate_rule_id` in `config.py` rejects a policy
+that sets `default_rule_id = "HEC002"`; reusing it would make the two
+diagnostic kinds indistinguishable to a consumer. The diagnostic's `severity`
+comes from the policy's `unclassified_modules` mode through
+`unclassified_module_severity`: `warn` records a warning and `error` records an
+error, and either way the mode is one a configuration author opted into.
+`ArchitectureCheckResult` carries `unclassified_modules` beside `violations`,
+`ignored`, `coverage`, and `unmatched_ignores`, and `ok` treats an
+error-severity module finding exactly like an error-severity coverage entry.
+
+### Ordered prefix validation
+
+`find_shadowed_prefixes` in `policy.py` defines the pure cross-group shadowing
+rule; `_validate_policy` in `config.py` enforces it while loading TOML.
+Policies constructed directly bypass loader validation, as they do for the
+other configuration checks. Shadowing is a configuration error rather than an
+opt-in flag or warning, so an unreachable group cannot silently support a green
+architecture check.
+
+For screen readers: the following flowchart shows how configured prefixes are
+validated. Hecate checks each later-group prefix against earlier-group prefixes
+in order and records its first equal or dotted-ancestor match. After every
+later-group prefix has been checked, any recorded shadow causes configuration
+rejection; no records mean the configuration remains valid.
+
+```mermaid
+flowchart LR
+    Groups["Ordered module groups"] --> Later["Inspect each prefix in later groups"]
+    Later --> Earlier{"Any earlier-group prefix left?"}
+    Earlier -->|yes| Boundary["module_prefix_contains"]
+    Earlier -->|no| NextLater["Inspect the next later-group prefix"]
+    Boundary -->|equal or dotted ancestor| Shadow["Record first ShadowedPrefix"]
+    Boundary -->|not contained| NextEarlier["Check the next earlier prefix"]
+    NextEarlier --> Earlier
+    Shadow --> NextLater
+    NextLater -->|more later prefixes| Later
+    NextLater -->|all later prefixes checked| Any{"Any shadows recorded?"}
+    Any -->|yes| Reject["Reject configuration with repair"]
+    Any -->|no| Accepted["Configuration remains valid"]
+```
+
+_Figure 2: Ordered prefix validation from group order to rejection or
+acceptance._
+
 ### The stdlib `ast` import-analysis engine
 
-`imports.py` collects `Import` and `ImportFrom` nodes from a parsed module and
-converts them into `DirectImport` and `FromImport` records. Two helpers carry
+`imports.py` owns both the recursive walk that discovers a root's modules and
+the collection of `Import` and `ImportFrom` nodes from each discovered module,
+converting them into `DirectImport` and `FromImport` records. Two helpers carry
 the name arithmetic:
 
 - `compute_module_name` derives a dotted module name from a source path under a
   package root, dropping `__init__` so that `pkg/__init__.py` becomes `pkg`;
 - `relative_import_base` returns the absolute base module for a relative import
   level, accounting for whether the importing file is a package `__init__`.
+
+`collect_import_statements` takes the dotted module name from
+`DiscoveredModule` rather than re-deriving it from the path, so the importer
+recorded on each statement is the same name every other pass knows the file by.
 
 `collect_import_statements` returns statements in source order. `ast.walk`
 traverses the tree in no specified order, which stops matching source order as
@@ -248,35 +350,43 @@ Deduplication keeps the report stable when several statements or several
 re-export chains reach one edge. Violations are keyed by
 `(rule_id, importer, imported, line)`, ignored imports by
 `(importer, imported)`, and coverage diagnostics by
-`(state, importer, imported, source_path, line)`. The result sorts violations
-and coverage by their identity tuple and ignored imports by their rendered
-line, so two runs over unchanged source produce byte-identical output.
+`(state, importer, imported, source_path, line)`. Unclassified-module
+diagnostics are keyed by module name alone, so two roots that supply the same
+dotted name record the first one in configuration order; that tie-break matches
+namespace analysis, which also keeps the first record. The result sorts
+violations, coverage, and module findings by their identity tuple and ignored
+imports by their rendered line, so two runs over unchanged source produce
+byte-identical output.
 
 ### Check outcome and exit codes
 
 `ArchitectureCheckResult.ok` is true only when there are no violations _and_ no
-coverage diagnostic carries error severity. A green result therefore means no
-forbidden edge was found and no coverage failure occurred; it does not claim
-every edge was understood. Outside strict mode, unclassified and unresolved
-edges are warnings, so a non-strict run can pass while recording them. Under
-strict mode both become failures, with unresolved internal edges using the
-configured `unresolved_internal_severity`.
+coverage or unclassified-module diagnostic carries error severity. A green
+result therefore means no forbidden edge was found and no coverage failure
+occurred; it does not claim every edge was understood. Outside strict mode,
+unclassified and unresolved edges are warnings, so a non-strict run can pass
+while recording them. Under strict mode both become failures, with unresolved
+internal edges using the configured `unresolved_internal_severity`. An
+unclassified module fails only when `unclassified_modules = "error"`, so the
+`warn` mode keeps a run green; `ignore` records nothing at all.
 
 The process exit code follows from that outcome:
 
-| Code | Meaning                                                                    |
-| ---- | -------------------------------------------------------------------------- |
-| 0    | The architecture check passed.                                             |
-| 1    | Architecture violations, or coverage diagnostics at error severity, found. |
-| 2    | Input validation failed: configuration or source problems.                 |
+| Code | Meaning                                                       |
+| ---- | ------------------------------------------------------------- |
+| 0    | The architecture check passed.                                |
+| 1    | Violations, or coverage or module diagnostics at error level. |
+| 2    | Input validation failed: configuration, discovery, or source. |
 
 _Table 1: Process exit codes for `hecate check`._
 
-Exit code 2 covers three distinct rejections, which the CLI distinguishes only
+Exit code 2 covers four distinct rejections, which the CLI distinguishes only
 by the message on standard error:
 
 - a `ConfigError`, from a missing or malformed configuration file or a failed
-  validation rule;
+  validation rule, including a group prefix shadowed by an earlier group;
+- a `DiscoveryError`, from a package root whose directory tree could not be
+  walked completely;
 - a `SourceError`, from a scanned file that could not be read as UTF-8 or is
   not valid Python; and
 - an unmatched ignore under `--fail-on-unmatched-ignore`.
@@ -333,38 +443,47 @@ modules at the top.
 
 ### Module responsibilities
 
-| Module              | Responsibility                                                        | Imports internally                                                    |
-| ------------------- | --------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `module_scope.py`   | Yield the statements that run at module scope, with nesting flags.    | none                                                                  |
-| `source.py`         | Read and parse one scanned file, reporting `SourceError`.             | none                                                                  |
-| `all_sequence.py`   | Evaluate a module's `__all__` sequence, or report it unknowable.      | `module_scope`                                                        |
-| `config_helpers.py` | Internal TOML readers and validators, reporting `ConfigError`.        | `policy`                                                              |
-| `diagnostics.py`    | Hold the stable, ordered diagnostic dataclasses and their JSON forms. | `policy`                                                              |
-| `imports.py`        | Collect `Import` and `ImportFrom` statements from source text.        | `source`                                                              |
-| `policy.py`         | Classify edges against groups, allow-lists, and ignores.              | `imports`                                                             |
-| `namespaces.py`     | Model bindings and wildcard exports per module.                       | `all_sequence`, `imports`, `module_scope`, `source`                   |
-| `origins.py`        | Resolve an import target to the modules that supply it.               | `namespaces`                                                          |
-| `config.py`         | Discover, parse, validate, and override the TOML configuration.       | `config_helpers`, `policy`                                            |
-| `output.py`         | Render text and JSON output.                                          | `checker`                                                             |
-| `checker.py`        | Orchestrate the traversal and assemble the result.                    | `config`, `diagnostics`, `imports`, `namespaces`, `origins`, `policy` |
-| `cli.py`            | Define the Cyclopts application and translate failures to exit codes. | `checker`, `config`, `output`, `source`                               |
-| `__init__.py`       | Publish the supported public API.                                     | `checker`, `cli`, `config`, `diagnostics`                             |
-| `__main__.py`       | Run the CLI under `python -m hecate`.                                 | `cli`                                                                 |
+| Module                 | Responsibility                                                        | Imports internally                                                                       |
+| ---------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `module_scope.py`      | Yield the statements that run at module scope, with nesting flags.    | none                                                                                     |
+| `source.py`            | Read and parse one scanned file, reporting `SourceError`.             | none                                                                                     |
+| `all_sequence.py`      | Evaluate a module's `__all__` sequence, or report it unknowable.      | `module_scope`                                                                           |
+| `config_helpers.py`    | Internal TOML readers and validators, reporting `ConfigError`.        | `policy`                                                                                 |
+| `config_validation.py` | Format the diagnostics for shadowed group prefixes.                   | none (policy types under `TYPE_CHECKING`)                                                |
+| `diagnostics.py`       | Hold the stable, ordered diagnostic dataclasses and their JSON forms. | `policy`                                                                                 |
+| `imports.py`           | Discover a root's modules, and collect import statements from them.   | `source`                                                                                 |
+| `policy.py`            | Classify edges against groups, allow-lists, and ignores.              | `imports`                                                                                |
+| `namespaces.py`        | Model bindings and wildcard exports per module.                       | `all_sequence`, `imports`, `module_scope`, `source`                                      |
+| `origins.py`           | Resolve an import target to the modules that supply it.               | `namespaces`                                                                             |
+| `module_coverage.py`   | Report discovered modules that no configured group claims.            | `diagnostics`, `policy`                                                                  |
+| `config.py`            | Discover, parse, validate, and override the TOML configuration.       | `config_helpers`, `config_validation`, `diagnostics`, `policy`                           |
+| `output.py`            | Render text and JSON output.                                          | `checker`                                                                                |
+| `checker.py`           | Orchestrate the traversal and assemble the result.                    | `config`, `diagnostics`, `imports`, `module_coverage`, `namespaces`, `origins`, `policy` |
+| `cli.py`               | Define the Cyclopts application and translate failures to exit codes. | `checker`, `config`, `imports`, `output`, `source`                                       |
+| `__init__.py`          | Publish the supported public API.                                     | `checker`, `cli`, `config`, `diagnostics`                                                |
+| `__main__.py`          | Run the CLI under `python -m hecate`.                                 | `cli`                                                                                    |
 
 _Table 2: Module responsibilities and internal dependencies._
 
-Two modules are leaves, and the absence of a dependency is deliberate:
-`module_scope.py` answers a question about the syntax tree, and `source.py`
-owns the only filesystem and parser boundary in the package. Nothing in
-`hecate/` imports an adapter, a framework, or an optional dependency beyond
-`cyclopts`, which is the sole runtime dependency.
+Two modules are leaves at runtime by design: `module_scope.py` answers a
+question about the syntax tree, and `source.py` owns the only filesystem and
+parser boundary in the package. `config_validation.py` is a third runtime leaf
+whose annotation-only `policy` import stays under `TYPE_CHECKING`, so
+formatting a shadow diagnostic costs no runtime dependency on the policy
+module. Nothing in `hecate/` imports an adapter, a framework, or an optional
+dependency beyond `cyclopts`, which is the sole runtime dependency.
+
+The arrow from `config.py` to `diagnostics.py` exists for one constant:
+`UNCLASSIFIED_MODULE_RULE_ID`, which `_validate_rule_id` reserves so a policy
+cannot reuse the module pass's rule identifier for edge diagnostics.
 
 ### Public API and entry points
 
 `hecate/__init__.py` declares the supported import surface through `__all__`:
 
-- `ArchitectureCheckResult`, `ArchitectureViolation`, and `check_architecture`
-  are the embedded-checker API for callers that already hold a configuration;
+- `ArchitectureCheckResult`, `ArchitectureViolation`,
+  `UnclassifiedModuleDiagnostic`, and `check_architecture` are the
+  embedded-checker API for callers that already hold a configuration;
 - `ConfigOverrides`, `HecateConfig`, and `load_policy` are the configuration
   API, including the convenience wrapper that returns only the validated policy;
 - `main` is the command-line entry point;
@@ -421,7 +540,9 @@ validated inputs, following `first_matching_group`, `is_group_allowed`, and
 `coverage_severity`. Wiring it into evaluation means changing
 `_classify_origin` in `checker.py`, which is also where the decision order in
 [Decision order for one import edge](#decision-order-for-one-import-edge) is
-fixed.
+fixed. A rule that changes which modules a policy _claims_ belongs beside
+`claims_module` instead, and reaches the checker through
+`collect_unclassified_modules`.
 
 Add a named example for the rule to `tests/test_policy.py`, or use
 `pytest.mark.parametrize` if the rule forms a finite table of normative cases.
@@ -446,7 +567,12 @@ differently: `render_json` to `True`, `render_text` to `False`.
 `_emit_check_output` then makes the difference user-visible by always passing
 `show_coverage=True` for JSON, so machine consumers receive coverage without an
 extra argument while text output keeps its previous shape unless
-`--show-coverage` is passed. Keep that split when adding a format.
+`--show-coverage` is passed. JSON also carries the mode-dependent
+`include_unclassified` flag, which `_emit_check_output` sets from the policy
+rather than from a command-line option; a new format has to decide the same
+question, and the asymmetry described under
+[Discovery and the two passes](#discovery-and-the-two-passes) is the intended
+answer.
 
 A new format must also be reachable from the command line, which means
 extending the `OutputFormat` `StrEnum` in `cli.py` and adding the branch to
@@ -520,42 +646,64 @@ cover the analysis engine module by module:
   unresolved internal imports, including the rule that one broken import is not
   reported twice.
 - **Policy and coverage.** `tests/test_policy.py` covers group matching,
-  allow-lists, ignore matching, and severity selection, and
-  `tests/test_external_policy.py` covers the external-package boundary.
+  allow-lists, ignore matching, severity selection, and shadowed-prefix
+  detection, and `tests/test_external_policy.py` covers the external-package
+  boundary.
+- **Module coverage.** `tests/test_unclassified_modules.py` covers the module
+  pass over discovered trees, including the package-initializer containment
+  rule and the asymmetry between text and JSON rendering, and
+  `tests/test_unclassified_modules_config.py` covers the `unclassified_modules`
+  configuration key and its interaction with `default_rule_id`.
 - **Configuration and CLI.** `tests/test_config_output_cli.py` covers TOML
   validation, discovery, and the CLI exit-code contract,
+  `tests/test_config_validation.py` covers the loader's validation rules
+  including shadowed prefixes and the reserved `HEC002`, and
   `tests/test_cli_strict_coverage.py` covers the strict-mode and coverage flags,
   `tests/test_cli_source_root_coverage.py` covers package-table roots and the
   paired `--package`/`--root` overrides, `tests/test_output.py` covers
   rendering, and `tests/test_source_errors.py` covers `SourceError` for
-  unreadable and unparsable files.
+  unreadable and unparsable files, plus `DiscoveryError` for an unlistable
+  directory.
+- **Imports, discovery, and orchestration.** `tests/test_imports.py` covers
+  module discovery and import collection, `tests/test_checker.py` covers the
+  orchestration result, and `tests/test_bindings.py`,
+  `tests/test_reexports.py`, and `tests/test_unresolved_edges.py` cover the
+  namespace and provenance layers.
 
-These files use no fixtures beyond `tmp_path`, `capsys`, and `monkeypatch`, all
-provided by pytest. There is no `conftest.py` anywhere in the repository: each
-test module builds the package tree it needs, which keeps a module's
-preconditions visible in that module.
+These files use no pytest fixtures beyond `tmp_path`, `capsys`, and
+`monkeypatch`. Helpers that more than one module needs live in ordinary
+importable modules rather than in a `conftest.py`, and there is no
+`conftest.py` anywhere in the repository: `tests/discovery_fixtures.py` builds
+package trees and makes a directory unlistable, `tests/config_fixtures.py` holds
+`assert_config_rejects`, and the behavioural fixtures live in
+`tests/steps/fixture_setup.py`. Each test module therefore builds the package
+tree it needs, keeping a module's preconditions visible in that module.
 
 ### Behavioural tests
 
 Behavioural tests drive the CLI end to end through `pytest-bdd`, whose
 scenarios live in `tests/features/architecture_check.feature` and whose steps
 live in `tests/steps/test_architecture_check_steps.py`. The feature file holds
-an outline over fourteen fixture packages plus seven standalone scenarios
+an outline over fourteen fixture packages plus thirteen standalone scenarios
 covering unclassified subtrees, strict mode, wildcard expansion over an empty
-`__all__`, configuration discovery and override, and the exit code for an
-invalid configuration.
+`__all__`, configuration discovery and override, the exit code for an invalid
+configuration, shadowed and correctly ordered composition-root prefixes, and
+the warn and error modes of `unclassified_modules`.
 
-`tests/steps/test_architecture_check_steps.py:18` registers the feature file
+`tests/steps/test_architecture_check_steps.py:21` registers the feature file
 with `scenarios("../features/architecture_check.feature")`, resolved relative
 to the steps module because no `bdd_features_base_dir` is configured.
 
 The steps share one pattern. A `given` step with `target_fixture="fixture_ctx"`
 builds a temporary package under pytest's `tmp_path`, writes a `pyproject.toml`
 beside it, and returns a `FixtureContext` dataclass holding the root, the
-config path, an optional override config, and the recorded `CliRun`. The
-`_FIXTURE_VARIANTS` registry maps each fixture name to a `FixtureVariant`
-describing the file to write and the barrel files it needs first, so adding a
-scenario means adding a registry entry rather than a step function.
+config path, and the recorded `CliRun`. The fixture content moved out of the
+steps module into `tests/steps/fixture_setup.py`: `write_fixture` maps each
+fixture name to a `FixtureVariant` describing the file to write and the barrel
+files it needs first, and `write_composition_root_config` in
+`tests/steps/shadowed_prefix_fixtures.py` builds the two group orders that the
+shadowing scenarios compare. Adding a scenario therefore means adding a
+registry entry or a small helper rather than another step function.
 
 Every `when` step calls `hecate.cli.main` in-process and captures output with
 `capsys`. Nothing is shelled out, so the scenarios exercise the real argument
@@ -574,7 +722,7 @@ Property tests cover the rules that must hold across an open-ended input space,
 where a list of examples would only sample the space. Three modules use
 Hypothesis:
 
-`tests/test_properties.py` holds five properties plus two example-based tests.
+`tests/test_properties.py` holds seven properties plus two example-based tests.
 The properties are:
 
 1. `test_compute_module_name_round_trips_package_relative_paths` — a generated
@@ -584,11 +732,20 @@ The properties are:
    level and package-init flag.
 3. `test_group_classification_is_first_match_deterministic` — overlapping group
    prefixes classify to the first configured match.
-4. `test_duplicate_imports_do_not_create_duplicate_identities` — repeated
+4. `test_shadowed_prefix_records_match_first_group_classification` — every
+   prefix the shadowing rule reports is genuinely unreachable, because an
+   earlier group contains it and would classify first.
+5. `test_unshadowed_prefixes_with_unique_owners_keep_their_classification` —
+   refining the rule must not reject a policy whose prefixes remain reachable.
+6. `test_duplicate_imports_do_not_create_duplicate_identities` — repeated
    imports collapse to one `ArchitectureViolation.identity()`.
-5. `test_all_sequence_evaluation_matches_a_reference_fold` — the `__all__`
+7. `test_all_sequence_evaluation_matches_a_reference_fold` — the `__all__`
    evaluator agrees with an independent reference fold over a generated
    sequence of literal, augmented, unknown, and conditional operations.
+
+The two example-based tests cover origin-index idempotence for an unchanged
+package and agreement between the text and JSON renderings on violation
+identity.
 
 `tests/test_origin_properties.py` holds four properties over generated
 re-export chains, including determinism, cycle safety, and agreement with a
@@ -628,9 +785,12 @@ uv run crosshair check hecate/policy.py hecate/diagnostics.py --analysis_kind=as
 Three properties of that recipe matter, and one exclusion:
 
 - **Scope is two pure modules.** `hecate/policy.py` holds group matching,
-  allow-list evaluation, ignore matching, and severity selection;
-  `hecate/diagnostics.py` holds the diagnostic dataclasses and their JSON
-  payloads. Both are pure functions over validated in-memory values.
+  allow-list evaluation, ignore matching, severity selection, and the shadowed
+  prefix rule; `hecate/diagnostics.py` holds the diagnostic dataclasses and
+  their JSON payloads. Both are pure functions over validated in-memory values.
+  The module pass's traversal in `module_coverage.py` is deliberately outside
+  that pair: it reads the policy's mode and mutates a report, so it stays a
+  named-example target rather than a symbolic one.
 - **Analysis kind is `asserts`.** CrossHair checks the module's own `assert`
   statements rather than a separate contract syntax. Those files carry
   preconditions in that form: `module_prefix_contains` in `policy.py` asserts
