@@ -52,11 +52,11 @@ Exit code `0` means the package passed, including runs whose only findings are
 warnings. Exit code `1` means Hecate found architecture violations, a finding
 at error severity such as an unclassified module under
 `unclassified_modules = "error"`, or the run passed `--fail-on-warnings` and
-found warning-level edges. Exit code `2` means configuration,
-command-line input, or package-root validation failed. `2` also covers a
-scanned source file that Hecate could not read or parse: the file and the
-reason are reported on standard error, so a broken checkout is never mistaken
-for an architecture finding.
+found warning-level edges. Exit code `2` means configuration, command-line
+input, or package-root validation failed. `2` also covers a scanned source file
+that Hecate could not read or parse: the file and the reason are reported on
+standard error, so a broken checkout is never mistaken for an architecture
+finding.
 
 Configuration validation also rejects a prefix in a later group when an earlier
 group's equal or broader prefix already claims it. The diagnostic names both

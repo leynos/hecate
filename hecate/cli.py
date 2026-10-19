@@ -170,9 +170,7 @@ def check(
     # so an enforced run names the edges it is failing on.
     warned_edges_fail = out.fail_on_warnings and bool(result.warnings)
     passed = result.ok and not warned_edges_fail
-    _emit_check_output(
-        result, out, policy=hecate_config.policy, passed=passed
-    )
+    _emit_check_output(result, out, policy=hecate_config.policy, passed=passed)
     return 0 if passed else 1
 
 
