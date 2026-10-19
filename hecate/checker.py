@@ -90,9 +90,7 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         unclassified_modules=tuple(
             sorted(ctx.unclassified.values(), key=lambda item: item.identity())
         ),
-        warnings=tuple(
-            sorted(ctx.warnings.values(), key=lambda item: item.identity())
-        ),
+        warnings=tuple(sorted(ctx.warnings.values(), key=lambda item: item.identity())),
     )
 
 
