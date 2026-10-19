@@ -20,7 +20,6 @@ from hypothesis import strategies as st
 
 from hecate.checker import ArchitectureCheckResult, check_architecture
 from hecate.config import HecateConfig, PackageRoot
-from hecate.diagnostics import fails_check
 from hecate.policy import (
     ArchitecturePolicy,
     EdgeState,
@@ -251,7 +250,7 @@ def test_edge_outcomes_stay_inside_the_documented_state_set(
         f"{severities!r}"
     )
     assert failures == tuple(
-        diagnostic for diagnostic in result.coverage if fails_check(diagnostic.severity)
+        diagnostic for diagnostic in result.coverage if diagnostic.is_failure
     ), "coverage failures must be exactly the failing coverage entries"
     assert is_ok == (not result.violations and not result.coverage_failures), (
         f"ok disagreed with the recorded diagnostics for groups="

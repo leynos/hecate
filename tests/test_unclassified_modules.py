@@ -12,22 +12,19 @@ the extra pass.
 from __future__ import annotations
 
 import textwrap
-import typing as typ
 from pathlib import Path
 
 import pytest
 
 from hecate.checker import ArchitectureCheckResult, check_architecture
 from hecate.config import HecateConfig, PackageRoot
+from hecate.diagnostics import UnclassifiedModuleDiagnostic
 from hecate.policy import (
     ArchitecturePolicy,
     ModuleGroup,
     Severity,
     UnclassifiedModules,
 )
-
-if typ.TYPE_CHECKING:
-    from hecate.diagnostics import UnclassifiedModuleDiagnostic
 
 _SAMPLE_GROUPS = (
     ModuleGroup("domain", ("pkg.domain",), ("domain",)),
@@ -361,4 +358,37 @@ def test_external_imports_do_not_become_unclassified_modules(tmp_path: Path) -> 
     reported = set(_unclassified_by_module(result))
     assert not reported, (
         f"an external import must not be reported as a module, got {sorted(reported)}"
+    )
+
+
+@pytest.mark.parametrize(
+    ("severity", "expected"),
+    [
+        (Severity.ERROR, True),
+        (Severity.WARNING, False),
+        (Severity.EXEMPT, False),
+    ],
+    ids=["error", "warning", "exempt"],
+)
+def test_exported_module_diagnostic_answers_is_failure(
+    severity: Severity, *, expected: bool
+) -> None:
+    """``UnclassifiedModuleDiagnostic.is_failure`` is part of the public surface.
+
+    The class is exported from ``hecate``, so a consumer can ask a diagnostic
+    it holds whether the run fails. The predicate that decides it is defined
+    once for both severity-carrying diagnostics; this pins the attribute the
+    package promises, rather than only the internal call rule, so a refactor
+    that deleted the property in favour of a free function would fail here
+    instead of breaking a downstream caller with ``AttributeError``.
+    """
+    diagnostic = UnclassifiedModuleDiagnostic(
+        module="pkg.newfeature",
+        source_path=Path("pkg/newfeature/__init__.py"),
+        severity=severity,
+    )
+
+    assert diagnostic.is_failure is expected, (
+        f"severity {severity} must report is_failure={expected}, "
+        f"got {diagnostic.is_failure}"
     )

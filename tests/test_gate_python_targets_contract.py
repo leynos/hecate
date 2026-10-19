@@ -72,6 +72,63 @@ def test_gate_targets_name_the_scripts_directory_whole() -> None:
     )
 
 
+def _recipe_for(text: str, target: str) -> str:
+    """Return the recipe body for ``target`` with continuations joined."""
+    match = re.search(
+        rf"^{re.escape(target)}:.*?(?=^\S)",
+        text,
+        flags=re.MULTILINE | re.DOTALL,
+    )
+    assert match is not None, f"{target} is not defined in the Makefile"
+    return match.group(0)
+
+
+def _executes_command(text: str, target: str, command: str) -> bool:
+    """Report whether ``target`` runs ``command`` as a recipe, not a comment.
+
+    The real recipes prefix the command with ``$(UV_ENV) $(UV) run``, so the
+    test is whether a non-comment line carries the whole invocation. A line
+    that has been commented out still contains the text, which is the bypass
+    this exists to catch, so leading whitespace is stripped and a leading
+    ``#`` is what disqualifies the line.
+    """
+    needle = f"{command} $(GATE_PYTHON_TARGETS)"
+    return any(
+        needle in line and not line.lstrip("\t ").startswith("#")
+        for line in _recipe_for(text, target).splitlines()
+    )
+
+
+@pytest.mark.parametrize(("target", "command"), _GATED_TARGETS)
+def test_a_commented_out_command_does_not_satisfy_the_contract(
+    target: str, command: str
+) -> None:
+    """The contract must reject a recipe whose command is disabled.
+
+    A substring search over the whole recipe passes when the command is
+    commented out, which is exactly how a gate gets disabled by accident or by
+    a hurried fix: the line is still there, so a text search is satisfied,
+    while the shell runs nothing. The negative control applies the same
+    mutation to each target and requires the check to fail.
+    """
+    text = _makefile_text()
+    needle = f"{command} $(GATE_PYTHON_TARGETS)"
+    assert _executes_command(text, target, command), (
+        f"{target} must run `{needle}` before this control can be meaningful"
+    )
+
+    commented = "\n".join(
+        f"# {line}"
+        if needle in line and not line.lstrip("\t ").startswith("#")
+        else line
+        for line in _recipe_for(text, target).splitlines()
+    )
+
+    assert not _executes_command(
+        text.replace(_recipe_for(text, target), commented, 1), target, command
+    ), f"a commented-out `{needle}` in {target} must not satisfy the contract"
+
+
 @pytest.mark.parametrize(("target", "command"), _GATED_TARGETS)
 def test_every_gate_recipe_reaches_the_scripts_directory(
     target: str, command: str
@@ -80,17 +137,13 @@ def test_every_gate_recipe_reaches_the_scripts_directory(
 
     Pinning the variable alone is not enough: a recipe that dropped
     ``$(GATE_PYTHON_TARGETS)`` would leave the directory ungated while the
-    variable still read correctly.
+    variable still read correctly. The command must be executed, not merely
+    mentioned, so a commented-out line does not satisfy this.
     """
-    match = re.search(
-        rf"^{re.escape(target)}:.*?(?=^\S)",
-        _makefile_text(),
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    assert match is not None, f"{target} is not defined in the Makefile"
+    text = _makefile_text()
+    needle = f"{command} $(GATE_PYTHON_TARGETS)"
 
-    recipe = match.group(0)
-    assert f"{command} $(GATE_PYTHON_TARGETS)" in recipe, (
-        f"{target} must run `{command} $(GATE_PYTHON_TARGETS)`, so files "
-        "under scripts/ are actually read."
+    assert _executes_command(text, target, command), (
+        f"{target} must execute `{needle}` as a recipe line, so files under "
+        "scripts/ are actually read."
     )

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import dataclasses as dc
-import os
+import enum
+import fcntl
 import subprocess  # noqa: S404 - tests exercise copied gate commands.
 import sys
 import time
@@ -74,42 +75,182 @@ def _before_the_lock() -> subprocess.Popen[str]:
     )
 
 
-def _is_blocked_on_the_lock(pid: int) -> bool:
+class _ProbeOutcome(enum.Enum):
+    """What the kernel probe managed to establish about a contention run.
+
+    A plain ``bool`` cannot distinguish "the writers were not seen waiting"
+    from "the probe could not read the files it needs", and the second must
+    never be reported as the first: it would look like evidence that the lock
+    is not contested when nothing was measured at all.
+    """
+
+    BLOCKED = "blocked"
+    """Every writer was observed in a lock wait."""
+
+    NOT_BLOCKED = "not-blocked"
+    """Some writer exited, or the deadline passed, without being observed."""
+
+    UNINSPECTABLE = "uninspectable"
+    """The probe could not read the files it needs for at least one writer."""
+
+
+def _wait_channel_evidence(pid: int) -> str | None:
+    """Return the kernel's wait channel and syscall text for ``pid``.
+
+    ``None`` means the kernel would not report them, which is a different
+    answer from "not blocked" and is reported as such.
+    """
+    try:
+        channel = Path(f"/proc/{pid}/wchan").read_text(encoding="utf-8").strip()
+        syscall = Path(f"/proc/{pid}/syscall").read_text(encoding="utf-8")
+    except OSError:
+        return None
+    return f"{channel} {syscall}"
+
+
+def _is_blocked_on_the_lock(pid: int) -> bool | None:
     """Report whether ``pid`` is sleeping in a lock wait.
 
     The kernel names the wait channel and the in-progress syscall for a
     sleeping task, and an ``flock`` wait shows up in both, so a process
     reported here has genuinely reached the contested lock rather than merely
     started. Liveness cannot answer that: a process still importing modules is
-    equally alive. Where ``/proc`` is unreadable -- macOS, or a hardened
-    kernel -- this reports ``False`` because the question cannot be answered,
-    and the callers that need an answer skip rather than read the silence as
-    contention.
+    equally alive.
+
+    Returns
+    -------
+    bool | None
+        ``True`` or ``False`` when the kernel answered, and ``None`` when it
+        would not report the files this needs.
     """
+    evidence = _wait_channel_evidence(pid)
+    if evidence is None:
+        return None
+    return "flock" in evidence or "locks_lock_inode_wait" in evidence
+
+
+def _probe_is_usable() -> bool:
+    """Report whether the kernel probe can read the files it needs.
+
+    The guard must ask the same question the probe asks. Checking only this
+    process's ``wchan`` was not enough: on a host that restricts other
+    processes' ``syscall`` files, the guard passed while the probe could never
+    answer, and the test then waited out the whole deadline and failed instead
+    of reporting that inspection was unavailable.
+
+    A live process that is deliberately not waiting is used as the subject, so
+    the check exercises exactly the shape the probe will meet: another pid,
+    both files, and a definite answer rather than silence.
+    """
+    probe = _before_the_lock()
     try:
-        channel = Path(f"/proc/{pid}/wchan").read_text(encoding="utf-8").strip()
-        syscall = Path(f"/proc/{pid}/syscall").read_text(encoding="utf-8")
-    except OSError:
+        return _is_blocked_on_the_lock(probe.pid) is not None
+    finally:
+        probe.kill()
+        probe.wait(timeout=_WRITER_GRACE_SECONDS)
+
+
+def _lock_refuses_a_second_acquirer(pyproject: Path) -> bool:
+    """Report whether the held lock refuses another non-blocking acquirer.
+
+    This is the portable half of the contention evidence. It does not depend
+    on ``/proc``: it opens the same sidecar the gate locks and attempts the
+    same exclusive lock without blocking. While the caller holds the lock the
+    attempt must be refused, which demonstrates exclusion by exercising it
+    rather than inferring it from a quiet interval.
+    """
+    lock_path = pyproject.with_name(f".{pyproject.name}.duplication-gate.lock")
+    with lock_path.open("a+", encoding="utf-8") as acquirer:
+        try:
+            fcntl.flock(acquirer.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        fcntl.flock(acquirer.fileno(), fcntl.LOCK_UN)
         return False
-    return (
-        "flock" in channel or "locks_lock_inode_wait" in channel or ("flock" in syscall)
+
+
+#: The sitecustomize planted in each portable writer's working directory.
+#:
+#: ``allow`` reaches its lock through ``fcntl.flock`` inside
+#: ``duplication_allowlist._locked_file``. Importing ``fcntl`` in the writer
+#: and wrapping its ``flock`` records the attempt before the call, on every
+#: POSIX host, with no ``/proc`` and no dependence on the writer's timing. The
+#: record is made *before* the lock is requested, so a line means "this writer
+#: is about to contend" and the held lock's refusal is observed for that same
+#: attempt through ``_lock_refuses_a_second_acquirer``.
+#:
+#: The wrapper is installed by ``sitecustomize`` because the copied gate is a
+#: separate interpreter: there is no in-process seam to monkeypatch. Only the
+#: ``LOCK_EX`` path is recorded, so the ``LOCK_UN`` release is untouched.
+_LOCK_ATTEMPT_HOOK = """\
+import fcntl as _fcntl
+import os as _os
+
+_attempt_log = _os.environ.get("DUP_GATE_ATTEMPT_LOG")
+_original_flock = _fcntl.flock
+
+
+def _recording_flock(fd, operation):
+    if (
+        _attempt_log
+        and operation & _fcntl.LOCK_EX
+        and not operation & _fcntl.LOCK_NB
+    ):
+        with open(_attempt_log, "a", encoding="utf-8") as log:
+            log.write(f"{_os.getpid()}\\n")
+    return _original_flock(fd, operation)
+
+
+_fcntl.flock = _recording_flock
+"""
+
+
+def _await_lock_attempt(
+    writers: tuple[subprocess.Popen[str], ...],
+    attempt_log: Path,
+    *,
+    deadline_seconds: float = _CONTENTION_TIMEOUT_SECONDS,
+) -> set[int]:
+    """Block until every writer has entered the blocking lock call.
+
+    Each portable writer imports a ``sitecustomize`` that records its pid just
+    before it makes the blocking exclusive ``flock`` call. That is positive
+    evidence the writer reached the contested operation, not an inference from
+    elapsed time: a writer still importing modules has recorded nothing. The
+    wait is bounded, and a writer that exits first fails loudly with its own
+    output rather than being waited out.
+
+    Returns
+    -------
+    set[int]
+        The writer pids whose lock attempt was recorded.
+    """
+    deadline = time.monotonic() + deadline_seconds
+    while time.monotonic() < deadline:
+        for writer in writers:
+            if writer.poll() is not None:
+                stdout, stderr = writer.communicate()
+                pytest.fail(
+                    f"a writer exited before attempting the lock: "
+                    f"returncode={writer.returncode} stdout={stdout!r} "
+                    f"stderr={stderr!r}",
+                    pytrace=False,
+                )
+        attempted = _recorded_attempts(attempt_log)
+        if len(attempted) >= len(writers):
+            return attempted
+        time.sleep(0.05)
+    attempted = _recorded_attempts(attempt_log)
+    pytest.fail(
+        f"{len(attempted)} of {len(writers)} writers attempted the lock "
+        f"within {deadline_seconds}s: {sorted(attempted)!r}",
+        pytrace=False,
     )
 
 
-def _has_kernel_wait_channel() -> bool:
-    """Report whether this host exposes the wait channel the probe reads.
-
-    The wait channel is Linux-only, so the tests that need it guard
-    themselves with this check. They skip with a stated reason instead of
-    passing on weaker evidence, because a contention claim that silently
-    degrades to "both processes are alive" would also hold with the lock
-    removed, and would then be worth nothing.
-    """
-    try:
-        Path(f"/proc/{os.getpid()}/wchan").read_text(encoding="utf-8")
-    except OSError:
-        return False
-    return True
+def _recorded_attempts(attempt_log: Path) -> set[int]:
+    """Return the pids whose lock attempt the instrumented writers recorded."""
+    return {int(line) for line in attempt_log.read_text(encoding="utf-8").splitlines()}
 
 
 def _await_blocked(
@@ -117,7 +258,7 @@ def _await_blocked(
     *,
     blocked_at: dict[str, float],
     deadline_seconds: float = _CONTENTION_TIMEOUT_SECONDS,
-) -> bool:
+) -> _ProbeOutcome:
     """Wait until every writer is in a lock wait, or the deadline passes.
 
     Each writer's wait is recorded in ``blocked_at`` as it is observed, so the
@@ -126,21 +267,29 @@ def _await_blocked(
 
     Returns
     -------
-    bool
-        ``True`` once every writer has been observed in a lock wait.
+    _ProbeOutcome
+        ``BLOCKED`` once every writer has been observed in a lock wait,
+        ``UNINSPECTABLE`` as soon as the kernel declines to report one, and
+        ``NOT_BLOCKED`` when a writer exits or the deadline passes first.
     """
     deadline = time.monotonic() + deadline_seconds
     pending = list(writers)
     while pending and time.monotonic() < deadline:
         for writer in list(pending):
             if writer.poll() is not None:
-                return False
-            if _is_blocked_on_the_lock(writer.pid):
+                return _ProbeOutcome.NOT_BLOCKED
+            blocked = _is_blocked_on_the_lock(writer.pid)
+            if blocked is None:
+                # The kernel will not answer for this writer. Waiting out the
+                # deadline here would report a slow test rather than the real
+                # problem, so give up at the first unanswered probe.
+                return _ProbeOutcome.UNINSPECTABLE
+            if blocked:
                 blocked_at[str(writer.pid)] = time.monotonic()
                 pending.remove(writer)
         if pending:
             time.sleep(0.05)
-    return not pending
+    return _ProbeOutcome.BLOCKED if not pending else _ProbeOutcome.NOT_BLOCKED
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -156,17 +305,35 @@ class _ContendedSetup:
     environment: dict[str, str]
     pyproject: Path
     bystander: subprocess.Popen[str]
+    attempt_log: Path
 
 
 def _contended_setup(tmp_path: Path) -> _ContendedSetup:
-    """Copy the gate into ``tmp_path`` and start the negative-control process."""
-    _workspace, script = copied_gate_workspace(tmp_path)
+    """Copy the gate into ``tmp_path`` and start the negative-control process.
+
+    The writers run as separate interpreters with no in-process seam to
+    monkeypatch, so the ``sitecustomize`` hook is placed beside the copied
+    gate and reached through ``PYTHONPATH``. It records each writer's pid when
+    it enters the blocking exclusive-lock call, which is the portable
+    contention signal the kernel probe cannot provide off Linux.
+    """
+    workspace, script = copied_gate_workspace(tmp_path)
+    (script.parent / "sitecustomize.py").write_text(
+        _LOCK_ATTEMPT_HOOK, encoding="utf-8"
+    )
+    attempt_log = tmp_path / "lock-attempts.txt"
+    attempt_log.touch()
     stub = write_stub_nose(tmp_path, report=_TWO_FAMILY_REPORT)
     return _ContendedSetup(
         script=script,
-        environment=gate_environment(NOSE_BIN=str(stub)),
-        pyproject=script.parent.parent / "pyproject.toml",
+        environment=gate_environment(
+            NOSE_BIN=str(stub),
+            PYTHONPATH=str(script.parent),
+            DUP_GATE_ATTEMPT_LOG=str(attempt_log),
+        ),
+        pyproject=workspace / "pyproject.toml",
         bystander=_before_the_lock(),
+        attempt_log=attempt_log,
     )
 
 
@@ -185,63 +352,111 @@ def _terminate(
     bystander.wait(timeout=_WRITER_GRACE_SECONDS)
 
 
+class _ObservationMode(enum.Enum):
+    """Which evidence a held-lock observation collects.
+
+    The two modes answer different questions and need different machinery.
+    ``KERNEL_PROBE`` establishes that the writers genuinely reached the lock
+    by reading the kernel's wait channel, which is strong evidence but Linux
+    only. ``PORTABLE_EXCLUSION`` establishes that the held lock refuses
+    another acquirer and that no writer replaced the manifest, which works
+    anywhere but is a bounded exclusion check rather than a proof that the
+    writers were blocked. Keeping them separate stops the portable case from
+    paying the kernel probe's deadline on a host that cannot answer it, and
+    stops either case from claiming the other's guarantee.
+    """
+
+    KERNEL_PROBE = "kernel-probe"
+    PORTABLE_EXCLUSION = "portable-exclusion"
+
+
 @dc.dataclass(frozen=True, slots=True)
 class _LockObservation:
     """What the probe saw while the test held the lock.
 
-    These four facts are always read together -- they answer one question,
-    "did the lock actually exclude the writers?" -- so they travel as one
-    value rather than as four fields the caller has to keep straight.
+    These facts are always read together -- they answer one question, "did the
+    lock actually exclude the writers?" -- so they travel as one value rather
+    than as fields the caller has to keep straight.
 
     Attributes
     ----------
     blocked_at : dict[str, float]
         Monotonic times at which each writer was seen waiting on the lock,
-        keyed by process id as text.
-    bystander_blocked : bool
+        keyed by process id as text. Empty in portable mode, which does not
+        inspect the kernel.
+    bystander_blocked : bool | None
         Whether the probe ever reported the control as waiting. It must not,
         and a ``True`` here means the probe is measuring something other than
-        contention.
+        contention. ``None`` in portable mode, where no kernel probe runs.
     original_manifest : bytes
         The manifest before either writer started.
     held_manifest : bytes
         The manifest as it read while the lock was still held. The lock's
         whole purpose is that no writer replaces the file during that window,
         so this differing from the original is a lock that did not hold.
+    probe_outcome : _ProbeOutcome | None
+        How far the kernel probe got, so a caller can tell "not blocked" from
+        "could not inspect". ``None`` in portable mode, where no probe runs.
+    lock_refused_second_acquirer : bool
+        Whether the held lock refused a second, non-blocking acquirer. This is
+        the portable evidence, independent of ``/proc``.
+    attempted_lock_pids : set[int]
+        The writer pids whose entry into the blocking exclusive-lock call was
+        recorded by the writer's own instrumentation. Empty in kernel-probe
+        mode, which does not instrument the writers.
     """
 
     blocked_at: dict[str, float]
-    bystander_blocked: bool
+    bystander_blocked: bool | None
     original_manifest: bytes
     held_manifest: bytes
+    probe_outcome: _ProbeOutcome | None
+    lock_refused_second_acquirer: bool
+    attempted_lock_pids: set[int]
 
 
 def _observe_lock(
     writers: list[subprocess.Popen[str]],
     setup: _ContendedSetup,
     *,
-    settle_seconds: float,
+    mode: _ObservationMode,
 ) -> _LockObservation:
     """Observe what the held lock does before releasing it.
 
-    The caller holds the lock when this is called. It records the manifest
-    before the writers start and again just before the lock is released, so a
-    writer that ignored the lock shows up as a changed ``held_manifest`` rather
-    than being inferred from timing.
+    The caller holds the lock when this is called. In ``KERNEL_PROBE`` mode
+    the kernel wait channel is read until both writers are seen waiting, and
+    the bystander is sampled as the liveness control. In
+    ``PORTABLE_EXCLUSION`` mode the test instead waits for each writer's own
+    readiness line and makes a non-blocking acquisition attempt; that attempt
+    works on every platform and is what the portable case's exclusion claim
+    rests on.
+
+    A writer that ignored the lock is caught by the manifest check, which is
+    read before the writers start and again just before the lock is released.
+    In portable mode the wait between those reads is the readiness signal, not
+    a sleep: the test knows each writer has finished its startup, so the check
+    covers the window in which a bypassing writer could replace the file.
     """
     blocked_at: dict[str, float] = {}
     original_manifest = setup.pyproject.read_bytes()
-    held_manifest = original_manifest
-    _await_blocked(tuple(writers), blocked_at=blocked_at)
-    bystander_blocked = _is_blocked_on_the_lock(setup.bystander.pid)
-    if settle_seconds:
-        time.sleep(settle_seconds)
+    probe_outcome: _ProbeOutcome | None = None
+    bystander_blocked: bool | None = None
+    attempted_lock_pids: set[int] = set()
+    if mode is _ObservationMode.KERNEL_PROBE:
+        probe_outcome = _await_blocked(tuple(writers), blocked_at=blocked_at)
+        bystander_blocked = _is_blocked_on_the_lock(setup.bystander.pid) is True
+    else:
+        attempted_lock_pids = _await_lock_attempt(tuple(writers), setup.attempt_log)
+    lock_refused = _lock_refuses_a_second_acquirer(setup.pyproject)
     held_manifest = setup.pyproject.read_bytes()
     return _LockObservation(
         blocked_at=blocked_at,
         bystander_blocked=bystander_blocked,
         original_manifest=original_manifest,
         held_manifest=held_manifest,
+        probe_outcome=probe_outcome,
+        lock_refused_second_acquirer=lock_refused,
+        attempted_lock_pids=attempted_lock_pids,
     )
 
 
@@ -273,7 +488,7 @@ class _ContendedRun:
         return self.observation.blocked_at
 
     @property
-    def bystander_blocked(self) -> bool:
+    def bystander_blocked(self) -> bool | None:
         """Return whether the probe ever reported the control as waiting."""
         return self.observation.bystander_blocked
 
@@ -286,6 +501,21 @@ class _ContendedRun:
     def held_manifest(self) -> bytes:
         """Return the manifest as it read while the lock was still held."""
         return self.observation.held_manifest
+
+    @property
+    def probe_outcome(self) -> _ProbeOutcome | None:
+        """Return how far the kernel probe got, or ``None`` if none ran."""
+        return self.observation.probe_outcome
+
+    @property
+    def lock_refused_second_acquirer(self) -> bool:
+        """Return whether the held lock refused a second acquirer."""
+        return self.observation.lock_refused_second_acquirer
+
+    @property
+    def attempted_lock_pids(self) -> set[int]:
+        """Return the writer pids recorded entering the blocking lock call."""
+        return self.observation.attempted_lock_pids
 
     def reap(self, *, grace_seconds: float = _WRITER_GRACE_SECONDS) -> None:
         """Wait for every process this run started, killing any straggler.
@@ -321,7 +551,7 @@ class _ContendedRun:
 
     @classmethod
     def start_and_release(
-        cls, tmp_path: Path, *, settle_seconds: float = 0.0
+        cls, tmp_path: Path, *, mode: _ObservationMode
     ) -> _ContendedRun:
         """Start both writers against a held lock, then release it.
 
@@ -334,12 +564,11 @@ class _ContendedRun:
         ----------
         tmp_path : pathlib.Path
             Directory to build the copied workspace inside.
-        settle_seconds : float
-            How long to let the writers run before the manifest is read and
-            the lock released. A positive value gives a writer that ignores
-            the lock every chance to complete and be caught replacing the
-            file; the default reads it immediately for the kernel-probe test,
-            which does not depend on that window.
+        mode : _ObservationMode
+            Which evidence to collect while the lock is held. ``KERNEL_PROBE``
+            waits for the kernel to show each writer in a lock wait;
+            ``PORTABLE_EXCLUSION`` waits for each writer's readiness line and
+            makes a non-blocking acquisition attempt instead.
         """
         setup = _contended_setup(tmp_path)
         writers: list[subprocess.Popen[str]] = []
@@ -352,9 +581,7 @@ class _ContendedRun:
                         ("hecate/b.py", "second writer"),
                     )
                 )
-                observation = _observe_lock(
-                    writers, setup, settle_seconds=settle_seconds
-                )
+                observation = _observe_lock(writers, setup, mode=mode)
         except BaseException:
             _terminate(writers, setup.bystander)
             raise
@@ -584,14 +811,27 @@ class TestAppendAllowEntry:
         the wait channel, because without it the assertion could pass with the
         lock removed and would prove nothing.
         """
-        if not _has_kernel_wait_channel():
+        if not _probe_is_usable():
             pytest.skip(
-                "this host exposes no /proc wait channel, so contention "
-                "cannot be observed here; the entry-preservation assertion "
-                "would hold even for two serial writers."
+                "this host does not let the probe read another process's "
+                "kernel wait channel, so contention cannot be observed here; "
+                "the entry-preservation assertion would hold even for two "
+                "serial writers."
             )
-        run = _ContendedRun.start_and_release(tmp_path)
+        run = _ContendedRun.start_and_release(
+            tmp_path, mode=_ObservationMode.KERNEL_PROBE
+        )
         try:
+            if run.probe_outcome is _ProbeOutcome.UNINSPECTABLE:
+                pytest.skip(
+                    "the kernel stopped reporting a writer's wait channel "
+                    "mid-run, so this run cannot be read as contention "
+                    "evidence; the next run may inspect it."
+                )
+            assert run.probe_outcome is _ProbeOutcome.BLOCKED, (
+                "Both writers must be observed waiting on the lock the test "
+                "held, or this is not a contention test."
+            )
             assert len(run.blocked_at) == 2, (
                 "Both writers must be observed waiting on the lock the test "
                 "held, or this is not a contention test."
@@ -621,23 +861,44 @@ class TestAppendAllowEntry:
     def test_a_held_lock_excludes_the_writers_whatever_the_platform(
         self, tmp_path: Path
     ) -> None:
-        """No writer replaces the manifest while the lock is held.
+        """The held lock refuses another acquirer and no writer replaces it.
 
-        This is the portable half of the contention evidence. The kernel
-        probe above proves the writers genuinely reached the lock, but it
-        cannot run everywhere; the effect the lock exists to produce is
-        observable anywhere, and it is what actually matters. Both writers
-        are given a generous window to run while the test holds the lock. A
-        writer still waiting cannot have altered the file, so the manifest
-        must read exactly as it did before they started; a writer that ran
-        anyway would have replaced it, which is the failure this catches.
+        This is the portable half of the contention evidence, and it does not
+        depend on ``/proc``. Three facts are asserted separately because they
+        answer different questions:
 
-        Removing the `fcntl.flock` fails here with the writer's own recorded
-        entry in `held_manifest`, so the check is not vacuous on a platform
-        that has no `/proc` at all.
+        * each writer entered the blocking exclusive-lock call while the test
+          held the lock, recorded by the writer's own instrumentation. Without
+          this, the other two assertions would also hold for two writers that
+          had not started yet;
+        * the held lock refuses a second, non-blocking acquirer, which
+          demonstrates exclusion by exercising it rather than inferring it
+          from a quiet interval;
+        * no writer replaced the manifest during the held window, which is the
+          effect the lock exists to produce.
+
+        It is a bounded exclusion check, not the equivalent of the kernel
+        probe's proof of contention: entering the call shows a writer
+        contended, and the refusal shows the lock excluded it, but neither
+        reads the writer's blocked state directly.
         """
-        run = _ContendedRun.start_and_release(tmp_path, settle_seconds=2.0)
+        run = _ContendedRun.start_and_release(
+            tmp_path, mode=_ObservationMode.PORTABLE_EXCLUSION
+        )
         try:
+            assert run.attempted_lock_pids == {writer.pid for writer in run.writers}, (
+                "Both writers must have entered the blocking lock call while "
+                "the lock was held. A writer that never got there makes the "
+                "exclusion assertion below trivially true."
+            )
+            assert run.lock_refused_second_acquirer, (
+                "The held lock admitted a second acquirer, so it is not "
+                "excluding anything and the observation below proves nothing."
+            )
+            assert run.probe_outcome is None, (
+                "The portable case must not pay the kernel probe's deadline; "
+                "it collects exclusion evidence instead."
+            )
             assert b"duplication_gate" not in run.held_manifest, (
                 "An entry appeared during the held window, which means a "
                 "writer recorded it without acquiring the lock."
@@ -665,20 +926,21 @@ class TestAppendAllowEntry:
         half: that one shows a real wait is found, this one shows merely being
         alive is not counted as one.
         """
-        if not _has_kernel_wait_channel():
+        if not _probe_is_usable():
             pytest.skip(
-                "this host exposes no /proc wait channel, so there is no "
-                "probe here whose silence could mean anything."
+                "this host does not let the probe read another process's "
+                "kernel wait channel, so there is no probe here whose silence "
+                "could mean anything."
             )
         bystander = _before_the_lock()
         blocked_at: dict[str, float] = {}
         try:
-            observed = _await_blocked(
+            outcome = _await_blocked(
                 (bystander,), blocked_at=blocked_at, deadline_seconds=2.0
             )
-            assert not observed, (
-                "A process that never enters a lock wait must not be reported "
-                "as blocked."
+            assert outcome is _ProbeOutcome.NOT_BLOCKED, (
+                "A process that never enters a lock wait must be reported as "
+                f"not blocked, got {outcome}."
             )
             assert blocked_at == {}, "No wait was entered, so none must be recorded."
         finally:
