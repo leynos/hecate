@@ -118,25 +118,27 @@ def test_warning_target_reports_without_failing(tmp_path: Path) -> None:
 def test_warning_identities_are_sorted_and_deduplicated(tmp_path: Path) -> None:
     """Warnings are de-duplicated and ordered by their identity.
 
-    The package writes the same import twice, which reaches the checker as two
-    edges. Without identity-keyed accumulation the report would carry both and
-    its order would depend on traversal, so the assertion pins both halves.
+    Importing one name twice on a single line yields two edges with the same
+    identity: the target module, the named symbol, and that same named symbol
+    again. Accumulating by identity must collapse the pair, so the exact list
+    below fails if either edge is appended rather than recorded. A second line
+    adds a distinct identity for the same target, which pins the sort order
+    across warnings that must both survive.
     """
     files = dict(_WARNED_EDGE_FILES)
     files["application/service.py"] = (
-        "from pkg.adapters.database import Database\n"
-        "from pkg.adapters.database import Database\n"
+        "from pkg.adapters.database import Database, Database as DatabaseAlias\n"
+        "import pkg.adapters.database\n"
     )
     result = _check(tmp_path, files, policy=_policy())
 
     identities = [warning.identity() for warning in result.warnings]
 
-    assert identities == sorted(identities), (
-        f"warnings must be sorted by identity, got {identities!r}"
-    )
-    assert len(identities) == len(set(identities)), (
-        f"duplicate imports must collapse to one warning, got {identities!r}"
-    )
+    assert identities == [
+        ("HEC001", "pkg.application.service", "pkg.adapters.database", 1),
+        ("HEC001", "pkg.application.service", "pkg.adapters.database", 2),
+        ("HEC001", "pkg.application.service", "pkg.adapters.database.Database", 1),
+    ], f"duplicate edges must collapse and the rest stay sorted, got {identities!r}"
 
 
 def test_matching_ignore_suppresses_a_warned_edge(tmp_path: Path) -> None:

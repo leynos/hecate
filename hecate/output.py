@@ -16,6 +16,7 @@ def render_text(
     *,
     show_ignored: bool = False,
     show_coverage: bool = False,
+    passed: bool | None = None,
 ) -> str:
     """Render deterministic plain text for CI and snapshots.
 
@@ -31,17 +32,40 @@ def render_text(
     flag was passed would defeat the setting. Under ``ignore`` there is nothing
     to show and the default output is unchanged.
 
-    The pass notice reports the command outcome in ``result.passed``, which can
-    differ from ``result.ok``: an enforced warning leaves the architecture
-    result unchanged but fails the run. ``None`` falls back to the result's own
-    outcome, which is what a caller with no enforcement policy gets.
+    ``passed`` is the command outcome, decided by the caller from the same
+    policy that produces the exit code. A caller that supplies it states the
+    outcome explicitly; a caller that omits it gets the architecture result's
+    own outcome, which is the right answer when no enforcement policy is in
+    force. A pass claim the result contradicts raises :class:`ValueError`
+    rather than rendering output that disagrees with its own diagnostics.
     """
     lines = [*_always_rendered_lines(result)]
     if show_ignored:
         lines.extend(ignored.render() for ignored in result.ignored)
     if show_coverage:
         lines.extend(_coverage_warning_lines(result))
-    return "\n".join(_with_pass_notice(lines, ok=_passed(result))) + "\n"
+    outcome = _resolve_outcome(result, passed=passed)
+    return "\n".join(_with_pass_notice(lines, ok=outcome)) + "\n"
+
+
+def _resolve_outcome(result: ArchitectureCheckResult, *, passed: bool | None) -> bool:
+    """Return the command outcome, refusing a contradicted pass claim.
+
+    ``None`` means the caller states no command policy, so the architecture
+    result's own outcome governs. An explicit ``True`` must agree with it: the
+    command outcome can differ from ``ok`` by failing a passing result under
+    ``--fail-on-warnings``, never by passing one that has violations or
+    error-severity diagnostics.
+    """
+    if passed is None:
+        return result.ok
+    if passed and not result.ok:
+        msg = (
+            "passed=True contradicts an architecture result that did not pass; "
+            "render the result's own outcome instead"
+        )
+        raise ValueError(msg)
+    return passed
 
 
 def _always_rendered_lines(result: ArchitectureCheckResult) -> cabc.Iterator[str]:
@@ -54,11 +78,6 @@ def _always_rendered_lines(result: ArchitectureCheckResult) -> cabc.Iterator[str
     yield from (failure.render() for failure in result.coverage_failures)
     yield from (diagnostic.render() for diagnostic in result.unclassified_modules)
     yield from (warning.render() for warning in result.warnings)
-
-
-def _passed(result: ArchitectureCheckResult) -> bool:
-    """Return the command outcome, falling back to the architecture result."""
-    return result.ok if result.passed is None else result.passed
 
 
 def _coverage_warning_lines(result: ArchitectureCheckResult) -> cabc.Iterator[str]:
@@ -81,12 +100,17 @@ def _with_pass_notice(lines: list[str], *, ok: bool) -> list[str]:
     return ["hecate: architecture check passed", *lines]
 
 
+# Every option here is part of the renderer's published keyword surface, and
+# ``passed`` had to join them rather than ride on the architecture result, so
+# the count is deliberate. Collapsing the flags would break existing callers.
+# pylint: disable-next=too-many-arguments
 def render_json(
     result: ArchitectureCheckResult,
     *,
     show_ignored: bool = False,
     show_coverage: bool = True,
     include_unclassified: bool = False,
+    passed: bool | None = None,
 ) -> str:
     """Render deterministic JSON output.
 
@@ -102,13 +126,15 @@ def render_json(
 
     ``ok`` reports the architecture result and deliberately ignores warnings,
     so it cannot double as the command outcome once ``--fail-on-warnings`` can
-    fail a run it calls ``ok``. ``status`` carries that outcome instead, read
-    from ``result.passed``, which keeps the existing ``ok`` meaning intact for
-    current consumers.
+    fail a run it calls ``ok``. ``status`` carries the command outcome from
+    ``passed`` instead, which keeps the existing ``ok`` meaning intact for
+    current consumers. Omitting ``passed`` states no command policy, so
+    ``status`` falls back to the architecture outcome; a pass claim the result
+    contradicts raises :class:`ValueError`.
     """
     payload: dict[str, object] = {
         "ok": result.ok,
-        "status": "passed" if _passed(result) else "failed",
+        "status": "passed" if _resolve_outcome(result, passed=passed) else "failed",
         "violations": [violation.to_dict() for violation in result.violations],
         "warnings": [warning.to_dict() for warning in result.warnings],
     }
