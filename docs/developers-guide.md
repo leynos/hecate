@@ -506,7 +506,7 @@ modules at the top.
 | `source.py`            | Read and parse one scanned file, reporting `SourceError`.             | none                                                           |
 | `all_sequence.py`      | Evaluate a module's `__all__` sequence, or report it unknowable.      | `module_scope`                                                 |
 | `config_helpers.py`    | Internal TOML readers and validators, reporting `ConfigError`.        | `policy`                                                       |
-| `config_validation.py` | Format the diagnostics for shadowed group prefixes.                   | none (policy types under `TYPE_CHECKING`)                      |
+| `config_validation.py` | Apply policy validation rules and format their diagnostics.           | `config_helpers`, `policy`                                     |
 | `diagnostics.py`       | Hold the stable, ordered diagnostic dataclasses and their JSON forms. | `policy`                                                       |
 | `imports.py`           | Discover a root's modules, and collect import statements from them.   | `source`                                                       |
 | `policy.py`            | Hold the validated group, allow-list, warn-list, and ignore model.    | `imports`                                                      |
@@ -530,11 +530,12 @@ are the stages the orchestration sequences.
 
 Two modules are leaves at runtime by design: `module_scope.py` answers a
 question about the syntax tree, and `source.py` owns the only filesystem and
-parser boundary in the package. `config_validation.py` is a third runtime leaf
-whose annotation-only `policy` import stays under `TYPE_CHECKING`, so
-formatting a shadow diagnostic costs no runtime dependency on the policy
-module. Nothing in `hecate/` imports an adapter, a framework, or an optional
-dependency beyond `cyclopts`, which is the sole runtime dependency.
+parser boundary in the package. `config_validation.py` is not a leaf: it holds
+every policy validation rule, so it imports `config_helpers` for `ConfigError`,
+`_Loc`, and `_validate_dotted_strings`, and `policy` for `ShadowedPrefix` and
+`find_shadowed_prefixes`, all at runtime. Nothing in `hecate/` imports an
+adapter, a framework, or an optional dependency beyond `cyclopts`, which is the
+sole runtime dependency.
 
 The arrow from `config.py` to `diagnostics.py` exists for one constant:
 `UNCLASSIFIED_MODULE_RULE_ID`, which `_validate_rule_id` reserves so a policy
