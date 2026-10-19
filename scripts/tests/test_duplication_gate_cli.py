@@ -21,6 +21,7 @@ from pathlib import Path
 import pytest
 from duplication_gate_test_support import (
     REPOSITORY_ROOT,
+    STUB_FAMILY,
     STUB_REPORT,
     allowlist,
     copied_gate_workspace,
@@ -38,14 +39,13 @@ def _report_with_named_locations(*names: str) -> dict[str, object]:
     by ``path::name`` keys alone; the shared file is what distinguishes a
     single-key ``unit`` entry from a cross-file ``members`` entry.
     """
-    family = STUB_REPORT["families"][0]
     return {
         **STUB_REPORT,
         "families": [
             {
-                **family,
+                **STUB_FAMILY,
                 "locations": [
-                    {**family["locations"][0], "file": "hecate/b.py", "name": name}
+                    {"file": "hecate/b.py", "start": 1, "end": 20, "name": name}
                     for name in names
                 ],
             }
@@ -67,7 +67,7 @@ class TestAllowCli:
 
     def test_allow_cli_round_trips_a_unit_key(self, tmp_path: Path) -> None:
         """A single named unit covering its whole family is recorded as ``unit``."""
-        workspace, script = copied_gate_workspace(tmp_path)
+        _workspace, script = copied_gate_workspace(tmp_path)
         stub = write_stub_nose(
             tmp_path, report=_report_with_named_locations("beta", "gamma")
         )
@@ -93,7 +93,7 @@ class TestAllowCli:
 
     def test_allow_cli_round_trips_members(self, tmp_path: Path) -> None:
         """A cross-file family is recorded as ``members`` and then silences it."""
-        workspace, script = copied_gate_workspace(tmp_path)
+        _workspace, script = copied_gate_workspace(tmp_path)
         stub = write_stub_nose(tmp_path)
 
         result = run_gate_command(

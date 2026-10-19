@@ -49,22 +49,41 @@ min-size = 24
 surface = "all"
 """
 
-#: Report emitted by the stub detector: one two-member duplication family.
-STUB_REPORT = {
-    "schema_version": 9,
-    "families": [
-        {
-            "id": "stub",
-            "witness": "copy-paste",
-            "surface": "default",
-            "value": 22.1,
-            "metrics": {"mean_score": 1.0},
-            "locations": [
-                {"file": "hecate/a.py", "start": 1, "end": 20, "name": None},
-                {"file": "hecate/b.py", "start": 30, "end": 49, "name": None},
-            ],
-        }
+
+class StubFamily(typ.TypedDict):
+    """One stub duplication family with the report's own field names.
+
+    The family is declared rather than left as an untyped literal so tests
+    that derive a variant can subscript it: on a bare ``dict[str, object]``
+    every lookup widens to ``object`` and the variant is rejected by the
+    type checker before it ever runs.
+    """
+
+    id: str
+    witness: str
+    surface: str
+    value: float
+    metrics: dict[str, float]
+    locations: list[dict[str, object]]
+
+
+#: The one family every stub report starts from: two members, one per file.
+STUB_FAMILY: StubFamily = {
+    "id": "stub",
+    "witness": "copy-paste",
+    "surface": "default",
+    "value": 22.1,
+    "metrics": {"mean_score": 1.0},
+    "locations": [
+        {"file": "hecate/a.py", "start": 1, "end": 20, "name": None},
+        {"file": "hecate/b.py", "start": 30, "end": 49, "name": None},
     ],
+}
+
+#: Report emitted by the stub detector: one two-member duplication family.
+STUB_REPORT: dict[str, object] = {
+    "schema_version": 9,
+    "families": [STUB_FAMILY],
 }
 
 
@@ -200,7 +219,9 @@ __all__ = [
     "GATE_MODULE_NAMES",
     "NOSE_SETTINGS",
     "REPOSITORY_ROOT",
+    "STUB_FAMILY",
     "STUB_REPORT",
+    "StubFamily",
     "allowlist",
     "atomic_write",
     "copied_gate_workspace",

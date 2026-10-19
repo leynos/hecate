@@ -216,9 +216,13 @@ class TestMakeInstallNose:
         assert "--disable-strategies" in arguments, (
             f"A {case} detector must constrain the installer's strategies."
         )
-        assert "compile" in arguments and "quick-install" in arguments, (
-            "The installer must disable both the source build and quick-install "
-            "strategies, so provisioning fails rather than compiling."
+        assert "compile" in arguments, (
+            "The installer must disable the source-build strategy, so "
+            "provisioning fails rather than compiling."
+        )
+        assert "quick-install" in arguments, (
+            "The installer must disable the quick-install strategy, so "
+            "provisioning fails rather than taking the shortcut."
         )
 
     def test_reinstall_leaves_a_detector_at_the_pinned_version(
