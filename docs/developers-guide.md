@@ -68,7 +68,10 @@ prefixes. `check_architecture` then walks every package root once through
 index over them, collects import statements, classifies each edge against
 policy, and records every discovered module that no group claims. The resulting
 `ArchitectureCheckResult` is rendered as text or JSON and turned into an exit
-code. A usage error leaves this flow before `load_config` and exits 1.
+code. The result carries the command outcome on `passed`, which differs from
+`ok` when `--fail-on-warnings` fails a run whose only findings were warnings;
+the renderers report `passed` and fall back to `ok` when it is unset. A usage
+error leaves this flow before `load_config` and exits 1.
 
 ```mermaid
 flowchart TD
@@ -92,14 +95,16 @@ flowchart TD
     L --> P{"unmatched ignores under\n--fail-on-unmatched-ignore?"}
     P -->|"yes"| Z2
     P -->|"no"| M["render_text() or render_json()"]
-    M --> N{"result.ok?"}
+    M --> N{"result.passed?"}
     N -->|"true"| Z0["exit 0"]
     N -->|"false"| Z1["exit 1"]
 ```
 
 _Figure 1: One `hecate check` invocation from argument parsing to exit code.
-All three routes to exit code 2 converge on a single stderr node; a usage error
-exits 1 through Cyclopts instead, as described under
+`result.passed` is `result.ok` unless `--fail-on-warnings` turns a warning-only
+run into a failure, so a run whose only findings were warnings leaves by the
+`false` branch. All three routes to exit code 2 converge on a single stderr
+node; a usage error exits 1 through Cyclopts instead, as described under
 [Check outcome and exit codes](#check-outcome-and-exit-codes)._
 
 ### Discovery and the two passes
