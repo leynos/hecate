@@ -24,6 +24,16 @@ def unclassified_module_severity(mode: UnclassifiedModules) -> Severity:
     return _UNCLASSIFIED_MODULE_SEVERITIES.get(mode, Severity.WARNING)
 
 
+def fails_check(severity: Severity) -> bool:
+    """Return whether a diagnostic at ``severity`` fails the check.
+
+    Only error severity fails it; a warning-only run stays green. Both
+    diagnostic kinds decide this the same way, so the rule lives here rather
+    than being restated on each class.
+    """
+    return severity is Severity.ERROR
+
+
 class _ClassifiedEdge(typ.Protocol):
     """The fields shared by diagnostics describing one classified import edge.
 
@@ -163,11 +173,6 @@ class CoverageDiagnostic:
     importer_group: str | None = None
     imported_group: str | None = None
 
-    @property
-    def is_failure(self) -> bool:
-        """Return whether this diagnostic fails the check."""
-        return self.severity is Severity.ERROR
-
     def identity(self) -> tuple[str, str, str, str, int]:
         """Return the stable identity used for sorting and de-duplication."""
         return (
@@ -216,11 +221,6 @@ class UnclassifiedModuleDiagnostic:
     def rule_id(self) -> str:
         """Return the fixed module-coverage rule identifier."""
         return UNCLASSIFIED_MODULE_RULE_ID
-
-    @property
-    def is_failure(self) -> bool:
-        """Return whether this diagnostic fails the check."""
-        return self.severity is Severity.ERROR
 
     def identity(self) -> tuple[str, str]:
         """Return the stable identity used for sorting and de-duplication."""

@@ -11,6 +11,7 @@ from .diagnostics import (
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
     UnclassifiedModuleDiagnostic,
+    fails_check,
 )
 from .imports import (
     DiscoveredModule,
@@ -54,7 +55,7 @@ class ArchitectureCheckResult:
         """
         failures = (self.coverage, self.unclassified_modules)
         return not self.violations and not any(
-            diagnostic.is_failure
+            fails_check(diagnostic.severity)
             for diagnostics in failures
             for diagnostic in diagnostics
         )
@@ -63,7 +64,9 @@ class ArchitectureCheckResult:
     def coverage_failures(self) -> tuple[CoverageDiagnostic, ...]:
         """Return the coverage diagnostics that fail the check."""
         return tuple(
-            diagnostic for diagnostic in self.coverage if diagnostic.is_failure
+            diagnostic
+            for diagnostic in self.coverage
+            if fails_check(diagnostic.severity)
         )
 
 
