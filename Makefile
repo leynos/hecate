@@ -217,6 +217,7 @@ duplication-test: ## Run the duplication-gate helper tests
 		scripts/tests/test_duplication_gate.py \
 		scripts/tests/test_duplication_gate_cli.py \
 		scripts/tests/test_duplication_gate_commands.py \
+		scripts/tests/test_duplication_gate_contention.py \
 		scripts/tests/test_duplication_gate_make.py \
 		scripts/tests/test_duplication_gate_persistence.py \
 		scripts/tests/test_duplication_gate_properties.py \

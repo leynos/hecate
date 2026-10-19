@@ -263,6 +263,45 @@ indiscriminate abstraction or suppression.
   availability guard now exercises the same probe shape (another pid, both
   `/proc` files) that the assertion uses. Removing `fcntl.flock` fails both
   contention tests, the portable one on the recorded-attempt assertion.
+- [x] (2026-10-19) Rebase onto `origin/main` at `ad88fb0` after the pull request
+  became conflicted. The rebase used `zdiff3`, `--merge`, and the rest of the
+  replay contract, with recovery refs taken before the rewrite; `range-diff`
+  over `511d79a..28d3c59` against `ad88fb0..<new head>` showed every replayed
+  commit byte-identical but one, `d211074`, which is the single commit whose
+  conflict had to be resolved. The conflict was in `docs/developers-guide.md`:
+  main had added three subsections (spelling, Mermaid, commit messages), and
+  this branch had added the duplication-gate section. Resolution keeps all four
+  and moves this branch's section above the document's existing rule and
+  footnote block, so the guide still has exactly one horizontal rule and one
+  footnote. The rebase also restores CI: a conflicted pull request cannot build
+  a `pull_request` merge ref, so no `CI` run had appeared for the previous head,
+  which was an absence of runs rather than a failing run.
+- [x] (2026-10-19) Repair the CodeScene failure the rebase's new base exposed.
+  `scripts/tests/test_duplication_gate_persistence.py` measured 8.28 with Low
+  Cohesion (LCOM4) and Lines of Code findings. The module held two
+  responsibilities: the persistence tests for `append_allow_entry`, and the
+  subprocess machinery plus three tests that start real `allow` processes to
+  observe the lock. Splitting the contention tests and all of that machinery
+  into `scripts/tests/test_duplication_gate_contention.py` restores `cs review`
+  score 10.00 on both halves. The Makefile's `duplication-test` recipe lists the
+  new module. Non-vacuity was re-checked after the move: replacing
+  `fcntl.flock(lock.fileno(), fcntl.LOCK_EX)` with `pass` makes both contention
+  tests fail from their new home, the kernel probe on `NOT_BLOCKED` and the
+  portable test on "a writer exited before attempting the lock"; the mutation
+  was then reverted byte-identically.
+- [x] (2026-10-19) Replace the `_SeverityFailure` base class with a shared
+  property descriptor. The prior repair kept `is_failure` on both exported
+  diagnostics by making them inherit from a private base, which preserves the
+  public surface but conflicts with this plan's constraint that no duplicated
+  extraction introduces an inheritance hierarchy. The rule is now written once
+  as `_is_failure` and bound into each class as
+  `is_failure: ClassVar[property] = _is_failure_property`. Both classes are
+  unrelated frozen dataclasses again, the attribute is still on their
+  instances, and the duplication gate passes with no allow entry. The rule
+  itself was never in question: `UnclassifiedModuleDiagnostic` is exported, so
+  `diagnostic.is_failure` is public surface and cannot be removed. This is
+  recorded separately from the scope breach and is not an escalation; the
+  surface is unchanged from `origin/main`.
 - [x] (2026-10-19 12:49Z) Re-measure the scope at the repaired candidate and
   correct the record rather than carrying `ad0e677`'s figures forward. Two
   measurements are recorded, because the live plan moves with every edit and a
@@ -280,9 +319,12 @@ indiscriminate abstraction or suppression.
   difference here is one of categorization and of work done since, not of
   arithmetic. That revision counted `AGENTS.md` and the README, 26 lines, as
   wiring where this one counts them as documentation, and the rest of the
-  movement is the repair's own test growth and this plan's. Both tolerances are
-  still breached on the plan-excluded measurement, so the correction changes
-  the record, not the escalation, and acceptance remains pending.
+  movement is the repair's own test growth and this plan's. On the plan-excluded
+  measurement the net-line tolerance is still breached at 7,257 against 2,500,
+  while the file count is exactly 40 and so sits at the bound rather than over
+  it. The file-count breach appears only when the plan is included, at 41. The
+  correction changes the record, not the line-count escalation, and acceptance
+  remains pending for the breach that does stand.
 
 ## Surprises & discoveries
 
@@ -645,12 +687,29 @@ indiscriminate abstraction or suppression.
   package alongside it, so deleting either property is an API removal. The
   rebase's duplication repair briefly did delete both, which would have turned
   a downstream `diagnostic.is_failure` into an `AttributeError`; that is
-  recorded here as a defect found in review rather than shipped silently. The
-  shared base class preserves the attribute and still states the rule once, so
-  the duplication family is resolved without a forwarding wrapper around a
-  private API. No escalation is outstanding for this change: the surface is
-  unchanged from `origin/main`, which is what the tolerance protects.
-  Date/Author: 2026-10-19, implementation agent.
+  recorded here as a defect found in review rather than shipped silently.
+  Superseded later the same day: the shared base class preserved the attribute
+  and stated the rule once, but it was an inheritance hierarchy, which
+  [Constraints](#constraints) forbids. The rule is now `_is_failure`, written
+  once and bound into each class as a property descriptor, so the classes are
+  unrelated and the attribute survives. The reason for keeping the property is
+  unchanged; only the mechanism that shares it changed. No escalation is
+  outstanding for this change: the surface is unchanged from `origin/main`,
+  which is what the tolerance protects. Date/Author: 2026-10-19, implementation
+  agent.
+- Decision: bind the shared failure rule into each diagnostic as a property
+  descriptor rather than inherit it from a private base class. The plan's
+  constraint prohibits an inheritance hierarchy for a duplicated extraction,
+  and the previous repair had used one. A property object built once from
+  `_is_failure` and assigned in both class bodies satisfies all three
+  requirements at once: the rule is written once (no duplication family), the
+  attribute is present on instances of both exported classes (no public-surface
+  change), and the two dataclasses share no base class (no hierarchy). The
+  alternative -- a free function with a property written in each class -- was
+  rejected because the two properties are exactly the duplication the gate
+  reported. The alternative of recording an exception was rejected because the
+  constraint is satisfiable without one; no exception is claimed and none is
+  needed. Date/Author: 2026-10-19, implementation agent.
 - Decision: remove the `require_non_empty` mode argument from
   `_read_table_list()` and state the non-emptiness requirement at its single
   requirement site in `hecate/config.py`. Rationale: the constraint at
@@ -1579,3 +1638,47 @@ states the plan's own lines separately. The earlier paragraph's closing "Only
 40 net lines" sentence was the genuine error, because the same paragraph had
 just measured 64 application lines. The breach is still breached on the smaller
 measurement and acceptance is still pending; only the record changed.
+
+Revision 11, 2026-10-19. Records the rebase onto `ad88fb0`, the two repairs
+that followed it, and a correction to the breach statement.
+
+The pull request had become conflicted because main advanced while the branch
+was under review. A conflicted pull request cannot build a `pull_request` merge
+ref, so the `CI` workflow had produced no run for the previous head at all;
+that absence is a consequence of the conflict, not a CI failure. The rebase
+used the replay contract's options with `zdiff3`, took recovery refs before
+rewriting, and replayed 25 commits. `range-diff` showed every commit
+byte-identical except `d211074`, the commit whose conflict was resolved, so the
+series is preserved rather than re-derived. The conflict was in
+`docs/developers-guide.md`; resolution keeps main's three new subsections and
+this branch's duplication-gate section, with the branch's section placed before
+the document's single rule and footnote block.
+
+The rebase's new base also exposed a CodeScene failure that the previous base
+had not. `scripts/tests/test_duplication_gate_persistence.py` had grown to 950
+lines over two responsibilities -- the persistence tests, and the subprocess
+machinery for observing the lock -- and scored 8.28 with Low Cohesion and
+Lines of Code findings. The contention tests and all of the machinery they need
+now live in `scripts/tests/test_duplication_gate_contention.py`, and both
+halves score 10.00. The split is a responsibility boundary rather than
+suppression: no rule was disabled, no directive was added, and no allow entry
+was recorded. Removing `fcntl.flock` still fails both contention tests from
+their new home, which is the non-vacuity evidence that the move preserved what
+they assert.
+
+The `_SeverityFailure` base class that revision 10 introduced is gone. It
+preserved the public `is_failure` attribute and stated the rule once, but the
+constraint at [Constraints](#constraints) forbids an inheritance hierarchy for
+a duplicated extraction. The rule is now `_is_failure`, written once and bound
+into each class body as a property descriptor. Two requirements pulled in
+opposite directions -- the duplication gate rejects a copied property, and the
+interface tolerance rejects deleting a public one -- and the shared descriptor
+satisfies both without an exception. No exception is claimed for this change,
+and the duplication gate passes with no allow entry.
+
+Finally, the previous progress entry said both tolerances were breached on the
+plan-excluded measurement. That measurement has exactly 40 files, so it sits at
+the file bound rather than over it, and only the net-line tolerance is breached
+there. The file-count breach exists only when this plan is counted, at 41. The
+line-count breach is unaffected: 7,257 net lines against 2,500. Acceptance of
+that breach remains pending and belongs to the human reviewer.
