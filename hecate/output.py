@@ -62,20 +62,33 @@ def render_text(
     a caller that has no enforcement policy to apply should pass.
     """
     opts = options or RenderOptions()
-    lines = [
-        *(violation.render() for violation in result.violations),
-        *(failure.render() for failure in result.coverage_failures),
-        *(diagnostic.render() for diagnostic in result.unclassified_modules),
-        *(warning.render() for warning in result.warnings),
-    ]
-    if opts.show_ignored:
-        lines.extend(ignored.render() for ignored in result.ignored)
-    if opts.coverage_visible(default=False):
-        lines.extend(_coverage_warning_lines(result))
+    lines = [*_always_rendered_lines(result), *_optional_text_lines(result, opts)]
     return (
         "\n".join(_with_pass_notice(lines, ok=_passed(result, passed=opts.passed)))
         + "\n"
     )
+
+
+def _always_rendered_lines(result: ArchitectureCheckResult) -> cabc.Iterator[str]:
+    """Yield the diagnostics every text run reports, whatever the flags.
+
+    Each either changes the exit code or is something the policy asked to keep
+    visible, so none of them may depend on a display option.
+    """
+    yield from (violation.render() for violation in result.violations)
+    yield from (failure.render() for failure in result.coverage_failures)
+    yield from (diagnostic.render() for diagnostic in result.unclassified_modules)
+    yield from (warning.render() for warning in result.warnings)
+
+
+def _optional_text_lines(
+    result: ArchitectureCheckResult, opts: RenderOptions
+) -> cabc.Iterator[str]:
+    """Yield the sections a text run shows only when asked."""
+    if opts.show_ignored:
+        yield from (ignored.render() for ignored in result.ignored)
+    if opts.coverage_visible(default=False):
+        yield from _coverage_warning_lines(result)
 
 
 def _passed(result: ArchitectureCheckResult, *, passed: bool | None) -> bool:
@@ -131,12 +144,25 @@ def render_json(
         "violations": [violation.to_dict() for violation in result.violations],
         "warnings": [warning.to_dict() for warning in result.warnings],
     }
+    payload.update(_optional_json_sections(result, opts))
+    return f"{json.dumps(payload, indent=2, sort_keys=True)}\n"
+
+
+def _optional_json_sections(
+    result: ArchitectureCheckResult, opts: RenderOptions
+) -> dict[str, object]:
+    """Return the JSON sections this run was asked to report.
+
+    An omitted key and an empty list make different claims, so a suppressed
+    section is left out entirely rather than serialized empty.
+    """
+    sections: dict[str, object] = {}
     if opts.coverage_visible(default=True):
-        payload["coverage"] = [diagnostic.to_dict() for diagnostic in result.coverage]
+        sections["coverage"] = [diagnostic.to_dict() for diagnostic in result.coverage]
     if opts.show_ignored:
-        payload["ignored"] = [ignored.to_dict() for ignored in result.ignored]
+        sections["ignored"] = [ignored.to_dict() for ignored in result.ignored]
     if opts.include_unclassified:
-        payload["unclassified_modules"] = [
+        sections["unclassified_modules"] = [
             diagnostic.to_dict() for diagnostic in result.unclassified_modules
         ]
-    return f"{json.dumps(payload, indent=2, sort_keys=True)}\n"
+    return sections
