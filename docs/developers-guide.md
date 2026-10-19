@@ -255,14 +255,15 @@ boundary rule. A name `__all__` selects but no binding supplies stays in the
 export set so normal resolution reports it unresolved, matching the
 `AttributeError` Python raises.
 
-`module_scope.py` answers only which statements run at module scope: an `if`,
-`try`, loop, `with`, or `match` body still executes at import time, so its
-bindings count, while `def`, `async def`, and `class` bodies open a local scope
-and are not traversed. That exclusion is about bindings only; import collection
-uses a whole-tree walk, as described above. `module_scope.py`'s nesting flag
-separates a statement that always runs from one that may not, which
-`all_sequence.py` and `namespaces.py` read when deciding whether a later
-assignment replaces an earlier one or only adds a possibility.
+`module_scope.py` answers only which statements count at module scope: an `if`,
+`try`, loop, `with`, or `match` does not open a new scope, so bindings in its
+body are module-scope candidates even though a given import may skip that body.
+By contrast, `def`, `async def`, and `class` bodies open a local scope and are
+not traversed. That exclusion is about bindings only; import collection uses a
+whole-tree walk, as described above. `module_scope.py`'s nesting flag separates
+a statement that always runs from one that may not, which `all_sequence.py` and
+`namespaces.py` read when deciding whether a later assignment replaces an
+earlier one or only adds a possibility.
 
 A binding executed unconditionally supersedes every earlier candidate for its
 name, because no execution path can still reach them. A binding inside a
@@ -514,12 +515,15 @@ and analysis tools (`crosshair-tool`, `hypothesis`, `pytest`, `pytest-bdd`,
 
 The build backend is `hatchling`, and `[tool.hatch.build.targets.wheel]`
 declares `packages = ["hecate"]`, so the wheel contains the flat package
-directly with no source layout. `make build-release` produces the sdist and
-wheel locally. The release workflow builds only a pure Python wheel: the
-project ships no compiled extensions, so cross-platform `cibuildwheel` builds
-would add cost without adding a distinct artefact. The wheel is built under
-Python 3.13 even though the package requires 3.14, because packaging source
-does not import it.
+directly with no source layout. To build the sdist and wheel locally, use
+`uv build --sdist --wheel`. Do not use `make build-release` for this: its
+recipe runs `python -m build`, and neither the project nor the `dev` dependency
+group installs the `build` package, so it fails with `No module named build` in
+a clean environment. The release workflow builds only a pure Python wheel, with
+`uv build --wheel`: the project ships no compiled extensions, so cross-platform
+`cibuildwheel` builds would add cost without adding a distinct artefact. The
+wheel is built under Python 3.13 even though the package requires 3.14, because
+packaging source does not import it.
 
 Hecate checks its own architecture. `[tool.hecate]` in `pyproject.toml` declares
 `root_packages = ["hecate"]` and a single group, `hecate`, whose only allowed
