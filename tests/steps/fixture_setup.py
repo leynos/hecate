@@ -161,12 +161,17 @@ def policy_toml(
     *,
     allow_everything: bool = False,
     unclassified_modules: str | None = None,
+    warn: str = "",
 ) -> str:
     """Return the sample policy TOML, optionally allowing every group edge.
 
     The groups are deliberately specific — one per subtree — so a scenario
     asking for ``unclassified_modules = "error"`` proves that specific groups
     classify the package root's own initializer without a catch-all prefix.
+
+    ``warn`` is rendered verbatim as a TOML array because migration scenarios
+    need a policy that downgrades one real edge to warning level while leaving
+    everything else alone.
     """
     allowed = (
         '["composition_root", "domain", "application", "inbound_adapter", '
@@ -184,6 +189,7 @@ def policy_toml(
         if unclassified_modules is not None
         else ""
     )
+    application_warn = f"warn = {warn}" if warn else ""
     return f"""
 [tool.hecate]
 root_packages = ["sample"]
@@ -204,6 +210,7 @@ allowed = {domain_allowed}
 name = "application"
 prefixes = ["sample.application"]
 allowed = {application_allowed}
+{application_warn}
 
 [[tool.hecate.groups]]
 name = "inbound_adapter"
