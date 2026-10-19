@@ -11,12 +11,24 @@ if typ.TYPE_CHECKING:
     import collections.abc as cabc
 
 
+class RenderOptions(typ.TypedDict, total=False):
+    """Keyword options both renderers accept.
+
+    The options stay keywords rather than becoming one positional bundle:
+    callers already pass them by name, and ``Unpack`` keeps that surface while
+    documenting the accepted set in one place. The defaults differ per
+    renderer, so each one reads its own option with its own fallback.
+    """
+
+    show_ignored: bool
+    show_coverage: bool
+    include_unclassified: bool
+    passed: bool | None
+
+
 def render_text(
     result: ArchitectureCheckResult,
-    *,
-    show_ignored: bool = False,
-    show_coverage: bool = False,
-    passed: bool | None = None,
+    **options: typ.Unpack[RenderOptions],
 ) -> str:
     """Render deterministic plain text for CI and snapshots.
 
@@ -40,11 +52,11 @@ def render_text(
     rather than rendering output that disagrees with its own diagnostics.
     """
     lines = [*_always_rendered_lines(result)]
-    if show_ignored:
+    if options.get("show_ignored"):
         lines.extend(ignored.render() for ignored in result.ignored)
-    if show_coverage:
+    if options.get("show_coverage"):
         lines.extend(_coverage_warning_lines(result))
-    outcome = _resolve_outcome(result, passed=passed)
+    outcome = _resolve_outcome(result, passed=options.get("passed"))
     return "\n".join(_with_pass_notice(lines, ok=outcome)) + "\n"
 
 
@@ -100,17 +112,9 @@ def _with_pass_notice(lines: list[str], *, ok: bool) -> list[str]:
     return ["hecate: architecture check passed", *lines]
 
 
-# Every option here is part of the renderer's published keyword surface, and
-# ``passed`` had to join them rather than ride on the architecture result, so
-# the count is deliberate. Collapsing the flags would break existing callers.
-# pylint: disable-next=too-many-arguments
 def render_json(
     result: ArchitectureCheckResult,
-    *,
-    show_ignored: bool = False,
-    show_coverage: bool = True,
-    include_unclassified: bool = False,
-    passed: bool | None = None,
+    **options: typ.Unpack[RenderOptions],
 ) -> str:
     """Render deterministic JSON output.
 
@@ -132,6 +136,7 @@ def render_json(
     ``status`` falls back to the architecture outcome; a pass claim the result
     contradicts raises :class:`ValueError`.
     """
+    passed = options.get("passed")
     payload: dict[str, object] = {
         "ok": result.ok,
         "status": "passed" if _resolve_outcome(result, passed=passed) else "failed",
@@ -141,9 +146,9 @@ def render_json(
     payload.update(
         _optional_json_sections(
             result,
-            show_ignored=show_ignored,
-            show_coverage=show_coverage,
-            include_unclassified=include_unclassified,
+            show_ignored=options.get("show_ignored", False),
+            show_coverage=options.get("show_coverage", True),
+            include_unclassified=options.get("include_unclassified", False),
         )
     )
     return f"{json.dumps(payload, indent=2, sort_keys=True)}\n"
