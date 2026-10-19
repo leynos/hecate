@@ -6,7 +6,6 @@ import json
 import typing as typ
 
 from .checker import ArchitectureCheckResult
-from .diagnostics import fails_check
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -48,7 +47,7 @@ def _coverage_warning_lines(result: ArchitectureCheckResult) -> cabc.Iterator[st
     return (
         diagnostic.render()
         for diagnostic in result.coverage
-        if not fails_check(diagnostic.severity)
+        if not diagnostic.is_failure
     )
 
 

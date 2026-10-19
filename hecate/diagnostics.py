@@ -24,14 +24,30 @@ def unclassified_module_severity(mode: UnclassifiedModules) -> Severity:
     return _UNCLASSIFIED_MODULE_SEVERITIES.get(mode, Severity.WARNING)
 
 
-def fails_check(severity: Severity) -> bool:
-    """Return whether a diagnostic at ``severity`` fails the check.
+class _SeverityFailure:
+    """The failure rule shared by the diagnostics that carry a severity.
 
-    Only error severity fails it; a warning-only run stays green. Both
-    diagnostic kinds decide this the same way, so the rule lives here rather
-    than being restated on each class.
+    Both diagnostic kinds decide this the same way: a diagnostic fails the
+    check exactly when its severity is :data:`Severity.ERROR`, and a
+    warning-only run stays green. The rule is defined once here rather than
+    restated as a property on each class, because two identical properties are
+    a duplication family and a delegating copy is still a copy.
+
+    It is a base class rather than a free function because ``is_failure`` is
+    part of the exported diagnostics' interface: a consumer holding a
+    ``UnclassifiedModuleDiagnostic`` asks the diagnostic itself whether it
+    fails, and removing that attribute to satisfy a duplication gate would
+    break the package's public surface for an internal refactor.
     """
-    return severity is Severity.ERROR
+
+    __slots__ = ()
+
+    severity: Severity
+
+    @property
+    def is_failure(self) -> bool:
+        """Return whether this diagnostic fails the check."""
+        return self.severity is Severity.ERROR
 
 
 class _ClassifiedEdge(typ.Protocol):
@@ -156,7 +172,7 @@ class IgnoredImportDiagnostic:
 
 
 @dc.dataclass(frozen=True, slots=True)
-class CoverageDiagnostic:
+class CoverageDiagnostic(_SeverityFailure):
     """An import edge that Hecate could not fully evaluate.
 
     These cover the states that previously vanished silently: an endpoint that
@@ -203,7 +219,7 @@ class CoverageDiagnostic:
 
 
 @dc.dataclass(frozen=True, slots=True)
-class UnclassifiedModuleDiagnostic:
+class UnclassifiedModuleDiagnostic(_SeverityFailure):
     """A discovered module that matched no configured architecture group.
 
     This describes the module itself rather than one import edge, so it names no

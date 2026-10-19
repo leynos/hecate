@@ -245,6 +245,44 @@ indiscriminate abstraction or suppression.
   also retires the four-function duplication family. Both files now report
   `cs review` score 10.00 with no findings. Per-file detail below; the delta
   re-run and the gate re-run are recorded when they complete.
+- [x] (2026-10-19 12:49Z) Repair the three findings in the assessment of
+  `ad0e677`, none of them a change to the gate's production behaviour. The
+  public-interface finding is repaired by keeping `is_failure` on both exported
+  diagnostics through a shared `_SeverityFailure` base class, so the rule is
+  stated once and the attribute survives; the application-level test that
+  previously imported the replacement free function now asks the diagnostic, and
+  `tests/test_unclassified_modules.py` pins the exported attribute across all
+  three severities. The gate-target contract now checks recipe lines that
+  actually execute and has a per-target negative control that comments each
+  command out. The contention test's portable evidence no longer infers
+  contention from an unchanged manifest in a settling window: each writer
+  records its own entry into the blocking `fcntl.flock` call through a planted
+  `sitecustomize`, and the test asserts that every writer reached that call,
+  that the held lock refused another acquirer, and that no writer replaced the
+  manifest. The Linux kernel probe and its liveness control are unchanged; its
+  availability guard now exercises the same probe shape (another pid, both
+  `/proc` files) that the assertion uses. Removing `fcntl.flock` fails both
+  contention tests, the portable one on the recorded-attempt assertion.
+- [x] (2026-10-19 12:49Z) Re-measure the scope at the repaired candidate and
+  correct the record rather than carrying `ad0e677`'s figures forward. Two
+  measurements are recorded, because the live plan moves with every edit and a
+  single number cannot be both accurate and final. With this plan excluded, so
+  the figure is stable between edits to it, the candidate against `511d79a` is
+  40 files, 7,450 insertions and 193 deletions, or 7,257 net lines: 1,420 gate
+  implementation, 4,267 gate tests, 1,002 repository tests and contracts, 287
+  documentation other than this plan, 205 wiring, and 76 application. Including
+  this plan, the same candidate is 41 files and 7,257 net lines plus the plan's
+  own diff against `511d79a`, which was 1,463 lines at `ad0e677` and grows with
+  every revision; the plan-excluded figure is the one to quote because the
+  other moves every time this document does. Earlier revisions of the decision
+  log quoted 1724 documentation including 1463 lines of this plan and 231
+  wiring; those rows reconcile exactly to the 8364 that revision stated, so the
+  difference here is one of categorization and of work done since, not of
+  arithmetic. That revision counted `AGENTS.md` and the README, 26 lines, as
+  wiring where this one counts them as documentation, and the rest of the
+  movement is the repair's own test growth and this plan's. Both tolerances are
+  still breached on the plan-excluded measurement, so the correction changes
+  the record, not the escalation, and acceptance remains pending.
 
 ## Surprises & discoveries
 
@@ -507,73 +545,84 @@ indiscriminate abstraction or suppression.
   total branch count, so it is recorded here as considered and rejected on the
   grounds that it games the metric rather than reducing complexity.
   Date/Author: 2026-10-14, implementation agent.
-- Decision: accept the scope-tolerance breach rather than cut the change back
-  to 2500 net lines, and record it here rather than claiming conformance.
-  Measured breach: `git diff --numstat d1b59ec 386f700` reports 37 files
-  changed, 8285 insertions and 178 deletions, so 8107 net added lines against a
-  2500-line escalation threshold. This figure has grown across the branch's
-  life -- at `eff5157` it was 36 files, 6681 insertions and 158 deletions, or
-  6523 net lines -- because the review repairs and their regression cases were
-  themselves added to the same measure, which is the arithmetic the earlier
-  entry here did not anticipate. The rebase onto main `511d79a` changes both
-  the count and one bound: `git diff --numstat 511d79a 4ac0bf1` reports 43
-  files, 8486 insertions and 178 deletions, or 8308 net lines, so **both**
-  tolerances are now breached, not just the line count. The file count rose
-  because main had independently touched files this branch also touches, and a
-  diff against the new base names each of them separately, where the earlier
-  diff against `d1b59ec` folded them into shared ancestors. Those files are
-  `hecate/checker.py`, `hecate/diagnostics.py`, `hecate/output.py`,
-  `tests/test_origin_totality.py`, and `tests/config_validation_tests/`; none
-  is new scope, and the net line count is essentially unchanged. The file bound
-  is breached by three, which is a change in how the same change is measured
-  rather than an expansion of it, but the tolerance says nothing about the
-  reason -- it says 40 -- so it is recorded as breached here rather than argued
-  around. Earlier revisions of this entry quoted 6523 and, before that, an
-  independent count by the reviewer at the then-current revision; both were
-  accurate for the revision they named, and neither is accurate for the current
-  head. The figure is quoted against `386f700` rather than against the head
-  that carries this paragraph, because a measurement cannot include the commit
-  that states it: the correcting commit adds its own text to the same diff, so
-  any figure quoted for the tip is stale by exactly the lines that quote it.
-  The measurement that matters is the one the reviewer can reproduce, and it is
-  larger than the figure here by the size of this entry and a few lines of
-  Revision 9. Stating the exact drift would require the commit to know its own
-  final size, which is why the figure is pinned to a named revision instead.
-  What does not move is the order of magnitude: the breach is well clear of the
-  threshold at every revision measured, between 2.6 times it at `eff5157` and
-  3.3 times it at the latest, so the decision does not turn on which of these
-  counts is taken. Rationale: the tolerance exists to stop unbounded work, and
-  the review identified the overshoot only after the change was whole. The
-  excess is not padding, and the measurement says so: of the 8342 net lines
-  measured against `511d79a` at `fb87df9`, 1420 are gate implementation
-  (`scripts/*.py`, excluding tests), 4005 are that gate's own tests under
-  `scripts/tests/`, 920 are the repository tests and toolchain contracts that
-  pin the wiring, 1702 are documentation including 1441 lines of this plan, and
-  205 are Makefile, workflow, configuration, and lockfile. The remaining 64 are
-  the application. The largest single file is this plan, which is a living
+- Decision: continue implementation and escalate the scope-tolerance breach to
+  the human reviewer, rather than cut the change back to 2500 net lines or stop
+  work with the change unwhole. Acceptance of the breach is **pending** and is
+  not claimed here. Measured breach: `git diff --numstat d1b59ec 386f700`
+  reports 37 files changed, 8285 insertions and 178 deletions, so 8107 net
+  added lines against a 2500-line escalation threshold. This figure has grown
+  across the branch's life -- at `eff5157` it was 36 files, 6681 insertions and
+  158 deletions, or 6523 net lines -- because the review repairs and their
+  regression cases were themselves added to the same measure, which is the
+  arithmetic the earlier entry here did not anticipate. The rebase onto main
+  `511d79a` changes both the count and one bound:
+  `git diff --numstat 511d79a ad0e677` reports 43 files, 8555 insertions and
+  191 deletions, or 8364 net lines, so **both** tolerances are now breached,
+  not just the line count. The file count rose because main had independently
+  touched files this branch also touches, and a diff against the new base names
+  each of them separately, where the earlier diff against `d1b59ec` folded them
+  into shared ancestors. Those files are `hecate/checker.py`,
+  `hecate/diagnostics.py`, `hecate/output.py`, `tests/test_origin_totality.py`,
+  and `tests/config_validation_tests/`; none is new scope, and the net line
+  count is essentially unchanged. The file bound is breached by three, which is
+  a change in how the same change is measured rather than an expansion of it,
+  but the tolerance says nothing about the reason -- it says 40 -- so it is
+  recorded as breached here rather than argued around. Earlier revisions of
+  this entry quoted 6523 and, before that, an independent count by the reviewer
+  at the then-current revision; both were accurate for the revision they named,
+  and neither is accurate for the current head. The current figure is pinned to
+  `ad0e677`, the head published for review at the time of writing, because a
+  measurement cannot include the commit that states it: the correcting commit
+  adds its own text to the same diff, so any figure quoted for the tip is stale
+  by exactly the lines that quote it. What does not move is the order of
+  magnitude: the breach is well clear of the threshold at every revision
+  measured, between 2.6 times it at `eff5157` and 3.3 times it at the latest,
+  so the decision does not turn on which of these counts is taken. Rationale:
+  the tolerance exists to stop unbounded work, and the review identified the
+  overshoot only after the change was whole. The excess is not padding, and the
+  measurement says so. Measured with this plan excluded, so the figure does not
+  move with the next paragraph added to it, the candidate against `511d79a` is
+  40 files and 7257 net lines: 1420 gate implementation (`scripts/*.py`,
+  excluding tests), 4267 that gate's own tests under `scripts/tests/`, 1002 the
+  repository tests and toolchain contracts that pin the wiring, 287
+  documentation other than this plan, 205 Makefile, workflow, configuration,
+  and lockfile, and 76 the application. Those six areas sum to the measured
+  total. Including this plan, the same candidate is 41 files and 7257 net lines
+  plus the plan's own added lines at the revision being read; the figure
+  excluding the plan is the one quoted, because including it would make every
+  edit to this paragraph change its own measurement. Earlier revisions of this
+  paragraph quoted 1724 documentation including 1463 lines of this plan and 231
+  wiring. Those rows sum exactly to the 8364 that revision stated, so the
+  difference from the figures above is categorization and later work rather
+  than a corrected sum: that revision counted `AGENTS.md` and the README, 26
+  lines, as wiring where this one counts them as documentation, and the
+  remaining movement is the repair's own test growth and this plan's. The "Only
+  40 net lines" sentence that once followed did understate the application area
+  the paragraph had just measured, which was 64 lines at the revision it
+  described. The largest single file is this plan, which is a living
   design-and-delivery record the repository's own instructions require rather
-  than product code, and the next largest are test modules. Only 40 net lines
-  touch the application. That is a ratio of roughly 2.7 lines of test and 1.2
-  lines of documentation per line of implementation, which is what test-first
-  delivery to this repository's stated standard costs; cutting to 2500 net
-  lines would mean deleting proofs or wiring rather than deleting scope,
-  trading a documented scope breach for an undocumented verification breach --
-  the worse of the two, and the one this repository's own instructions single
-  out. Options considered and their trade-offs: (a) cut the change to the
-  threshold -- rejected, it removes verification rather than scope and would
-  leave the gate weaker than what review has already seen; (b) split the change
-  into a prerequisite PR and a feature PR per the babysitting skill's
-  prerequisite rule -- rejected, the gate cannot block `make lint` without its
-  wiring and tests in the same commit, so a split would land a gate that is not
-  yet a gate, which is the compatibility theatre the repository prohibits; (c)
-  record the breach and continue -- **the status quo, not an approval**. Basis
-  for continuing rather than halting: the operator's work order authorizes
-  delivery of the implementation, tests, adjudication, and documentation as one
-  change, so an agent that stopped at the measured breach would be abandoning
-  work it was told to finish. That justifies *continuing*, and it is explicitly
-  not the human acceptance the tolerance requires. A work order issued before
-  the breach was measured cannot be an informed approval of a number it never
-  saw, and an agent citing the operator's standing instruction is still only an
+  than product code, and the next largest are test modules. That is a ratio of
+  roughly three lines of test and under one line of documentation per line of
+  implementation, which is what test-first delivery to this repository's stated
+  standard costs; cutting to 2500 net lines would mean deleting proofs or
+  wiring rather than deleting scope, trading a documented scope breach for an
+  undocumented verification breach -- the worse of the two, and the one this
+  repository's own instructions single out. Options considered and their
+  trade-offs: (a) cut the change to the threshold -- rejected, it removes
+  verification rather than scope and would leave the gate weaker than what
+  review has already seen; (b) split the change into a prerequisite PR and a
+  feature PR per the babysitting skill's prerequisite rule -- rejected, the
+  gate cannot block `make lint` without its wiring and tests in the same
+  commit, so a split would land a gate that is not yet a gate, which is the
+  compatibility theatre the repository prohibits; (c) record the breach and
+  continue -- **the status quo, not an approval**. Basis for continuing rather
+  than halting: the operator's work order authorizes delivery of the
+  implementation, tests, adjudication, and documentation as one change, so an
+  agent that stopped at the measured breach would be abandoning work it was
+  told to finish. That justifies *continuing*, and it is explicitly not the
+  human acceptance the tolerance requires. A work order issued before the
+  breach was measured cannot be an informed approval of a number it never saw,
+  and an agent citing the operator's standing instruction is still only an
   agent speaking: the review is right that the previous wording here dressed an
   agent rationale as an approval. What is recorded instead is the accurate
   state -- the breach is measured, its composition is itemized above, the work
@@ -585,7 +634,23 @@ indiscriminate abstraction or suppression.
   earlier revisions' "no tolerance was exceeded" claim was false and is
   corrected in revision 5. Date/Author: 2026-10-14, implementation agent;
   revised 2026-10-16 to record the breach as pending acceptance rather than
-  accepted.
+  accepted; revised 2026-10-19 to state the decision as "continue and escalate"
+  rather than "accept", and to re-measure the figure at the repaired candidate
+  with the composition's rows reconciled against their own total.
+- Decision: keep `is_failure` on the exported diagnostics, defining its rule
+  once in a shared base class, rather than remove the property in favour of a
+  free function. The interface tolerance requires escalation when the `hecate`
+  package's public surface changes; `UnclassifiedModuleDiagnostic` is exported
+  from `hecate/__init__.py`, and `CoverageDiagnostic` is reachable through the
+  package alongside it, so deleting either property is an API removal. The
+  rebase's duplication repair briefly did delete both, which would have turned
+  a downstream `diagnostic.is_failure` into an `AttributeError`; that is
+  recorded here as a defect found in review rather than shipped silently. The
+  shared base class preserves the attribute and still states the rule once, so
+  the duplication family is resolved without a forwarding wrapper around a
+  private API. No escalation is outstanding for this change: the surface is
+  unchanged from `origin/main`, which is what the tolerance protects.
+  Date/Author: 2026-10-19, implementation agent.
 - Decision: remove the `require_non_empty` mode argument from
   `_read_table_list()` and state the non-emptiness requirement at its single
   requirement site in `hecate/config.py`. Rationale: the constraint at
@@ -1461,3 +1526,56 @@ names the earlier figures with the revisions they belonged to, and explains why
 the number moves. A plan whose approval question is "is this overshoot
 justified?" cannot answer with a measurement that predates the work it asks to
 be excused.
+
+Revision 10, 2026-10-19. Records the repair of the three findings in the
+assessment of `ad0e677`, and a second correction of this document's own
+arithmetic.
+
+The first finding was a public-interface removal this branch introduced and
+then defended with an internal call-site update. `UnclassifiedModuleDiagnostic`
+is exported from `hecate`, so replacing its `is_failure` property with a free
+function changed the public surface and would turn a downstream
+`diagnostic.is_failure` into `AttributeError`; the internal callers a test can
+see are not the surface a package promises. The repair states the rule once in a
+`_SeverityFailure` base class, which both severity-carrying diagnostics
+inherit, and adds a parametrized test that asks the exported class the question
+a consumer would. The free function is gone. This decision is recorded
+separately from the scope breach because it is a different tolerance, and it is
+not an outstanding escalation: the property exists on `origin/main` and still
+exists here.
+
+The second finding was that the gate-target contract's recipe check was a
+substring search, so a commented-out command still satisfied it. The real
+recipes prefix the command with `$(UV_ENV) $(UV) run`, which is why the check
+could not simply require the line to begin with the command; the repair tests
+whether a non-comment line carries the invocation, and adds a per-target
+negative control that comments the command out and requires the contract to
+reject it. The directory declaration and the dropped-variable check are
+unchanged.
+
+The third finding had two parts, and the second part is the substantive one.
+The Linux availability guard checked this process's `wchan` while the probe
+reads another process's `wchan` and `syscall`, so a host that permits the first
+and denies the second passed the guard and then failed on the deadline; the
+guard now runs the probe's exact shape. More importantly, the portable case was
+still a settling window: it slept, read an unchanged manifest, and called that
+contention evidence, when two writers that had not started yet produce the same
+observation. The portable writers now carry a planted `sitecustomize` that
+records each writer's pid immediately before it enters the blocking `flock`
+call the gate uses, so the test asserts that every writer reached the contested
+operation, that a separate non-blocking acquirer is refused while the test
+holds the lock, and that no writer replaced the manifest. That is a bounded
+exclusion check and the plan now says so; it is not claimed as equivalent to
+the kernel probe, which remains and keeps its liveness control. Removing
+`fcntl.flock` fails both contention tests, the portable one on the recorded
+attempt rather than on a timeout.
+
+The measurement correction is that Revision 9's composition used a different
+basis, not that it failed to add up: its rows reconcile exactly to the 8364 it
+stated, with `AGENTS.md` and the README counted as wiring. The entry now
+measures the candidate with this plan excluded, which gives a figure that does
+not change when the record does, counts those two files as documentation, and
+states the plan's own lines separately. The earlier paragraph's closing "Only
+40 net lines" sentence was the genuine error, because the same paragraph had
+just measured 64 application lines. The breach is still breached on the smaller
+measurement and acceptance is still pending; only the record changed.
