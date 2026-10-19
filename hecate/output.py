@@ -26,6 +26,20 @@ class RenderOptions(typ.TypedDict, total=False):
     passed: bool | None
 
 
+def _reject_unknown_options(options: cabc.Mapping[str, object]) -> None:
+    """Refuse a keyword the renderer does not define.
+
+    ``**options`` accepts any keyword at runtime, so without this check a
+    misspelled option would be silently ignored rather than raising the
+    ``TypeError`` the previous named parameters produced. A caller passing
+    ``show_coverge=True`` would then get default output and believe it.
+    """
+    unknown = sorted(set(options) - set(RenderOptions.__annotations__))
+    if unknown:
+        msg = f"unexpected keyword argument(s): {', '.join(unknown)}"
+        raise TypeError(msg)
+
+
 def render_text(
     result: ArchitectureCheckResult,
     **options: typ.Unpack[RenderOptions],
@@ -51,6 +65,7 @@ def render_text(
     force. A pass claim the result contradicts raises :class:`ValueError`
     rather than rendering output that disagrees with its own diagnostics.
     """
+    _reject_unknown_options(options)
     lines = [*_always_rendered_lines(result)]
     if options.get("show_ignored"):
         lines.extend(ignored.render() for ignored in result.ignored)
@@ -136,6 +151,7 @@ def render_json(
     ``status`` falls back to the architecture outcome; a pass claim the result
     contradicts raises :class:`ValueError`.
     """
+    _reject_unknown_options(options)
     passed = options.get("passed")
     payload: dict[str, object] = {
         "ok": result.ok,
