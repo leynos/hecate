@@ -145,6 +145,26 @@ def test_renderers_fall_back_to_the_architecture_outcome(tmp_path: Path) -> None
     [render_text, render_json],
     ids=["text", "json"],
 )
+def test_renderers_reject_an_unknown_keyword(
+    render: cabc.Callable[..., str],
+) -> None:
+    """A misspelled option fails instead of silently doing nothing.
+
+    Accepting ``**options`` turns the named parameters into a mapping, so
+    without an explicit check an unknown keyword would be dropped and the
+    caller would receive default output while believing the option applied.
+    """
+    result = ArchitectureCheckResult(violations=())
+
+    with pytest.raises(TypeError, match="show_coverge"):
+        render(result, show_coverge=True)
+
+
+@pytest.mark.parametrize(
+    "render",
+    [render_text, render_json],
+    ids=["text", "json"],
+)
 def test_renderers_reject_a_contradicted_pass_claim(
     tmp_path: Path, render: cabc.Callable[..., str]
 ) -> None:
