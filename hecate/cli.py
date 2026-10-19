@@ -65,6 +65,7 @@ def _emit_check_output(
     out: _OutputArgs,
     *,
     policy: ArchitecturePolicy,
+    passed: bool,
 ) -> None:
     """Render and print the architecture-check result to stdout.
 
@@ -78,11 +79,11 @@ def _emit_check_output(
     rather than passed separately, so a rendered run and an exit code can never
     disagree about which mode was in force.
 
-    The command outcome travels on ``result.passed`` rather than as an
-    argument, because a run failing on warnings has no violation: rendering
-    from ``result.ok`` would print a pass notice for a run that exits
-    non-zero. ``check`` sets it before rendering; both renderers take their
-    original signatures, so existing callers are unaffected.
+    ``passed`` is the command outcome, passed explicitly because a run failing
+    on warnings has no violation: rendering from ``result.ok`` would print a
+    pass notice for a run that exits non-zero. Requiring it, rather than
+    defaulting it here, keeps the exit-code decision in ``check`` where the
+    enforcement flags live.
     """
     output = (
         render_json(
@@ -90,10 +91,14 @@ def _emit_check_output(
             show_ignored=out.show_ignored,
             show_coverage=True,
             include_unclassified=policy.unclassified_modules != "ignore",
+            passed=passed,
         )
         if out.output_format is OutputFormat.JSON
         else render_text(
-            result, show_ignored=out.show_ignored, show_coverage=out.show_coverage
+            result,
+            show_ignored=out.show_ignored,
+            show_coverage=out.show_coverage,
+            passed=passed,
         )
     )
     print(output, end="")
@@ -167,8 +172,7 @@ def check(
     # so an enforced run names the edges it is failing on.
     warned_edges_fail = out.fail_on_warnings and bool(result.warnings)
     passed = result.ok and not warned_edges_fail
-    result = dc.replace(result, passed=passed)
-    _emit_check_output(result, out, policy=hecate_config.policy)
+    _emit_check_output(result, out, policy=hecate_config.policy, passed=passed)
     return 0 if passed else 1
 
 

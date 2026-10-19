@@ -36,12 +36,6 @@ class ArchitectureCheckResult:
     unmatched_ignores: tuple[str, ...] = ()
     unclassified_modules: tuple[UnclassifiedModuleDiagnostic, ...] = ()
     warnings: tuple[ArchitectureWarning, ...] = ()
-    # ``None`` means no enforcement policy was applied, so the result's own
-    # outcome governs. ``--fail-on-warnings`` is the only current source of a
-    # command outcome that differs from ``ok``; keeping it beside the result
-    # lets both renderers report the real exit status without gaining an
-    # argument, so their pre-warning signatures stay unchanged.
-    passed: bool | None = None
 
     @property
     def ok(self) -> bool:

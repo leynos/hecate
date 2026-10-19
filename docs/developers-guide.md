@@ -68,10 +68,10 @@ prefixes. `check_architecture` then walks every package root once through
 index over them, collects import statements, classifies each edge against
 policy, and records every discovered module that no group claims. The resulting
 `ArchitectureCheckResult` is rendered as text or JSON and turned into an exit
-code. The result carries the command outcome on `passed`, which differs from
-`ok` when `--fail-on-warnings` fails a run whose only findings were warnings;
-the renderers report `passed` and fall back to `ok` when it is unset. A usage
-error leaves this flow before `load_config` and exits 1.
+code. `check` computes the command outcome from `result.ok` and
+`--fail-on-warnings`, passes it to the renderer, and returns the same value as
+the exit code, so output and status cannot disagree. A usage error leaves this
+flow before `load_config` and exits 1.
 
 ```mermaid
 flowchart TD
@@ -94,15 +94,16 @@ flowchart TD
     U --> L["ArchitectureCheckResult"]
     L --> P{"unmatched ignores under\n--fail-on-unmatched-ignore?"}
     P -->|"yes"| Z2
-    P -->|"no"| M["render_text() or render_json()"]
-    M --> N{"result.passed?"}
+    P -->|"no"| O{"passed = result.ok and\nnot enforced warnings?"}
+    O --> M["render_text() or render_json()"]
+    M --> N{"passed?"}
     N -->|"true"| Z0["exit 0"]
     N -->|"false"| Z1["exit 1"]
 ```
 
 _Figure 1: One `hecate check` invocation from argument parsing to exit code.
-`result.passed` is `result.ok` unless `--fail-on-warnings` turns a warning-only
-run into a failure, so a run whose only findings were warnings leaves by the
+`passed` is `result.ok` unless `--fail-on-warnings` turns a warning-only run
+into a failure, so a run whose only findings were warnings leaves by the
 `false` branch. All three routes to exit code 2 converge on a single stderr
 node; a usage error exits 1 through Cyclopts instead, as described under
 [Check outcome and exit codes](#check-outcome-and-exit-codes)._
@@ -420,12 +421,16 @@ unclassified module fails only when `unclassified_modules = "error"`, so the
 edges never fail here: they are tolerated by policy, so `--fail-on-warnings` is
 the only thing that acts on them.
 
-`ok` describes the architecture result, not the command outcome. `check` sets
-`ArchitectureCheckResult.passed` to the exit-code decision, which differs from
-`ok` only under `--fail-on-warnings`; the renderers report `passed` and fall
-back to `ok` when it is `None`. That keeps both renderers' keyword-only
-signatures unchanged: the outcome travels on the result rather than as another
-argument.
+`ok` describes the architecture result, not the command outcome. `check`
+computes the exit-code decision in a local `passed`, which differs from `ok`
+only under `--fail-on-warnings`, and passes it to the renderer as a
+keyword-only argument. Keeping the decision out of `ArchitectureCheckResult`
+means the architecture query stays a query: a result describes what was found,
+while `passed` describes what the command did about it. Both renderers accept
+`passed` explicitly and fall back to `ok` when it is omitted, so a caller with
+no enforcement policy still gets a truthful outcome. A renderer given
+`passed=True` for a result that did not pass raises `ValueError` rather than
+printing a pass notice beside its own violations.
 
 The process exit code follows from that outcome:
 
@@ -643,13 +648,15 @@ question, and the asymmetry described under
 answer.
 
 Both renderers keep the keyword-only signatures they had before warning
-support, so existing callers are unaffected. The command outcome travels on
-`ArchitectureCheckResult.passed` instead: `check` records the exit-code
-decision there before rendering, and `render_text` and `render_json` report it,
-falling back to `ok` when it is `None`. A warning-only run failed by
-`--fail-on-warnings` therefore renders as failed without either renderer
-gaining an argument. A new format should read the outcome the same way, from
-`passed` with `ok` as the fallback, rather than taking an extra parameter.
+support, so existing callers are unaffected; the command outcome is added as
+one more keyword-only argument rather than replacing them. `check` computes the
+exit-code decision and passes it as `passed`; omitting it falls back to `ok`,
+which is the right answer for a caller with no enforcement policy. A
+warning-only run failed by `--fail-on-warnings` therefore renders as failed,
+and a new format should take `passed` the same way and derive its outcome from
+it with `ok` as the fallback. A renderer must refuse `passed=True` for a result
+that did not pass, because output claiming success beside a violation is worse
+than an exception.
 
 A new format must also be reachable from the command line, which means
 extending the `OutputFormat` `StrEnum` in `cli.py` and adding the branch to
@@ -660,11 +667,17 @@ stages.
 Add a named example to `tests/test_output.py` for the rendered text, the
 serialized JSON shape, and the flag-default behaviour. `tests/test_output.py`
 constructs `ArchitectureCheckResult` values directly, so a new format needs no
-scanned package. A behavioural scenario in
-`tests/features/architecture_check.feature` is warranted when the format
-changes what a user sees from the command line, as the JSON step in the
-unclassified-subtree scenario does: it runs the check with `--format json` and
-asserts the payload mentions the expected edge state.
+scanned package. Whole-payload snapshots live in
+`tests/test_output_snapshots.py`: they render one fixture through the real
+`load_config` and `check_architecture` path, normalize the temporary path to
+`<tmp>`, and compare the entire document, so a reordering or a lost section
+fails rather than slipping past substring assertions.
+`tests/test_output_signatures.py` pins the call contract — the keyword-only
+options, the explicit `passed` outcome, and the refusal of a contradicted pass
+claim. A behavioural scenario in `tests/features/architecture_check.feature` is
+warranted when the format changes what a user sees from the command line, as
+the JSON step in the unclassified-subtree scenario does: it runs the check with
+`--format json` and asserts the payload mentions the expected edge state.
 
 #### Adding an export form
 
