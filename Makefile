@@ -44,11 +44,12 @@ SKYLOS_ALLOW_LOCK ?= .skylos-whitelist.lock
 
 # The gate's Python modules live in scripts/ beside the repository's other
 # tooling rather than in the hecate package, so they are linted and type
-# checked as their own targets. Ruff already excludes the older spelling
-# helpers from PYTHON_TARGETS; these are Python 3.14 tooling, so they are
-# covered.
-GATE_PYTHON_TARGETS ?= scripts/atomic_write.py scripts/duplication_allowlist.py \
-        scripts/duplication_gate.py scripts/nose_detector.py scripts/nose_schema.py
+# checked as their own targets. The directory is named whole rather than as a
+# list of modules: a hand-written list silently misses whatever is added
+# beside it, and scripts/tests/ was added without ever being formatted, linted
+# or type checked. Ruff's own extend-exclude already names the one file in
+# that directory it does not scan, so the directory is the honest unit here.
+GATE_PYTHON_TARGETS ?= scripts
 
 # Keep this pin in sync with the CI nose install step and [tool.nose]
 # version; tests/toolchain_contract/ enforces the match.

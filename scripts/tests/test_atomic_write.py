@@ -319,7 +319,11 @@ def test_removes_the_temporary_file_when_an_early_write_fails(
     open_stream = atomic_write.tempfile.NamedTemporaryFile
 
     def failing(*args: object, **kwargs: object) -> _FailingStream:
-        return _FailingStream(open_stream(*args, **kwargs), method)
+        # ``object``-typed ``*args`` matches no ``NamedTemporaryFile`` overload,
+        # even though the only call that reaches this double passes exactly the
+        # two keywords ``atomic_write`` itself uses.
+        admit_stream = typ.cast("typ.Any", open_stream)
+        return _FailingStream(admit_stream(*args, **kwargs), method)
 
     monkeypatch.setattr(atomic_write.tempfile, "NamedTemporaryFile", failing)
 

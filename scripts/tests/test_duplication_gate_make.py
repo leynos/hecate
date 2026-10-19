@@ -11,6 +11,7 @@ import typing as typ
 import pytest
 from duplication_gate_test_support import (
     REPOSITORY_ROOT,
+    STUB_FAMILY,
     STUB_REPORT,
     allowlist,
     copied_gate_workspace,
@@ -29,12 +30,11 @@ def _report_covering(*locations: tuple[str, str | None]) -> dict[str, object]:
     family, so each case below hands it the family those keys are meant to
     cover rather than one shape standing in for every case.
     """
-    family = STUB_REPORT["families"][0]
     return {
         **STUB_REPORT,
         "families": [
             {
-                **family,
+                **STUB_FAMILY,
                 "locations": [
                     {"file": file, "start": 1, "end": 20, "name": name}
                     for file, name in locations
@@ -53,8 +53,7 @@ def _locations_covered_by(keys: tuple[str, ...]) -> tuple[tuple[str, str | None]
     under test.
     """
     return tuple(
-        (path, name or None)
-        for path, _, name in (key.partition("::") for key in keys)
+        (path, name or None) for path, _, name in (key.partition("::") for key in keys)
     )
 
 

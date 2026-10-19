@@ -227,9 +227,7 @@ def _tied_family(witness: str) -> detector.Finding:
     )
 
 
-def test_normalization_is_stable_for_families_that_tie_on_every_other_field() -> (
-    None
-):
+def test_normalization_is_stable_for_families_that_tie_on_every_other_field() -> None:
     """Families differing only in witness must not take their report order.
 
     Without the witness tie-break this fails: the three families tie on

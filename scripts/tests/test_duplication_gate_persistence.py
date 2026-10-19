@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 import tomlkit.exceptions
 from duplication_gate_test_support import (
+    STUB_FAMILY,
     STUB_REPORT,
     allowlist,
     copied_gate_workspace,
@@ -27,7 +28,7 @@ _TWO_FAMILY_REPORT: dict[str, object] = {
     **STUB_REPORT,
     "families": [
         {
-            **STUB_REPORT["families"][0],
+            **STUB_FAMILY,
             "locations": [location],
         }
         for location in (
@@ -65,7 +66,7 @@ def _before_the_lock() -> subprocess.Popen[str]:
     probe samples it, so a probe that reported a lock wait from liveness
     rather than from the kernel would report this process too.
     """
-    return subprocess.Popen(  # noqa: S603 - fixed interpreter, literal source.
+    return subprocess.Popen(
         [sys.executable, "-c", "import time; time.sleep(600)"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
@@ -90,8 +91,8 @@ def _is_blocked_on_the_lock(pid: int) -> bool:
         syscall = Path(f"/proc/{pid}/syscall").read_text(encoding="utf-8")
     except OSError:
         return False
-    return "flock" in channel or "locks_lock_inode_wait" in channel or (
-        "flock" in syscall
+    return (
+        "flock" in channel or "locks_lock_inode_wait" in channel or ("flock" in syscall)
     )
 
 
@@ -143,18 +144,57 @@ def _await_blocked(
 
 
 @dc.dataclass(frozen=True, slots=True)
-class _ContendedRun:
-    """Two ``allow`` commands started while the test held the lock.
+class _ContendedSetup:
+    """The copied workspace and control process a contention run starts from.
+
+    Building this is separated from observing the lock so the observation
+    itself has one job: take the lock, start the writers, and report what the
+    probe saw.
+    """
+
+    script: Path
+    environment: dict[str, str]
+    pyproject: Path
+    bystander: subprocess.Popen[str]
+
+
+def _contended_setup(tmp_path: Path) -> _ContendedSetup:
+    """Copy the gate into ``tmp_path`` and start the negative-control process."""
+    _workspace, script = copied_gate_workspace(tmp_path)
+    stub = write_stub_nose(tmp_path, report=_TWO_FAMILY_REPORT)
+    return _ContendedSetup(
+        script=script,
+        environment=gate_environment(NOSE_BIN=str(stub)),
+        pyproject=script.parent.parent / "pyproject.toml",
+        bystander=_before_the_lock(),
+    )
+
+
+def _terminate(
+    writers: list[subprocess.Popen[str]], bystander: subprocess.Popen[str]
+) -> None:
+    """Kill every process a failed contention run started.
+
+    The control sleeps far longer than any grace period here on purpose, so it
+    is always killed rather than waited for.
+    """
+    for writer in writers:
+        writer.kill()
+        writer.wait(timeout=_WRITER_GRACE_SECONDS)
+    bystander.kill()
+    bystander.wait(timeout=_WRITER_GRACE_SECONDS)
+
+
+@dc.dataclass(frozen=True, slots=True)
+class _LockObservation:
+    """What the probe saw while the test held the lock.
+
+    These four facts are always read together -- they answer one question,
+    "did the lock actually exclude the writers?" -- so they travel as one
+    value rather than as four fields the caller has to keep straight.
 
     Attributes
     ----------
-    writers : tuple[subprocess.Popen[str], ...]
-        The two ``allow`` processes, both started before the lock was
-        released.
-    bystander : subprocess.Popen[str]
-        The control process, alive throughout and holding nothing.
-    pyproject : pathlib.Path
-        The manifest both writers were asked to update.
     blocked_at : dict[str, float]
         Monotonic times at which each writer was seen waiting on the lock,
         keyed by process id as text.
@@ -170,13 +210,82 @@ class _ContendedRun:
         so this differing from the original is a lock that did not hold.
     """
 
-    writers: tuple[subprocess.Popen[str], ...]
-    bystander: subprocess.Popen[str]
-    pyproject: Path
     blocked_at: dict[str, float]
     bystander_blocked: bool
     original_manifest: bytes
     held_manifest: bytes
+
+
+def _observe_lock(
+    writers: list[subprocess.Popen[str]],
+    setup: _ContendedSetup,
+    *,
+    settle_seconds: float,
+) -> _LockObservation:
+    """Observe what the held lock does before releasing it.
+
+    The caller holds the lock when this is called. It records the manifest
+    before the writers start and again just before the lock is released, so a
+    writer that ignored the lock shows up as a changed ``held_manifest`` rather
+    than being inferred from timing.
+    """
+    blocked_at: dict[str, float] = {}
+    original_manifest = setup.pyproject.read_bytes()
+    held_manifest = original_manifest
+    _await_blocked(tuple(writers), blocked_at=blocked_at)
+    bystander_blocked = _is_blocked_on_the_lock(setup.bystander.pid)
+    if settle_seconds:
+        time.sleep(settle_seconds)
+    held_manifest = setup.pyproject.read_bytes()
+    return _LockObservation(
+        blocked_at=blocked_at,
+        bystander_blocked=bystander_blocked,
+        original_manifest=original_manifest,
+        held_manifest=held_manifest,
+    )
+
+
+@dc.dataclass(frozen=True, slots=True)
+class _ContendedRun:
+    """Two ``allow`` commands started while the test held the lock.
+
+    Attributes
+    ----------
+    writers : tuple[subprocess.Popen[str], ...]
+        The two ``allow`` processes, both started before the lock was
+        released.
+    bystander : subprocess.Popen[str]
+        The control process, alive throughout and holding nothing.
+    pyproject : pathlib.Path
+        The manifest both writers were asked to update.
+    observation : _LockObservation
+        What the probe saw while the lock was held.
+    """
+
+    writers: tuple[subprocess.Popen[str], ...]
+    bystander: subprocess.Popen[str]
+    pyproject: Path
+    observation: _LockObservation
+
+    @property
+    def blocked_at(self) -> dict[str, float]:
+        """Return the monotonic times each writer was seen waiting."""
+        return self.observation.blocked_at
+
+    @property
+    def bystander_blocked(self) -> bool:
+        """Return whether the probe ever reported the control as waiting."""
+        return self.observation.bystander_blocked
+
+    @property
+    def original_manifest(self) -> bytes:
+        """Return the manifest as it read before either writer started."""
+        return self.observation.original_manifest
+
+    @property
+    def held_manifest(self) -> bytes:
+        """Return the manifest as it read while the lock was still held."""
+        return self.observation.held_manifest
 
     def reap(self, *, grace_seconds: float = _WRITER_GRACE_SECONDS) -> None:
         """Wait for every process this run started, killing any straggler.
@@ -232,50 +341,34 @@ class _ContendedRun:
             file; the default reads it immediately for the kernel-probe test,
             which does not depend on that window.
         """
-        _workspace, script = copied_gate_workspace(tmp_path)
-        stub = write_stub_nose(tmp_path, report=_TWO_FAMILY_REPORT)
-        environment = gate_environment(NOSE_BIN=str(stub))
-        pyproject = script.parent.parent / "pyproject.toml"
-        blocked_at: dict[str, float] = {}
-        bystander = _before_the_lock()
+        setup = _contended_setup(tmp_path)
         writers: list[subprocess.Popen[str]] = []
-        bystander_blocked = False
-        original_manifest = pyproject.read_bytes()
-        held_manifest = original_manifest
         try:
-            with allowlist._locked_file(pyproject):
+            with allowlist._locked_file(setup.pyproject):
                 writers.extend(
-                    _start_writer(script, key, reason, environment)
+                    _start_writer(setup.script, key, reason, setup.environment)
                     for key, reason in (
                         ("hecate/a.py", "first writer"),
                         ("hecate/b.py", "second writer"),
                     )
                 )
-                _await_blocked(tuple(writers), blocked_at=blocked_at)
-                bystander_blocked = _is_blocked_on_the_lock(bystander.pid)
-                if settle_seconds:
-                    time.sleep(settle_seconds)
-                held_manifest = pyproject.read_bytes()
+                observation = _observe_lock(
+                    writers, setup, settle_seconds=settle_seconds
+                )
         except BaseException:
-            for writer in writers:
-                writer.kill()
-                writer.wait(timeout=_WRITER_GRACE_SECONDS)
-            bystander.kill()
-            bystander.wait(timeout=_WRITER_GRACE_SECONDS)
+            _terminate(writers, setup.bystander)
             raise
         return cls(
             writers=tuple(writers),
-            bystander=bystander,
-            pyproject=pyproject,
-            blocked_at=blocked_at,
-            bystander_blocked=bystander_blocked,
-            original_manifest=original_manifest,
-            held_manifest=held_manifest,
+            bystander=setup.bystander,
+            pyproject=setup.pyproject,
+            observation=observation,
         )
 
 
 class TestLoadAllowEntry:
     """Reading reasoned entries without touching the file."""
+
     def test_loader_never_reaches_the_writer(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -373,7 +466,7 @@ class TestAppendAllowEntry:
             "# Keep this table documented in prose.\n"
             "[tool.nose]\n"
             'version = "0.20.0"\n'
-            "roots = [\"hecate\"]\n",
+            'roots = ["hecate"]\n',
             encoding="utf-8",
         )
 
@@ -513,8 +606,7 @@ class TestAppendAllowEntry:
             )
             for writer in run.writers:
                 assert writer.wait(timeout=_WRITER_GRACE_SECONDS) == 0, (
-                    "Each writer must complete successfully once the lock is "
-                    "free."
+                    "Each writer must complete successfully once the lock is free."
                 )
         finally:
             run.reap()
@@ -523,8 +615,7 @@ class TestAppendAllowEntry:
             "The writers must be distinct processes."
         )
         assert run.recorded_units() == {"hecate/a.py", "hecate/b.py"}, (
-            "Concurrent commands must preserve both independently added "
-            "entries."
+            "Concurrent commands must preserve both independently added entries."
         )
 
     def test_a_held_lock_excludes_the_writers_whatever_the_platform(
@@ -563,9 +654,7 @@ class TestAppendAllowEntry:
             "Both writers must still record their entries once released."
         )
 
-    def test_liveness_alone_does_not_prove_contention(
-        self, tmp_path: Path
-    ) -> None:
+    def test_liveness_alone_does_not_prove_contention(self, tmp_path: Path) -> None:
         """The negative control: the probe answers the lock, not the process.
 
         A writer that never reaches the lock -- still importing, or simply
@@ -591,9 +680,7 @@ class TestAppendAllowEntry:
                 "A process that never enters a lock wait must not be reported "
                 "as blocked."
             )
-            assert blocked_at == {}, (
-                "No wait was entered, so none must be recorded."
-            )
+            assert blocked_at == {}, "No wait was entered, so none must be recorded."
         finally:
             # The control sleeps far longer than the observation on purpose,
             # so it is stopped rather than waited out.

@@ -18,6 +18,7 @@ from duplication_gate_test_support import (
 )
 
 if typ.TYPE_CHECKING:
+    from collections import abc as cabc
     from pathlib import Path
 
 
@@ -135,11 +136,9 @@ class TestResolveBinary:
         """A relative override resolves from the repository, not the caller's cwd."""
         monkeypatch.setenv("NOSE_BIN", ".tools/nose/nose")
         monkeypatch.chdir("/")
-        assert detector.resolve_binary(
-            stub_settings(), runner=stub_runner()
-        ) == str(detector.REPO_ROOT / ".tools" / "nose" / "nose"), (
-            "A relative NOSE_BIN must resolve against the repository root."
-        )
+        assert detector.resolve_binary(stub_settings(), runner=stub_runner()) == str(
+            detector.REPO_ROOT / ".tools" / "nose" / "nose"
+        ), "A relative NOSE_BIN must resolve against the repository root."
 
     def test_rejects_a_version_mismatch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -450,7 +449,7 @@ class TestRunDetector:
     )
     def test_rejects_malformed_reports(
         self,
-        mutate: typ.Callable[[dict[str, typ.Any]], None],
+        mutate: cabc.Callable[[dict[str, typ.Any]], None],
         diagnostic: str,
     ) -> None:
         """Schema violations fail at the detector boundary."""
@@ -473,7 +472,7 @@ class TestRunDetector:
         """Non-JSON detector output fails with an execution error."""
         monkeypatch.setenv("NOSE_BIN", "/stub/nose")
 
-        def runner(command: typ.Sequence[str]) -> str:
+        def runner(command: cabc.Sequence[str]) -> str:
             return "nose 0.20.0\n" if "--version" in command else "not json"
 
         with pytest.raises(detector.GateExecutionError, match="not valid JSON"):

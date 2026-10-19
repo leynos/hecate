@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import dataclasses as dc
 import tomllib
-import typing as typ
+from collections import abc as cabc
 from pathlib import Path
 
 import pytest
@@ -59,7 +59,7 @@ def _finding() -> detector.Finding:
     )
 
 
-def _double[T](result: T | Exception) -> typ.Callable[..., T]:
+def _double[T](result: T | Exception) -> cabc.Callable[..., T]:
     """Build a dependency double that either returns ``result`` or raises it.
 
     The two seams call their dependency with different signatures, and the
@@ -315,7 +315,7 @@ class TestAllowCommand:
             pytest.param(
                 _MalformedContainer(
                     document=(
-                        '[project]\nname = \'x\'\n\n[tool.duplication_gate]\n'
+                        "[project]\nname = 'x'\n\n[tool.duplication_gate]\n"
                         'allow = "nope"\n'
                     ),
                     message=(
