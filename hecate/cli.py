@@ -13,7 +13,7 @@ import cyclopts
 from .checker import ArchitectureCheckResult, check_architecture
 from .config import ConfigError, ConfigOverrides, load_config
 from .imports import DiscoveryError
-from .output import render_json, render_text
+from .output import RenderOptions, render_json, render_text
 from .source import SourceError
 
 if typ.TYPE_CHECKING:
@@ -83,21 +83,19 @@ def _emit_check_output(
     on warnings has no violation, so rendering from the result would print a
     pass notice for a run that exits non-zero.
     """
+    # ``show_coverage`` is forwarded only to the text renderer: JSON carries
+    # coverage unconditionally so machine consumers never need a second
+    # invocation, and the tri-state option keeps that default when the flag is
+    # left off.
+    options = RenderOptions(
+        show_ignored=out.show_ignored,
+        include_unclassified=policy.unclassified_modules != "ignore",
+        passed=passed,
+    )
     output = (
-        render_json(
-            result,
-            show_ignored=out.show_ignored,
-            show_coverage=True,
-            include_unclassified=policy.unclassified_modules != "ignore",
-            passed=passed,
-        )
+        render_json(result, options)
         if out.output_format is OutputFormat.JSON
-        else render_text(
-            result,
-            show_ignored=out.show_ignored,
-            show_coverage=out.show_coverage,
-            passed=passed,
-        )
+        else render_text(result, dc.replace(options, show_coverage=out.show_coverage))
     )
     print(output, end="")
 
