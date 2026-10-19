@@ -149,14 +149,6 @@ whenever the mode is not `ignore`; when included, the array is present even if
 empty, which a consumer reads as "evaluated and clean". Under `ignore` the key
 is absent.
 
-Both renderers keep the keyword-only signatures they had before warning
-support, so existing callers are unaffected. The command outcome travels on
-`ArchitectureCheckResult.passed` instead: `check` records the exit-code
-decision there before rendering, and `render_text` and `render_json` report it,
-falling back to `ok` when it is `None`. A warning-only run failed by
-`--fail-on-warnings` therefore renders as failed without either renderer
-gaining an argument.
-
 The module pass records `UnclassifiedModuleDiagnostic`, whose rule identifier
 is the fixed `HEC002` and never the configured `default_rule_id`. Because that
 identifier is reserved, `_validate_rule_id` in `config.py` rejects a policy
