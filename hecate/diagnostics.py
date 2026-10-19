@@ -24,30 +24,28 @@ def unclassified_module_severity(mode: UnclassifiedModules) -> Severity:
     return _UNCLASSIFIED_MODULE_SEVERITIES.get(mode, Severity.WARNING)
 
 
-class _SeverityFailure:
-    """The failure rule shared by the diagnostics that carry a severity.
+def _is_failure(self: CoverageDiagnostic | UnclassifiedModuleDiagnostic) -> bool:
+    """Return whether this diagnostic fails the check.
 
-    Both diagnostic kinds decide this the same way: a diagnostic fails the
-    check exactly when its severity is :data:`Severity.ERROR`, and a
-    warning-only run stays green. The rule is defined once here rather than
-    restated as a property on each class, because two identical properties are
-    a duplication family and a delegating copy is still a copy.
+    A diagnostic fails exactly when its severity is :data:`Severity.ERROR`, so
+    a warning-only run stays green. The rule is written once and bound to both
+    exported classes as a property, which keeps ``is_failure`` on their
+    instances without an inheritance hierarchy: the diagnostics are unrelated
+    records that happen to answer this one question the same way, and a shared
+    descriptor states that without making one a special case of the other.
 
-    It is a base class rather than a free function because ``is_failure`` is
-    part of the exported diagnostics' interface: a consumer holding a
+    It is a property rather than a free function because ``is_failure`` is
+    part of the exported diagnostics' interface: a consumer holding an
     ``UnclassifiedModuleDiagnostic`` asks the diagnostic itself whether it
     fails, and removing that attribute to satisfy a duplication gate would
     break the package's public surface for an internal refactor.
     """
+    return self.severity is Severity.ERROR
 
-    __slots__ = ()
 
-    severity: Severity
-
-    @property
-    def is_failure(self) -> bool:
-        """Return whether this diagnostic fails the check."""
-        return self.severity is Severity.ERROR
+#: The one shared implementation of the failure rule above, bound into both
+#: severity-carrying diagnostics under the name their consumers use.
+_is_failure_property = property(_is_failure)
 
 
 class _ClassifiedEdge(typ.Protocol):
@@ -172,7 +170,7 @@ class IgnoredImportDiagnostic:
 
 
 @dc.dataclass(frozen=True, slots=True)
-class CoverageDiagnostic(_SeverityFailure):
+class CoverageDiagnostic:
     """An import edge that Hecate could not fully evaluate.
 
     These cover the states that previously vanished silently: an endpoint that
@@ -188,6 +186,10 @@ class CoverageDiagnostic(_SeverityFailure):
     line: int
     importer_group: str | None = None
     imported_group: str | None = None
+
+    # See ``_is_failure``: the shared rule is bound here rather than inherited,
+    # so neither diagnostic class is a special case of the other.
+    is_failure: typ.ClassVar[property] = _is_failure_property
 
     def identity(self) -> tuple[str, str, str, str, int]:
         """Return the stable identity used for sorting and de-duplication."""
@@ -219,7 +221,7 @@ class CoverageDiagnostic(_SeverityFailure):
 
 
 @dc.dataclass(frozen=True, slots=True)
-class UnclassifiedModuleDiagnostic(_SeverityFailure):
+class UnclassifiedModuleDiagnostic:
     """A discovered module that matched no configured architecture group.
 
     This describes the module itself rather than one import edge, so it names no
@@ -232,6 +234,9 @@ class UnclassifiedModuleDiagnostic(_SeverityFailure):
     module: str
     source_path: Path
     severity: Severity
+
+    # See ``_is_failure``: the same rule, bound rather than inherited.
+    is_failure: typ.ClassVar[property] = _is_failure_property
 
     @property
     def rule_id(self) -> str:
