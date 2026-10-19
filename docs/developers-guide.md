@@ -206,9 +206,9 @@ flowchart LR
 _Figure 2: Ordered prefix validation from group order to rejection or
 acceptance._
 
-`classification.py` owns the per-edge decision, so the precedence order below is
-readable without following the filesystem walk that produced the edge. It holds
-the accumulator (`CheckContext`), the edge under evaluation (`Edge`), and
+`classification.py` owns the per-edge decision, so the precedence order below
+is readable without following the filesystem walk that produced the edge. It
+holds the accumulator (`CheckContext`), the edge under evaluation (`Edge`), and
 `classify_origin`, which every resolved origin passes through exactly once.
 `checker.py` keeps the walk, the per-statement expansion of wildcards, and the
 assembly of the result.
@@ -424,11 +424,11 @@ argument.
 
 The process exit code follows from that outcome:
 
-| Code | Meaning                                                                                             |
-| ---- | --------------------------------------------------------------------------------------------------- |
-| 0    | The architecture check passed.                                                                      |
-| 1    | Violations, coverage or module diagnostics at error level, or warnings under `--fail-on-warnings`.  |
-| 2    | Input validation failed: configuration, discovery, or source.                                       |
+| Code | Meaning                                                                                            |
+| ---- | -------------------------------------------------------------------------------------------------- |
+| 0    | The architecture check passed.                                                                     |
+| 1    | Violations, coverage or module diagnostics at error level, or warnings under `--fail-on-warnings`. |
+| 2    | Input validation failed: configuration, discovery, or source.                                      |
 
 _Table 1: Process exit codes for `hecate check`._
 
@@ -495,28 +495,33 @@ modules at the top.
 
 ### Module responsibilities
 
-| Module                 | Responsibility                                                        | Imports internally                                                                       |
-| ---------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| `module_scope.py`      | Yield the statements that run at module scope, with nesting flags.    | none                                                                                     |
-| `source.py`            | Read and parse one scanned file, reporting `SourceError`.             | none                                                                                     |
-| `all_sequence.py`      | Evaluate a module's `__all__` sequence, or report it unknowable.      | `module_scope`                                                                           |
-| `config_helpers.py`    | Internal TOML readers and validators, reporting `ConfigError`.        | `policy`                                                                                 |
-| `config_validation.py` | Format the diagnostics for shadowed group prefixes.                   | none (policy types under `TYPE_CHECKING`)                                                |
-| `diagnostics.py`       | Hold the stable, ordered diagnostic dataclasses and their JSON forms. | `policy`                                                                                 |
-| `imports.py`           | Discover a root's modules, and collect import statements from them.   | `source`                                                                                 |
-| `policy.py`            | Hold the validated group, allow-list, warn-list, and ignore model.    | `imports`                                                                                |
-| `namespaces.py`        | Model bindings and wildcard exports per module.                       | `all_sequence`, `imports`, `module_scope`, `source`                                      |
-| `origins.py`           | Resolve an import target to the modules that supply it.               | `namespaces`                                                                             |
-| `classification.py`    | Classify one resolved edge against the policy.                       | `diagnostics`, `origins`, `policy`                                                       |
-| `module_coverage.py`   | Report discovered modules that no configured group claims.            | `diagnostics`, `policy`                                                                  |
-| `config.py`            | Discover, parse, validate, and override the TOML configuration.       | `config_helpers`, `config_validation`, `diagnostics`, `policy`                           |
-| `output.py`            | Render text and JSON output.                                          | `checker`                                                                                |
-| `checker.py`           | Orchestrate the traversal and assemble the result.                    | `classification`, `config`, `diagnostics`, `imports`, `module_coverage`, `namespaces`, `origins`, `policy` |
-| `cli.py`               | Define the Cyclopts application and translate failures to exit codes. | `checker`, `config`, `imports`, `output`, `source`                                       |
-| `__init__.py`          | Publish the supported public API.                                     | `checker`, `cli`, `config`, `diagnostics`                                                |
-| `__main__.py`          | Run the CLI under `python -m hecate`.                                 | `cli`                                                                                    |
+| Module                 | Responsibility                                                        | Imports internally                                             |
+| ---------------------- | --------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `module_scope.py`      | Yield the statements that run at module scope, with nesting flags.    | none                                                           |
+| `source.py`            | Read and parse one scanned file, reporting `SourceError`.             | none                                                           |
+| `all_sequence.py`      | Evaluate a module's `__all__` sequence, or report it unknowable.      | `module_scope`                                                 |
+| `config_helpers.py`    | Internal TOML readers and validators, reporting `ConfigError`.        | `policy`                                                       |
+| `config_validation.py` | Format the diagnostics for shadowed group prefixes.                   | none (policy types under `TYPE_CHECKING`)                      |
+| `diagnostics.py`       | Hold the stable, ordered diagnostic dataclasses and their JSON forms. | `policy`                                                       |
+| `imports.py`           | Discover a root's modules, and collect import statements from them.   | `source`                                                       |
+| `policy.py`            | Hold the validated group, allow-list, warn-list, and ignore model.    | `imports`                                                      |
+| `namespaces.py`        | Model bindings and wildcard exports per module.                       | `all_sequence`, `imports`, `module_scope`, `source`            |
+| `origins.py`           | Resolve an import target to the modules that supply it.               | `namespaces`                                                   |
+| `classification.py`    | Classify one resolved edge against the policy.                        | `diagnostics`, `origins`, `policy`                             |
+| `module_coverage.py`   | Report discovered modules that no configured group claims.            | `diagnostics`, `policy`                                        |
+| `config.py`            | Discover, parse, validate, and override the TOML configuration.       | `config_helpers`, `config_validation`, `diagnostics`, `policy` |
+| `output.py`            | Render text and JSON output.                                          | `checker`                                                      |
+| `checker.py`           | Orchestrate the traversal and assemble the result.                    | `classification` (see below)                                   |
+| `cli.py`               | Define the Cyclopts application and translate failures to exit codes. | `checker`, `config`, `imports`, `output`, `source`             |
+| `__init__.py`          | Publish the supported public API.                                     | `checker`, `cli`, `config`, `diagnostics`                      |
+| `__main__.py`          | Run the CLI under `python -m hecate`.                                 | `cli`                                                          |
 
 _Table 2: Module responsibilities and internal dependencies._
+
+`checker.py` imports `classification`, `config`, `diagnostics`, `imports`,
+`module_coverage`, `namespaces`, `origins`, and `policy`. The table names only
+`classification`, because that is the edge-classification entry point; the rest
+are the stages the orchestration sequences.
 
 Two modules are leaves at runtime by design: `module_scope.py` answers a
 question about the syntax tree, and `source.py` owns the only filesystem and
