@@ -12,7 +12,7 @@ from pathlib import Path
 
 from hecate.checker import ArchitectureCheckResult
 from hecate.diagnostics import UnclassifiedModuleDiagnostic
-from hecate.output import RenderOptions, render_json, render_text
+from hecate.output import render_json, render_text
 from hecate.policy import Severity
 
 
@@ -91,7 +91,7 @@ def test_json_serializes_an_unclassified_module(tmp_path: Path) -> None:
     diagnostic = _unclassified(tmp_path, severity=Severity.ERROR)
     result = ArchitectureCheckResult(violations=(), unclassified_modules=(diagnostic,))
 
-    payload = json.loads(render_json(result, RenderOptions(include_unclassified=True)))
+    payload = json.loads(render_json(result, include_unclassified=True))
     entry = payload["unclassified_modules"][0]
 
     assert entry == {
@@ -116,7 +116,7 @@ def test_json_reports_an_empty_unclassified_section_when_included(
     """
     result = ArchitectureCheckResult(violations=())
 
-    payload = json.loads(render_json(result, RenderOptions(include_unclassified=True)))
+    payload = json.loads(render_json(result, include_unclassified=True))
 
     assert payload["unclassified_modules"] == [], (
         f"expected an empty evaluated list, got {payload!r}"

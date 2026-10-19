@@ -12,7 +12,7 @@ from hecate.diagnostics import (
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
 )
-from hecate.output import RenderOptions, render_json, render_text
+from hecate.output import render_json, render_text
 from hecate.policy import EdgeState, Severity
 
 
@@ -226,7 +226,7 @@ def test_json_output_omits_coverage_when_not_requested(tmp_path: Path) -> None:
     )
     result = ArchitectureCheckResult(violations=(), coverage=(diagnostic,))
 
-    payload = json.loads(render_json(result, RenderOptions(show_coverage=False)))
+    payload = json.loads(render_json(result, show_coverage=False))
 
     assert "coverage" not in payload, (
         f"coverage must be absent, not empty, when suppressed: {payload!r}"
@@ -247,7 +247,7 @@ def test_json_output_serializes_an_ignored_import(tmp_path: Path) -> None:
     )
     result = ArchitectureCheckResult(violations=(), ignored=(ignored,))
 
-    payload = json.loads(render_json(result, RenderOptions(show_ignored=True)))
+    payload = json.loads(render_json(result, show_ignored=True))
     entry = payload["ignored"][0]
 
     assert entry == {
@@ -277,7 +277,7 @@ def test_text_output_hides_coverage_warnings_by_default(tmp_path: Path) -> None:
     result = ArchitectureCheckResult(violations=(), coverage=(diagnostic,))
 
     default_output = render_text(result)
-    verbose_output = render_text(result, RenderOptions(show_coverage=True))
+    verbose_output = render_text(result, show_coverage=True)
 
     assert "unclassified" not in default_output, (
         f"expected coverage to stay hidden by default, got {default_output!r}"
