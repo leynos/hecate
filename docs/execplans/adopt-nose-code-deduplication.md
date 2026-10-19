@@ -7,9 +7,10 @@ be kept up to date as work proceeds.
 
 Status: COMPLETE. Delivered as draft pull request
 [#154](https://github.com/leynos/hecate/pull/154), which is not to be merged
-without review. The scope tolerance is breached and the breach **remains
-pending human acceptance**; see revision 5 and the decision log. No human has
-approved it, and this plan does not claim otherwise.
+without review. Both scope tolerances are breached on the current candidate --
+41 files and 7,304 net lines excluding this plan -- and the breach **remains
+pending human acceptance**; see revision 5, revision 11, and the decision log.
+No human has approved it, and this plan does not claim otherwise.
 
 ## Purpose / big picture
 
@@ -302,29 +303,23 @@ indiscriminate abstraction or suppression.
   `diagnostic.is_failure` is public surface and cannot be removed. This is
   recorded separately from the scope breach and is not an escalation; the
   surface is unchanged from `origin/main`.
-- [x] (2026-10-19 12:49Z) Re-measure the scope at the repaired candidate and
-  correct the record rather than carrying `ad0e677`'s figures forward. Two
-  measurements are recorded, because the live plan moves with every edit and a
-  single number cannot be both accurate and final. With this plan excluded, so
-  the figure is stable between edits to it, the candidate against `511d79a` is
-  40 files, 7,450 insertions and 193 deletions, or 7,257 net lines: 1,420 gate
-  implementation, 4,267 gate tests, 1,002 repository tests and contracts, 287
-  documentation other than this plan, 205 wiring, and 76 application. Including
-  this plan, the same candidate is 41 files and 7,257 net lines plus the plan's
-  own diff against `511d79a`, which was 1,463 lines at `ad0e677` and grows with
-  every revision; the plan-excluded figure is the one to quote because the
-  other moves every time this document does. Earlier revisions of the decision
-  log quoted 1724 documentation including 1463 lines of this plan and 231
-  wiring; those rows reconcile exactly to the 8364 that revision stated, so the
-  difference here is one of categorization and of work done since, not of
-  arithmetic. That revision counted `AGENTS.md` and the README, 26 lines, as
-  wiring where this one counts them as documentation, and the rest of the
-  movement is the repair's own test growth and this plan's. On the
-  plan-excluded measurement the net-line tolerance is still breached at 7,257
-  against 2,500, while the file count is exactly 40 and so sits at the bound
-  rather than over it. The file-count breach appears only when the plan is
-  included, at 41. The correction changes the record, not the line-count
-  escalation, and acceptance remains pending for the breach that does stand.
+- [x] (2026-10-19) Re-measure the scope at the current candidate, `4375959`
+  against `ad88fb0`, and record that **both** tolerances are breached on the
+  plan-excluded measurement. With this plan excluded, so the figure is stable
+  between edits to it, the candidate is 41 files, 7,494 insertions and 190
+  deletions, or 7,304 net lines: 1,420 gate implementation, 4,308 gate tests,
+  1,002 repository tests and contracts, 295 documentation other than this plan,
+  198 wiring, and 81 application. Including this plan, the same candidate is 42
+  files and 8,987 net lines, with 1,683 of those nets being this plan's own
+  diff. The file count rose from 40 to 41 and the net from 7,257 to 7,304
+  because of work done after the earlier measurement: the CodeScene split adds
+  `scripts/tests/test_duplication_gate_contention.py` as a new file, and the
+  split's net addition, the diagnostics repair, and Revision 11's own text
+  account for the line movement. The earlier figures -- 40 files and 7,257 net
+  lines against `511d79a`, and before that 43 files and 8,364 net -- remain
+  recorded as revision-bound history in the decision log; they are not the
+  current candidate's measurement. Acceptance of the breach remains pending and
+  belongs to the human reviewer.
 
 ## Surprises & discoveries
 
@@ -623,37 +618,43 @@ indiscriminate abstraction or suppression.
   the tolerance exists to stop unbounded work, and the review identified the
   overshoot only after the change was whole. The excess is not padding, and the
   measurement says so. Measured with this plan excluded, so the figure does not
-  move with the next paragraph added to it, the candidate against `511d79a` is
-  40 files and 7257 net lines: 1420 gate implementation (`scripts/*.py`,
-  excluding tests), 4267 that gate's own tests under `scripts/tests/`, 1002 the
-  repository tests and toolchain contracts that pin the wiring, 287
-  documentation other than this plan, 205 Makefile, workflow, configuration,
-  and lockfile, and 76 the application. Those six areas sum to the measured
-  total. Including this plan, the same candidate is 41 files and 7257 net lines
-  plus the plan's own added lines at the revision being read; the figure
+  move with the next paragraph added to it, the **current** candidate,
+  `4375959` against `ad88fb0`, is 41 files and 7304 net lines: 1420 gate
+  implementation (`scripts/*.py`, excluding tests), 4308 that gate's own tests
+  under `scripts/tests/`, 1002 the repository tests and toolchain contracts
+  that pin the wiring, 295 documentation other than this plan, 198 Makefile,
+  workflow, configuration, and lockfile, and 81 the application. Those six
+  areas sum to the measured total. Including this plan, the same candidate is
+  42 files and 8987 net lines, of which this plan contributes 1683; the figure
   excluding the plan is the one quoted, because including it would make every
-  edit to this paragraph change its own measurement. Earlier revisions of this
-  paragraph quoted 1724 documentation including 1463 lines of this plan and 231
-  wiring. Those rows sum exactly to the 8364 that revision stated, so the
-  difference from the figures above is categorization and later work rather
-  than a corrected sum: that revision counted `AGENTS.md` and the README, 26
-  lines, as wiring where this one counts them as documentation, and the
-  remaining movement is the repair's own test growth and this plan's. The "Only
-  40 net lines" sentence that once followed did understate the application area
-  the paragraph had just measured, which was 64 lines at the revision it
-  described. The largest single file is this plan, which is a living
-  design-and-delivery record the repository's own instructions require rather
-  than product code, and the next largest are test modules. That is a ratio of
-  roughly three lines of test and under one line of documentation per line of
-  implementation, which is what test-first delivery to this repository's stated
-  standard costs; cutting to 2500 net lines would mean deleting proofs or
-  wiring rather than deleting scope, trading a documented scope breach for an
-  undocumented verification breach -- the worse of the two, and the one this
-  repository's own instructions single out. Options considered and their
-  trade-offs: (a) cut the change to the threshold -- rejected, it removes
-  verification rather than scope and would leave the gate weaker than what
-  review has already seen; (b) split the change into a prerequisite PR and a
-  feature PR per the babysitting skill's prerequisite rule -- rejected, the
+  edit to this paragraph change its own measurement. Both tolerances are
+  therefore breached on the plan-excluded measurement: the file count is one
+  over the bound and the net lines are 2.9 times it. Earlier measurements
+  remain recorded as revision-bound history and are not the current figure:
+  against `511d79a` the candidate was 40 files and 7257 net lines (where the
+  file count sat exactly at the bound and only the line tolerance was
+  breached), and Revision 9 recorded 43 files and 8364 net lines. Earlier
+  revisions of this paragraph quoted 1724 documentation including 1463 lines of
+  this plan and 231 wiring. Those rows sum exactly to the 8364 that revision
+  stated, so the difference from the figures above is categorization and later
+  work rather than a corrected sum: that revision counted `AGENTS.md` and the
+  README, 26 lines, as wiring where this one counts them as documentation, and
+  the remaining movement is the repair's own test growth and this plan's. The
+  "Only 40 net lines" sentence that once followed did understate the
+  application area the paragraph had just measured, which was 64 lines at the
+  revision it described. The largest single file is this plan, which is a
+  living design-and-delivery record the repository's own instructions require
+  rather than product code, and the next largest are test modules. That is a
+  ratio of roughly three lines of test and under one line of documentation per
+  line of implementation, which is what test-first delivery to this
+  repository's stated standard costs; cutting to 2500 net lines would mean
+  deleting proofs or wiring rather than deleting scope, trading a documented
+  scope breach for an undocumented verification breach -- the worse of the two,
+  and the one this repository's own instructions single out. Options considered
+  and their trade-offs: (a) cut the change to the threshold -- rejected, it
+  removes verification rather than scope and would leave the gate weaker than
+  what review has already seen; (b) split the change into a prerequisite PR and
+  a feature PR per the babysitting skill's prerequisite rule -- rejected, the
   gate cannot block `make lint` without its wiring and tests in the same
   commit, so a split would land a gate that is not yet a gate, which is the
   compatibility theatre the repository prohibits; (c) record the breach and
@@ -791,9 +792,10 @@ Implementation complete. Deliverable: draft pull request
 [#154](https://github.com/leynos/hecate/pull/154), open against `main` and not
 merged. All commit gates pass in a single `make lint` invocation.
 
-The scope tolerance is breached, and the breach is pending acceptance by the
-human reviewer; see revision 5 and the decision log. Nothing in this plan
-claims the agent can supply that acceptance itself.
+Both scope tolerances are breached on the current candidate -- 41 files and
+7,304 net lines excluding this plan -- and the breach is pending acceptance by
+the human reviewer; see revision 5, revision 11, and the decision log. Nothing
+in this plan claims the agent can supply that acceptance itself.
 
 Reconnaissance outcomes: the target repository is `leynos/hecate`; it has no
 pre-existing `[tool.nose]`, `[tool.duplication_gate]`, `.tools/`, `nose.toml`,
@@ -1675,9 +1677,14 @@ interface tolerance rejects deleting a public one -- and the shared descriptor
 satisfies both without an exception. No exception is claimed for this change,
 and the duplication gate passes with no allow entry.
 
-Finally, the previous progress entry said both tolerances were breached on the
-plan-excluded measurement. That measurement has exactly 40 files, so it sits at
-the file bound rather than over it, and only the net-line tolerance is breached
-there. The file-count breach exists only when this plan is counted, at 41. The
-line-count breach is unaffected: 7,257 net lines against 2,500. Acceptance of
-that breach remains pending and belongs to the human reviewer.
+Finally, the breach statement is corrected twice over. An earlier wording said
+both tolerances were breached on the plan-excluded measurement at a time when
+that measurement had exactly 40 files, where only the net-line tolerance was
+breached. That wording was corrected, and the correction's own figure was then
+overtaken: the CodeScene split adds a file, so the current candidate `4375959`
+against `ad88fb0` has 41 files excluding this plan and 42 including it. Both
+tolerances are now breached on the plan-excluded measurement -- 41 files
+against a bound of 40, and 7,304 net lines against 2,500 -- and the 40-file
+figure is retained only as the revision-bound measurement of the pre-split
+candidate. Acceptance of the breach remains pending and belongs to the human
+reviewer.
