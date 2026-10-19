@@ -698,6 +698,20 @@ indiscriminate abstraction or suppression.
   outstanding for this change: the surface is unchanged from `origin/main`,
   which is what the tolerance protects. Date/Author: 2026-10-19, implementation
   agent.
+- Decision: tolerate an unsupported directory `fsync` on the writing path
+  rather than narrow the documented platform support. Codex review found that
+  `atomic_write` fsyncs the parent directory after `Path.replace` has already
+  committed the rename, and that macOS rejects `fsync` on a directory
+  descriptor with `EINVAL`. Because the mutation had succeeded, propagating the
+  error made `make duplication-allow` exit non-zero after rewriting
+  `pyproject.toml`. The documented support says POSIX, and macOS is POSIX, so
+  narrowing the claim to Linux would have been a documentation change that
+  papered over a real reporting defect. `_sync_directory` therefore absorbs only
+  `EINVAL` and `ENOTSUP` and still propagates any other error, since `EIO`
+  means the durability the caller asked for genuinely was not obtained. The
+  file's own sync already ran on the temporary file before the rename, so no
+  part of the requested guarantee is silently dropped on the affected platform.
+  Date/Author: 2026-10-19, implementation agent.
 - Decision: bind the shared failure rule into each diagnostic as a property
   descriptor rather than inherit it from a private base class. The plan's
   constraint prohibits an inheritance hierarchy for a duplicated extraction,
@@ -1688,3 +1702,37 @@ against a bound of 40, and 7,304 net lines against 2,500 -- and the 40-file
 figure is retained only as the revision-bound measurement of the pre-split
 candidate. Acceptance of the breach remains pending and belongs to the human
 reviewer.
+
+Revision 12, 2026-10-19. Records the repair of the directory-sync defect found
+by Codex review on `5158dea`.
+
+`atomic_write` enables `sync_file` for the allowlist writer, and with that
+option it fsyncs the parent directory after `temporary.replace(path)` has
+already committed the rename. POSIX does not require `fsync` to accept a
+directory descriptor; macOS rejects it with `EINVAL`, while Linux accepts it.
+On the affected platform the write therefore succeeded and the command still
+failed, leaving `make duplication-allow` reporting an error after it had in
+fact rewritten `pyproject.toml` -- precisely the outcome the helper exists to
+avoid. The documented support is POSIX, so narrowing the claim was rejected in
+favour of making the report match what happened.
+
+The regression test was written first and failed for the intended reason:
+`OSError: [Errno 22] Invalid argument` propagated out of `atomic_write` after
+the destination already held the replacement. The fix extracts
+`_sync_directory`, which absorbs only `EINVAL` and `ENOTSUP` and re-raises
+everything else. Two mutation controls confirm the tests still have force:
+restoring the unconditional re-raise makes the new test fail with the same
+`EINVAL`, and suppressing every error instead of the two unsupported ones makes
+the existing descriptor-release test fail with `DID NOT RAISE`. The second
+control matters because the new `try` sits between the directory open and its
+close, so it could have made the pre-existing release assertion vacuous; it did
+not.
+
+All gates pass on the repaired candidate: `check-fmt`, `lint` including Skylos
+and the duplication gate with no allow entry, `typecheck`, 546 application
+tests, 155 gate tests, `markdownlint`, and `nixie`. The repair adds one test
+and 27 net lines to the gate implementation.
+
+This revision also applies the rebase's own platform statement, which already
+said the gate is POSIX-only, so no documentation of support needed to change;
+the code now behaves as that statement implies.
