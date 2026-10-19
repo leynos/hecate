@@ -13,7 +13,7 @@ import cyclopts
 from .checker import ArchitectureCheckResult, check_architecture
 from .config import ConfigError, ConfigOverrides, load_config
 from .imports import DiscoveryError
-from .output import RenderOptions, render_json, render_text
+from .output import render_json, render_text
 from .source import SourceError
 
 if typ.TYPE_CHECKING:
@@ -65,7 +65,6 @@ def _emit_check_output(
     out: _OutputArgs,
     *,
     policy: ArchitecturePolicy,
-    passed: bool,
 ) -> None:
     """Render and print the architecture-check result to stdout.
 
@@ -79,23 +78,23 @@ def _emit_check_output(
     rather than passed separately, so a rendered run and an exit code can never
     disagree about which mode was in force.
 
-    ``passed`` is the command outcome rather than ``result.ok``: a run failing
-    on warnings has no violation, so rendering from the result would print a
-    pass notice for a run that exits non-zero.
+    The command outcome travels on ``result.passed`` rather than as an
+    argument, because a run failing on warnings has no violation: rendering
+    from ``result.ok`` would print a pass notice for a run that exits
+    non-zero. ``check`` sets it before rendering; both renderers take their
+    original signatures, so existing callers are unaffected.
     """
-    # ``show_coverage`` is forwarded only to the text renderer: JSON carries
-    # coverage unconditionally so machine consumers never need a second
-    # invocation, and the tri-state option keeps that default when the flag is
-    # left off.
-    options = RenderOptions(
-        show_ignored=out.show_ignored,
-        include_unclassified=policy.unclassified_modules != "ignore",
-        passed=passed,
-    )
     output = (
-        render_json(result, options)
+        render_json(
+            result,
+            show_ignored=out.show_ignored,
+            show_coverage=True,
+            include_unclassified=policy.unclassified_modules != "ignore",
+        )
         if out.output_format is OutputFormat.JSON
-        else render_text(result, dc.replace(options, show_coverage=out.show_coverage))
+        else render_text(
+            result, show_ignored=out.show_ignored, show_coverage=out.show_coverage
+        )
     )
     print(output, end="")
 
@@ -168,7 +167,8 @@ def check(
     # so an enforced run names the edges it is failing on.
     warned_edges_fail = out.fail_on_warnings and bool(result.warnings)
     passed = result.ok and not warned_edges_fail
-    _emit_check_output(result, out, policy=hecate_config.policy, passed=passed)
+    result = dc.replace(result, passed=passed)
+    _emit_check_output(result, out, policy=hecate_config.policy)
     return 0 if passed else 1
 
 
