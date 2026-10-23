@@ -8,6 +8,7 @@ import typing as typ
 from .policy import UNCLASSIFIED_MODULE_MODES, Severity
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
     from pathlib import Path
 
 
@@ -76,12 +77,42 @@ def _read_string_tuple(
     return tuple(typ.cast("list[str]", value))
 
 
+def _read_optional_string_tuple(
+    data: dict[str, object],
+    key: str,
+    loc: _Loc,
+) -> tuple[str, ...]:
+    """Read an optional string list, defaulting to an empty tuple.
+
+    Unlike :func:`_read_string_tuple`, an absent key is not an error and an
+    empty list is accepted: this reads a list that adds behaviour when present
+    rather than one the configuration must always supply.
+    """
+    value = data.get(key)
+    if value is None:
+        return ()
+    if not _is_string_list(value):
+        msg = f"{loc.path}: {loc.context}.{key} must be a string list"
+        raise ConfigError(msg)
+    return tuple(typ.cast("list[str]", value))
+
+
 def _is_non_empty_string_list(value: object) -> bool:
-    return (
-        isinstance(value, list)
-        and bool(value)
-        and all(isinstance(item, str) and item.strip() for item in value)
-    )
+    return isinstance(value, list) and bool(value) and _all_non_blank_strings(value)
+
+
+def _is_string_list(value: object) -> bool:
+    return isinstance(value, list) and _all_non_blank_strings(value)
+
+
+def _all_non_blank_strings(value: cabc.Sequence[object]) -> bool:
+    """Return whether every element is a string with non-blank content.
+
+    The parameter is a ``Sequence`` rather than a ``list`` because the callers
+    narrow with ``isinstance(value, list)``, which yields a ``list`` of unknown
+    element type; a covariant supertype accepts that without a cast.
+    """
+    return all(isinstance(item, str) and item.strip() for item in value)
 
 
 def _read_bool(data: dict[str, object], key: str, *, default: bool, path: Path) -> bool:

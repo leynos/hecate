@@ -40,6 +40,17 @@ name = "domain"
 prefixes = ["beatcue.domain"]
 allowed = ["domain"]
 
+[[tool.hecate.groups]]
+name = "application"
+prefixes = ["beatcue.application"]
+allowed = ["application", "domain"]
+warn = ["legacy"]
+
+[[tool.hecate.groups]]
+name = "legacy"
+prefixes = ["beatcue.legacy"]
+allowed = ["legacy"]
+
 [[tool.hecate.ignore_imports]]
 importer = "beatcue.config"
 imported = "beatcue.adapters.outbound"
@@ -75,11 +86,12 @@ root = "src/internal_name"
 
 Each `[[tool.hecate.groups]]` table has these keys:
 
-| Key        | Type             | Required | Description                                   |
-| ---------- | ---------------- | -------- | --------------------------------------------- |
-| `name`     | string           | Yes      | Unique group name.                            |
-| `prefixes` | array of strings | Yes      | Dotted module prefixes matched by this group. |
-| `allowed`  | array of strings | Yes      | Group names this group may import.            |
+| Key        | Type             | Required | Description                                         |
+| ---------- | ---------------- | -------- | --------------------------------------------------- |
+| `name`     | string           | Yes      | Unique group name.                                  |
+| `prefixes` | array of strings | Yes      | Dotted module prefixes matched by this group.       |
+| `allowed`  | array of strings | Yes      | Group names this group may import.                  |
+| `warn`     | array of strings | No       | Group names this group may import at warning level. |
 
 _Table 2: Architecture group keys._
 
@@ -121,6 +133,13 @@ name = "inbound_adapter"
 prefixes = ["sample.api"]
 allowed = ["inbound_adapter", "composition_root"]
 ```
+
+A `warn` entry names a target the group may import, but whose edges Hecate
+reports as warnings instead of passing them silently. Warning edges do not fail
+the check unless the run asks them to; see
+[warning-level directions](#warning-level-directions). If a target appears in
+both `allowed` and `warn`, Hecate rejects the configuration rather than letting
+the outcome depend on which check ran first.
 
 ## Ignore tables
 
@@ -212,11 +231,60 @@ Coverage of discovered modules is broader than coverage of scanned imports:
   remains unchecked. The module-level finding exists to make that visible, not
   to change how such an edge is classified.
 
+## Warning-level directions
+
+A group may name targets it tolerates but wants to keep visible:
+
+```toml
+[[tool.hecate.groups]]
+name = "application"
+prefixes = ["sample.application"]
+allowed = ["application", "domain"]
+warn = ["legacy"]
+
+[[tool.hecate.groups]]
+name = "domain"
+prefixes = ["sample.domain"]
+allowed = ["domain"]
+
+[[tool.hecate.groups]]
+name = "legacy"
+prefixes = ["sample.legacy"]
+allowed = ["legacy"]
+```
+
+Here `sample.application` may import `sample.legacy`, and every such edge is
+reported as a warning. The edge is classified, not exempted: it appears under
+`warnings` in JSON output and as a `(warning):` line in text output, and it
+does not fail the check by itself. Use this for a boundary a migration is
+working towards, so the direction stays in CI output without blocking the
+change that introduces it.
+
+Hecate resolves an edge against the group's policy in this order:
+
+1. an out-of-scope external edge is skipped, and an edge with an endpoint that
+   matches no group, or an unresolved internal target, is exempted or reported
+   as coverage;
+2. an `allowed` target passes silently;
+3. a matching `ignore_imports` entry exempts the edge;
+4. a `warn` target is reported as a warning; and
+5. anything else is a violation.
+
+An external edge is in scope only when `include_external_packages` is enabled
+and a configured group claims its prefix, so a claimed external package reaches
+steps 2 to 5 like any other edge and may be allowed, warned, or forbidden.
+
+`allowed` is checked before `ignore_imports`, so an ignore aimed at an edge the
+policy already allows never matches. It stays visible as an unmatched ignore
+rather than silently covering nothing.
+
 ## Validation rules
 
 - Group names must be unique.
 - Prefixes must be non-empty dotted strings.
-- `allowed` entries must refer to declared groups.
+- `allowed` and `warn` entries must refer to declared groups.
+- A group may not list the same target in both `allowed` and `warn`.
+- `warn` must be an array of non-blank strings when present.
 - Ignores must include a non-empty reason.
 - `unresolved_internal_severity` must be `error`, `warning`, or `exempt`.
 - `unclassified_modules` must be `ignore`, `warn`, or `error`.
@@ -239,10 +307,13 @@ Supported options:
 - `--show-ignored`
 - `--show-coverage`
 - `--fail-on-unmatched-ignore`
+- `--fail-on-warnings`
 
 `--package` and `--root` must be provided together. They override configured
 package roots for ad hoc checks. `--strict` and `--no-strict` override the
-configured `strict` value for a single run.
+configured `strict` value for a single run. `--fail-on-warnings` makes a run
+that reported warning-level edges exit with code `1`; the diagnostics are
+printed first, so the failing run still names the edges that caused it.
 
 ______________________________________________________________________
 

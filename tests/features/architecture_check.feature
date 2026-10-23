@@ -112,3 +112,29 @@ Feature: Hexagonal architecture checking
     When I run Hecate against the fixture
     Then the exit code is "0"
     And the diagnostics contain "architecture check passed"
+
+  Scenario: A warning target downgrades a forbidden edge without failing
+    Given the "application_imports_adapter" fixture package with ["adapter", "outbound_adapter"] warned
+    When I run Hecate against the fixture
+    Then the exit code is "0"
+    And the diagnostics contain "architecture check passed"
+    And the diagnostics contain "(warning):"
+
+  Scenario: A warned edge can be made to fail explicitly
+    Given the "application_imports_adapter" fixture package with ["adapter", "outbound_adapter"] warned
+    When I run Hecate against the fixture failing on warnings
+    Then the exit code is "1"
+    And the diagnostics contain "(warning):"
+    And the diagnostics omit "architecture check passed"
+
+  Scenario: A warning target does not widen the allow-list
+    Given the "domain_imports_adapter" fixture package with ["adapter", "outbound_adapter"] warned
+    When I run Hecate against the fixture
+    Then the exit code is "1"
+    And the diagnostics contain "imports forbidden"
+
+  Scenario: A warning target must name a declared group
+    Given a config warning about an undeclared group
+    When I run Hecate against the fixture
+    Then the exit code is "2"
+    And stderr contains "undeclared groups"
