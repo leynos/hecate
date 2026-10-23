@@ -1305,6 +1305,97 @@ it is not.
 Commit-message format, subject-line limits, body wrapping, and the
 atomic-commit rules are in [AGENTS.md](../AGENTS.md) and are not restated here.
 
+## Duplication gate
+
+`make lint` also runs the blocking code-duplication gate, and the whole
+pipeline is sequential:
+
+```shell
+make install-nose   # provision the pinned detector (idempotent)
+make duplication    # run the gate on its own
+make duplication-test           # the gate's own tests
+make duplication-allow FIRST='path[::name]' REASON='...'
+make duplication-allow FIRST='path[::name]' SECOND='path[::name]' REASON='...'
+```
+
+`make duplication` depends on `make install-nose`, so a standalone run
+provisions the detector if it is missing. The installer writes `nose-cli` at
+the version in `NOSE_VERSION` into `.tools/nose` using `cargo-binstall`'s git
+mode, and is a no-op when `.tools/nose/nose --version` already reports the
+pinned version. Set `NOSE_BIN` to run a detector provisioned elsewhere; a
+relative path resolves against the repository root. Source compilation is
+disabled, so a missing release artefact fails provisioning rather than starting
+a build.
+
+The detector is `nose`, the Rust-built `nose-cli` from
+<https://github.com/corca-ai/nose>, pinned at the revision recorded in
+[ADR 003](adr-003-adopt-the-nose-duplication-gate.md). It is not the Python
+`nose` test framework on PyPI, and no PyPI package of that name is installed
+here.
+
+The scan covers the `hecate` package: maintained production Python. The
+repository's helper scripts, tests, and documentation are out of scope. The
+scan settings live in `[tool.nose]`; the gate reads the version from there and
+refuses to run when the installed binary reports a different one, so a drifted
+local install cannot quietly change what blocks the build. Exit codes are 0 for
+a clean or fully-allowed scan, 1 for unsuppressed families, and 2 for a
+configuration or tool error; a missing binary, a timeout, a failed command, or
+a malformed report all fail closed as exit code 2.
+
+### Recording an exception
+
+Genuine duplication should be extracted, not allow-listed; an exception asserts
+that a parallel is intentional and reviewable. When that is the right call,
+record it with `make duplication-allow`, which keys the entry on locations
+rather than line spans:
+
+- `FIRST='path[::name]'` matches any location in a file matching the POSIX
+  glob `path`, or additionally requires nose's unit name when `::name` is
+  present.
+- `SECOND='path[::name]'` may be repeated for families with more members. One
+  `SECOND` makes a two-key `members` entry; no `SECOND` makes a single-key
+  `unit` entry. Exactly one of the two forms is written.
+- `REASON='...'` is stored beside the entry, and is required.
+
+An entry silences a family only when **every** location in it matches one of
+the entry's keys, so a new copy in an unlisted file still blocks, and partial
+coverage from several entries never adds up. An entry the run does not match is
+reported as stale, meaning **unmatched in this scan** — not "the duplication is
+gone". The scan is bounded by `top`, so a family that has dropped below the
+ranking is simply not reported, and the gate cannot tell that from a family
+that no longer exists. Widen the scan before deleting such an entry: raise
+`top`, or lower `min-size`, and re-run. Only two causes then remain — the
+duplication is genuinely gone, or the family changed shape, for example by
+gaining a member outside the entry's keys — and in the second case the
+duplication is still present and the entry is the starting point for extending
+it rather than for deleting it. Values pass through the environment verbatim,
+so spaces, quotes, and dollar signs in a reason are preserved rather than
+interpreted as shell or Make program text.
+
+The helper holds an advisory lock beside `pyproject.toml` while it rewrites the
+entries, so concurrent allow commands cannot interleave their
+read-modify-write. It coordinates processes that follow its protocol; it does
+not coordinate an unrelated editor.
+
+### Portability
+
+The gate is POSIX-only: it uses `fcntl.flock` and POSIX directory operations.
+The supported developer workflow is POSIX or WSL, and the blocking run happens
+on Linux CI. Native Windows is not supported.
+
+The gate's entry point `scripts/duplication_gate.py` declares the Python 3.14
+floor and its pinned helper libraries in uv inline script metadata; the other
+gate modules are plain imports without metadata of their own.
+`make duplication` and `make duplication-test` therefore select that
+interpreter and those pins explicitly, rather than inheriting the application's
+virtualenv. `tests/toolchain_contract/` keeps the Makefile, the CI workflow, and
+`[tool.nose]` pinned to the same version.
+
+The gate's own tests live under `scripts/tests/` and are not collected by
+`make test` or the coverage job; `[tool.pytest.ini_options]` sets
+`testpaths = ["tests"]` so application discovery stays within `tests/`. Run
+them with `make duplication-test`.
+
 ______________________________________________________________________
 
 [^1]: The shared-actions caller guide lives in a separate repository and is

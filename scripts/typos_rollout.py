@@ -13,6 +13,7 @@ import urllib.parse
 import urllib.request
 
 import typos_rollout_cache
+from atomic_write import atomic_write
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -20,7 +21,6 @@ if typ.TYPE_CHECKING:
 RefreshResult = typos_rollout_cache.RefreshResult
 _CacheTargets = typos_rollout_cache.CacheTargets
 _RemoteResponse = typos_rollout_cache.RemoteResponse
-_atomic_write = typos_rollout_cache.atomic_write
 
 SCHEMA_VERSION = 1
 HTTP_NOT_MODIFIED = 304
@@ -185,7 +185,7 @@ def render_typos_config(dictionary: Dictionary) -> str:
 
 def write_config(path: pathlib.Path, dictionary: Dictionary) -> None:
     """Atomically write validated generated configuration to *path*."""
-    _atomic_write(path, render_typos_config(dictionary).encode())
+    atomic_write(path, render_typos_config(dictionary).encode())
 
 
 def _read_metadata(path: pathlib.Path) -> dict[str, object]:
@@ -202,7 +202,7 @@ def _write_metadata(
     metadata: cabc.Mapping[str, object],
 ) -> None:
     """Atomically write HTTP freshness metadata."""
-    _atomic_write(path, (json.dumps(metadata, sort_keys=True) + "\n").encode())
+    atomic_write(path, (json.dumps(metadata, sort_keys=True) + "\n").encode())
 
 
 def _valid_cache(cache: pathlib.Path) -> bool:
@@ -273,7 +273,7 @@ def _refresh_local(
         return RefreshResult("current", cache)
     content = source.read_bytes()
     _dictionary_from_text(content.decode())
-    _atomic_write(cache, content)
+    atomic_write(cache, content)
     _write_metadata(
         metadata,
         {"source": source_name, "mtime_ns": source_stat.st_mtime_ns},
@@ -312,7 +312,7 @@ def _write_remote_cache(
 ) -> RefreshResult:
     """Validate and atomically persist an HTTP dictionary response."""
     _dictionary_from_text(content.decode())
-    _atomic_write(targets.cache, content)
+    atomic_write(targets.cache, content)
     _write_metadata(
         targets.metadata,
         {

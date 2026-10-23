@@ -24,6 +24,30 @@ def unclassified_module_severity(mode: UnclassifiedModules) -> Severity:
     return _UNCLASSIFIED_MODULE_SEVERITIES.get(mode, Severity.WARNING)
 
 
+def _is_failure(self: CoverageDiagnostic | UnclassifiedModuleDiagnostic) -> bool:
+    """Return whether this diagnostic fails the check.
+
+    A diagnostic fails exactly when its severity is :data:`Severity.ERROR`, so
+    a warning-only run stays green. The rule is written once and bound to both
+    exported classes as a property, which keeps ``is_failure`` on their
+    instances without an inheritance hierarchy: the diagnostics are unrelated
+    records that happen to answer this one question the same way, and a shared
+    descriptor states that without making one a special case of the other.
+
+    It is a property rather than a free function because ``is_failure`` is
+    part of the exported diagnostics' interface: a consumer holding an
+    ``UnclassifiedModuleDiagnostic`` asks the diagnostic itself whether it
+    fails, and removing that attribute to satisfy a duplication gate would
+    break the package's public surface for an internal refactor.
+    """
+    return self.severity is Severity.ERROR
+
+
+#: The one shared implementation of the failure rule above, bound into both
+#: severity-carrying diagnostics under the name their consumers use.
+_is_failure_property = property(_is_failure)
+
+
 class _ClassifiedEdge(typ.Protocol):
     """The fields shared by diagnostics describing one classified import edge.
 
@@ -163,10 +187,9 @@ class CoverageDiagnostic:
     importer_group: str | None = None
     imported_group: str | None = None
 
-    @property
-    def is_failure(self) -> bool:
-        """Return whether this diagnostic fails the check."""
-        return self.severity is Severity.ERROR
+    # See ``_is_failure``: the shared rule is bound here rather than inherited,
+    # so neither diagnostic class is a special case of the other.
+    is_failure: typ.ClassVar[property] = _is_failure_property
 
     def identity(self) -> tuple[str, str, str, str, int]:
         """Return the stable identity used for sorting and de-duplication."""
@@ -212,15 +235,13 @@ class UnclassifiedModuleDiagnostic:
     source_path: Path
     severity: Severity
 
+    # See ``_is_failure``: the same rule, bound rather than inherited.
+    is_failure: typ.ClassVar[property] = _is_failure_property
+
     @property
     def rule_id(self) -> str:
         """Return the fixed module-coverage rule identifier."""
         return UNCLASSIFIED_MODULE_RULE_ID
-
-    @property
-    def is_failure(self) -> bool:
-        """Return whether this diagnostic fails the check."""
-        return self.severity is Severity.ERROR
 
     def identity(self) -> tuple[str, str]:
         """Return the stable identity used for sorting and de-duplication."""
