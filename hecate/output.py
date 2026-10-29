@@ -88,6 +88,29 @@ def render_text(
     ``include_unclassified`` belongs to :func:`render_json`; text output always
     shows unclassified diagnostics, so this function refuses the keyword
     instead of accepting a control it cannot honour.
+
+    Parameters
+    ----------
+    result : ArchitectureCheckResult
+        The check result to render.
+    **options : Unpack[RenderOptions]
+        Keyword options, each optional. ``show_ignored`` (default ``False``)
+        also renders ignored imports; ``show_coverage`` (default ``False``)
+        also renders coverage entries that do not already fail the check; and
+        ``passed`` (default ``None``) states the command outcome, leaving the
+        architecture result's own outcome to govern when omitted.
+
+    Returns
+    -------
+    str
+        The whole text document, newline-terminated.
+
+    Raises
+    ------
+    TypeError
+        If a keyword is not one this renderer accepts.
+    ValueError
+        If ``passed=True`` contradicts a result that did not pass.
     """
     _reject_unknown_options(options, RenderOptions)
     lines = [*_always_rendered_lines(result)]
@@ -174,6 +197,30 @@ def render_json(
     current consumers. Omitting ``passed`` states no command policy, so
     ``status`` falls back to the architecture outcome; a pass claim the result
     contradicts raises :class:`ValueError`.
+
+    Parameters
+    ----------
+    result : ArchitectureCheckResult
+        The check result to serialize.
+    **options : Unpack[JsonRenderOptions]
+        Keyword options, each optional. ``show_ignored`` (default ``False``)
+        adds the ``ignored`` section; ``show_coverage`` (default ``True``)
+        adds the ``coverage`` section; ``include_unclassified`` (default
+        ``False``) adds the ``unclassified_modules`` section; and ``passed``
+        (default ``None``) states the command outcome recorded in ``status``,
+        leaving the architecture outcome to govern when omitted.
+
+    Returns
+    -------
+    str
+        The JSON document, indented, key-sorted, and newline-terminated.
+
+    Raises
+    ------
+    TypeError
+        If a keyword is not one this renderer accepts.
+    ValueError
+        If ``passed=True`` contradicts a result that did not pass.
     """
     _reject_unknown_options(options, JsonRenderOptions)
     passed = options.get("passed")

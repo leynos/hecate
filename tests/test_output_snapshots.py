@@ -79,6 +79,19 @@ def _normalize(output: str, root: Path) -> str:
     return output.replace(str(root), "<tmp>")
 
 
+def _normalize_json(output: str, root: Path) -> str:
+    """Replace the scratch root as ``json.dumps`` escaped it.
+
+    ``render_json`` serializes every path through ``json.dumps``, which doubles
+    each backslash. On a host whose separator is a backslash the raw
+    ``str(root)`` therefore never appears in the payload, so the plain
+    replacement leaves the real temporary directory in the document and the
+    snapshot only holds on POSIX.
+    """
+    escaped_root = json.dumps(str(root))[1:-1]
+    return output.replace(escaped_root, "<tmp>")
+
+
 def _expected_text(*, with_violation: bool, passed: bool) -> str:
     """Return the whole text document the fixture should render."""
     lines = []
@@ -206,7 +219,7 @@ def test_json_snapshot_of_a_warning_only_pass(tmp_path: Path) -> None:
     """JSON reports ``ok`` and ``status`` separately for a warning-only run."""
     result = _check(tmp_path, with_violation=False)
 
-    payload = json.loads(_normalize(render_json(result, passed=True), tmp_path))
+    payload = json.loads(_normalize_json(render_json(result, passed=True), tmp_path))
 
     assert payload == _expected_json(with_violation=False, passed=True), (
         f"the warning-only JSON payload changed: {payload!r}"
@@ -217,7 +230,7 @@ def test_json_snapshot_of_an_enforced_warning_run(tmp_path: Path) -> None:
     """``ok`` keeps describing the architecture while ``status`` fails."""
     result = _check(tmp_path, with_violation=False)
 
-    payload = json.loads(_normalize(render_json(result, passed=False), tmp_path))
+    payload = json.loads(_normalize_json(render_json(result, passed=False), tmp_path))
 
     assert payload == _expected_json(with_violation=False, passed=False), (
         f"the enforced-warning JSON payload changed: {payload!r}"
@@ -230,7 +243,7 @@ def test_json_snapshot_of_a_mixed_warning_and_violation_run(
     """Both diagnostic kinds keep their own section and state."""
     result = _check(tmp_path, with_violation=True)
 
-    payload = json.loads(_normalize(render_json(result, passed=False), tmp_path))
+    payload = json.loads(_normalize_json(render_json(result, passed=False), tmp_path))
 
     assert payload == _expected_json(with_violation=True, passed=False), (
         f"the mixed JSON payload changed: {payload!r}"

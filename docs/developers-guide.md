@@ -94,7 +94,7 @@ flowchart TD
     U --> L["ArchitectureCheckResult"]
     L --> P{"unmatched ignores under\n--fail-on-unmatched-ignore?"}
     P -->|"yes"| Z2
-    P -->|"no"| O{"passed = result.ok and\nnot enforced warnings?"}
+    P -->|"no"| O["passed = result.ok and\nnot enforced warnings"]
     O --> M["render_text() or render_json()"]
     M --> N{"passed?"}
     N -->|"true"| Z0["exit 0"]
