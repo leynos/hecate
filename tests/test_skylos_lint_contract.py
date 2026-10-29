@@ -84,13 +84,19 @@ _SKYLOS_WHITELIST_RECIPE_TOKENS: typ.Final = (
     ")",
     "9>$(SKYLOS_ALLOW_LOCK)",
 )
-_RUNTIME_METHOD_ENTRY_POINTS: typ.Final = frozenset({
-    "hecate.diagnostics.CoverageDiagnostic.render",
-    "hecate.diagnostics.CoverageDiagnostic.to_dict",
-    "hecate.diagnostics.IgnoredImportDiagnostic.render",
-    "hecate.diagnostics.IgnoredImportDiagnostic.to_dict",
-    "hecate.origins.OriginIndex.origins_for",
-})
+_RUNTIME_ENTRY_POINTS: typ.Final[dict[str, frozenset[str]]] = {
+    "method": frozenset({
+        "hecate.diagnostics.CoverageDiagnostic.render",
+        "hecate.diagnostics.CoverageDiagnostic.to_dict",
+        "hecate.diagnostics.IgnoredImportDiagnostic.render",
+        "hecate.diagnostics.IgnoredImportDiagnostic.to_dict",
+        "hecate.origins.OriginIndex.origins_for",
+    }),
+    # A derived TypedDict's fields are annotations, not definitions, to Skylos,
+    # so the JSON-only keyword reaches the scanner as a misleadingly
+    # "unused" variable. The declaration kind is what makes the entry precise.
+    "variable": frozenset({"hecate.output.JsonRenderOptions.include_unclassified"}),
+}
 _DOCUMENTED_WHITELIST_NAMES: typ.Final = frozenset[str]()
 
 
@@ -277,6 +283,40 @@ def test_skylos_cli_and_whitelist_dispatch_are_separate() -> None:
     )
 
 
+def _entry_points_by_kind(
+    entry_points: list[dict[str, object]],
+) -> dict[str, frozenset[str]]:
+    """Return each declared entry point grouped by the kind Skylos reports.
+
+    The declaration kind is part of an exception's precision, so the names are
+    grouped by it rather than flattened: an entry declared for the wrong kind
+    would otherwise still satisfy the reviewed name set while matching nothing,
+    or matching more than the reviewed symbol.
+    """
+    names_by_kind: dict[str, set[str]] = {}
+    for entry_point in entry_points:
+        kind = entry_point.get("type")
+        assert isinstance(kind, str), (
+            "Skylos entry points must declare the kind of definition they exempt"
+        )
+        assert kind in _RUNTIME_ENTRY_POINTS, (
+            f"Skylos entry points must not exempt {kind!r} definitions"
+        )
+        reason = entry_point.get("reason")
+        assert isinstance(reason, str), (
+            "Skylos entry points must provide a textual runtime-caller reason"
+        )
+        assert reason, (
+            "Skylos entry points must provide a non-empty runtime-caller reason"
+        )
+        names_by_kind.setdefault(kind, set()).update(
+            _text_sequence(
+                entry_point.get("full_name"), subject="Skylos entry-point full names"
+            )
+        )
+    return {kind: frozenset(names) for kind, names in names_by_kind.items()}
+
+
 def test_skylos_configuration_models_only_verified_runtime_callers() -> None:
     """False positives must remain typed, precise entry points with reasons."""
     with (REPOSITORY_ROOT / "pyproject.toml").open("rb") as configuration_file:
@@ -293,27 +333,9 @@ def test_skylos_configuration_models_only_verified_runtime_callers() -> None:
     )
     entry_points = _objects(dead_code.get("entrypoints"), subject="Skylos entry points")
 
-    entry_point_names = frozenset(
-        name
-        for entry_point in entry_points
-        for name in _text_sequence(
-            entry_point.get("full_name"), subject="Skylos entry-point full names"
-        )
+    assert _entry_points_by_kind(entry_points) == _RUNTIME_ENTRY_POINTS, (
+        "Skylos entry points must list only the verified runtime callers of each kind"
     )
-    assert entry_point_names == _RUNTIME_METHOD_ENTRY_POINTS, (
-        "Skylos entry points must list only the verified fully qualified methods"
-    )
-    for entry_point in entry_points:
-        assert entry_point.get("type") == "method", (
-            "Skylos entry points must classify Hecate runtime calls as methods"
-        )
-        reason = entry_point.get("reason")
-        assert isinstance(reason, str), (
-            "Skylos entry points must provide a textual runtime-caller reason"
-        )
-        assert reason, (
-            "Skylos entry points must provide a non-empty runtime-caller reason"
-        )
 
     whitelist = _mapping(skylos.get("whitelist"), subject="Skylos whitelist")
     documented = _mapping(

@@ -351,6 +351,11 @@ full_name = [
 ]
 reason = "hecate.output invokes these methods when rendering and serializing coverage diagnostics."
 
+[[tool.skylos.dead_code.entrypoints]]
+type = "variable"
+full_name = ["hecate.output.JsonRenderOptions.include_unclassified"]
+reason = "hecate.cli passes this keyword from the policy and hecate.output reads it from the renderer's options mapping; Skylos treats only the fields of a class that names TypedDict as a base as annotations, not those of a derived TypedDict."
+
 [tool.skylos.whitelist]
 names = []
 
