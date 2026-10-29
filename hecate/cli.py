@@ -53,6 +53,7 @@ class _OutputArgs:
     show_ignored: bool = False
     show_coverage: bool = False
     fail_on_unmatched_ignore: bool = False
+    fail_on_warnings: bool = False
 
 
 _DEFAULT_SOURCE_ARGS = _SourceArgs()
@@ -61,9 +62,10 @@ _DEFAULT_OUTPUT_ARGS = _OutputArgs()
 
 def _emit_check_output(
     result: ArchitectureCheckResult,
-    *,
     out: _OutputArgs,
+    *,
     policy: ArchitecturePolicy,
+    passed: bool,
 ) -> None:
     """Render and print the architecture-check result to stdout.
 
@@ -76,6 +78,12 @@ def _emit_check_output(
     anything other than ``ignore``. That decision is read from ``policy``
     rather than passed separately, so a rendered run and an exit code can never
     disagree about which mode was in force.
+
+    ``passed`` is the command outcome, passed explicitly because a run failing
+    on warnings has no violation: rendering from ``result.ok`` would print a
+    pass notice for a run that exits non-zero. Requiring it, rather than
+    defaulting it here, keeps the exit-code decision in ``check`` where the
+    enforcement flags live.
     """
     output = (
         render_json(
@@ -83,10 +91,14 @@ def _emit_check_output(
             show_ignored=out.show_ignored,
             show_coverage=True,
             include_unclassified=policy.unclassified_modules != "ignore",
+            passed=passed,
         )
         if out.output_format is OutputFormat.JSON
         else render_text(
-            result, show_ignored=out.show_ignored, show_coverage=out.show_coverage
+            result,
+            show_ignored=out.show_ignored,
+            show_coverage=out.show_coverage,
+            passed=passed,
         )
     )
     print(output, end="")
@@ -126,7 +138,8 @@ def check(
     1
         Architecture violations, or error-severity coverage findings, were
         found. ``unclassified_modules = "error"`` reaches this code through an
-        unclassified module.
+        unclassified module. ``--fail-on-warnings`` also reaches this code when
+        warning-level edges were reported.
     2
         Configuration, command-line, or input validation failed. This includes
         a package root that could not be walked, a scanned source file that
@@ -154,8 +167,13 @@ def check(
         for unmatched_ignore in result.unmatched_ignores:
             print(f"hecate: unmatched ignore {unmatched_ignore}", file=sys.stderr)
         return 2
-    _emit_check_output(result, out=out, policy=hecate_config.policy)
-    return 0 if result.ok else 1
+    # The outcome is decided before rendering so the output can never show a
+    # pass notice for a run that exits non-zero. Warnings are still rendered,
+    # so an enforced run names the edges it is failing on.
+    warned_edges_fail = out.fail_on_warnings and bool(result.warnings)
+    passed = result.ok and not warned_edges_fail
+    _emit_check_output(result, out, policy=hecate_config.policy, passed=passed)
+    return 0 if passed else 1
 
 
 def main(argv: list[str] | None = None) -> int:

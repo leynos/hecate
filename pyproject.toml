@@ -106,6 +106,7 @@ extend-ignore = [
 "hecate/policy.py" = ["S101"]
 "**/test_*.py" = ["S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/config_fixtures.py" = ["S101"]
+"tests/json_shape_fixtures.py" = ["S101"]
 "tests/test_properties.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/test_origin_properties.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
 "tests/test_origin_totality.py" = ["FBT001", "S101", "PLR0913", "PLR0917", "PLR2004", "PLR6301", "TC003"]
@@ -350,6 +351,11 @@ full_name = [
     "hecate.diagnostics.CoverageDiagnostic.to_dict",
 ]
 reason = "hecate.output invokes these methods when rendering and serializing coverage diagnostics."
+
+[[tool.skylos.dead_code.entrypoints]]
+type = "variable"
+full_name = ["hecate.output.JsonRenderOptions.include_unclassified"]
+reason = "hecate.cli passes this keyword from the policy and hecate.output reads it from the renderer's options mapping; Skylos treats only the fields of a class that names TypedDict as a base as annotations, not those of a derived TypedDict."
 
 [tool.skylos.whitelist]
 names = []

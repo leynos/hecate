@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import dataclasses as dc
-import typing as typ
 
+from .classification import CheckContext, Edge, classify_origin
 from .config import HecateConfig
 from .diagnostics import (
     ArchitectureViolation,
+    ArchitectureWarning,
     CoverageDiagnostic,
     IgnoredImportDiagnostic,
     UnclassifiedModuleDiagnostic,
@@ -21,16 +22,8 @@ from .imports import (
 )
 from .module_coverage import collect_unclassified_modules
 from .namespaces import analyse_namespaces
-from .origins import OriginIndex, Resolution, build_origin_index
-from .policy import (
-    ArchitecturePolicy,
-    EdgeState,
-    ModuleGroup,
-    coverage_severity,
-)
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
+from .origins import Resolution, build_origin_index
+from .policy import ArchitecturePolicy
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -42,6 +35,7 @@ class ArchitectureCheckResult:
     coverage: tuple[CoverageDiagnostic, ...] = ()
     unmatched_ignores: tuple[str, ...] = ()
     unclassified_modules: tuple[UnclassifiedModuleDiagnostic, ...] = ()
+    warnings: tuple[ArchitectureWarning, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -50,7 +44,9 @@ class ArchitectureCheckResult:
         Coverage diagnostics only fail the check when they carry error
         severity, which happens for unclassified and unresolved internal edges
         under strict mode. Unclassified-module diagnostics fail it the same
-        way, so a warning-only run stays green.
+        way, so a warning-only run stays green, and warning-level edges never
+        fail here: they are tolerated by policy, and only
+        ``--fail-on-warnings`` acts on them.
         """
         failures = (self.coverage, self.unclassified_modules)
         return not self.violations and not any(
@@ -67,51 +63,6 @@ class ArchitectureCheckResult:
         )
 
 
-@dc.dataclass(frozen=True, slots=True)
-class _Edge:
-    """One import edge under evaluation, independent of its statement form.
-
-    Wildcard expansion produces edges that no single statement spells out, so
-    classification works from the resolved importer, target, and source site
-    rather than from the statement that led here.
-    """
-
-    importer: str
-    imported: str
-    source_path: Path
-    line: int
-
-    @classmethod
-    def from_statement(cls, statement: ImportStatement, *, imported: str) -> _Edge:
-        """Return the edge one statement contributes for ``imported``."""
-        return cls(
-            importer=statement.importer,
-            imported=imported,
-            source_path=statement.source_path,
-            line=statement.line,
-        )
-
-
-@dc.dataclass
-class _CheckContext:
-    """Mutable accumulator passed through the checking traversal."""
-
-    policy: ArchitecturePolicy
-    origins: OriginIndex
-    violations: dict[tuple[str, str, str, int], ArchitectureViolation] = dc.field(
-        default_factory=dict
-    )
-    ignored: dict[tuple[str, str], IgnoredImportDiagnostic] = dc.field(
-        default_factory=dict
-    )
-    coverage: dict[tuple[str, str, str, str, int], CoverageDiagnostic] = dc.field(
-        default_factory=dict
-    )
-    unclassified: dict[str, UnclassifiedModuleDiagnostic] = dc.field(
-        default_factory=dict
-    )
-
-
 def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
     """Check every package root declared in ``config``."""
     discoveries = tuple(
@@ -119,7 +70,7 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         for package_root in config.packages
     )
     namespaces = analyse_namespaces(discoveries)
-    ctx = _CheckContext(
+    ctx = CheckContext(
         policy=config.policy,
         origins=build_origin_index(config.packages, namespaces),
     )
@@ -139,11 +90,12 @@ def check_architecture(config: HecateConfig) -> ArchitectureCheckResult:
         unclassified_modules=tuple(
             sorted(ctx.unclassified.values(), key=lambda item: item.identity())
         ),
+        warnings=tuple(sorted(ctx.warnings.values(), key=lambda item: item.identity())),
     )
 
 
 def _collect_package_edges(
-    discovered: tuple[DiscoveredModule, ...], ctx: _CheckContext
+    discovered: tuple[DiscoveredModule, ...], ctx: CheckContext
 ) -> None:
     """Evaluate every import edge in one package root against policy."""
     for source in discovered:
@@ -152,7 +104,7 @@ def _collect_package_edges(
             _evaluate_statement(statement, ctx=ctx)
 
 
-def _evaluate_statement(statement: ImportStatement, *, ctx: _CheckContext) -> None:
+def _evaluate_statement(statement: ImportStatement, *, ctx: CheckContext) -> None:
     """Evaluate one import statement, expanding wildcards where knowable.
 
     A ``from target import name`` statement yields two edges: the target module
@@ -177,7 +129,7 @@ def _evaluate_statement(statement: ImportStatement, *, ctx: _CheckContext) -> No
 
 
 def _target_unresolved_internal(
-    statement: ImportStatement, *, ctx: _CheckContext
+    statement: ImportStatement, *, ctx: CheckContext
 ) -> bool:
     """Return whether a ``from`` statement's target is internally unresolvable."""
     if not isinstance(statement, FromImport):
@@ -185,12 +137,12 @@ def _target_unresolved_internal(
     return _unresolved_internal(statement.target, ctx=ctx)
 
 
-def _unresolved_internal(imported: str, *, ctx: _CheckContext) -> bool:
+def _unresolved_internal(imported: str, *, ctx: CheckContext) -> bool:
     """Return whether ``imported`` names no known internal module."""
     return ctx.origins.resolve(imported) is Resolution.UNRESOLVED_INTERNAL
 
 
-def _evaluate_wildcard(statement: ImportStatement, *, ctx: _CheckContext) -> None:
+def _evaluate_wildcard(statement: ImportStatement, *, ctx: CheckContext) -> None:
     """Evaluate a wildcard import using Python's wildcard semantics.
 
     Statically knowable exports are expanded into concrete symbol edges. The
@@ -233,7 +185,7 @@ def _wildcard_target(statement: ImportStatement) -> str | None:
 
 
 def _record_edge(
-    statement: ImportStatement, *, imported: str, ctx: _CheckContext
+    statement: ImportStatement, *, imported: str, ctx: CheckContext
 ) -> None:
     """Resolve an import target and classify each origin it could reach.
 
@@ -241,127 +193,7 @@ def _record_edge(
     always means the edge was permitted rather than merely unexamined.
     """
     for origin in ctx.origins.origins_for(imported):
-        _classify_origin(_Edge.from_statement(statement, imported=origin), ctx=ctx)
-
-
-def _classify_origin(edge: _Edge, *, ctx: _CheckContext) -> None:
-    """Classify one already-expanded origin of an import edge.
-
-    Every path records exactly one outcome, and a documented ignore is honoured
-    before any outcome is reported, so an edge the policy could not classify or
-    resolve is exemptible just like a forbidden one.
-    """
-    imported = edge.imported
-    resolution = ctx.origins.resolve(imported)
-    importer_group = ctx.policy.group_for(edge.importer)
-    imported_group = ctx.policy.group_for(imported)
-    if resolution is Resolution.EXTERNAL and not _policy_claims_external(
-        imported_group, ctx=ctx
-    ):
-        return
-    if resolution is Resolution.UNRESOLVED_INTERNAL:
-        _exempt_or_record_coverage(
-            edge,
-            state=EdgeState.UNRESOLVED,
-            groups=(importer_group, imported_group),
-            ctx=ctx,
-        )
-        return
-    if importer_group is None or imported_group is None:
-        _exempt_or_record_coverage(
-            edge,
-            state=EdgeState.UNCLASSIFIED,
-            groups=(importer_group, imported_group),
-            ctx=ctx,
-        )
-        return
-    if ctx.policy.is_allowed(importer_group.name, imported_group.name):
-        return
-    if _record_exemption(edge, ctx=ctx):
-        return
-    # Both groups are known here: the unclassified case returned above.
-    violation = ArchitectureViolation(
-        rule_id=ctx.policy.default_rule_id,
-        importer=edge.importer,
-        imported=imported,
-        importer_group=importer_group.name,
-        imported_group=imported_group.name,
-        source_path=edge.source_path,
-        line=edge.line,
-    )
-    ctx.violations[violation.identity()] = violation
-
-
-def _exempt_or_record_coverage(
-    edge: _Edge,
-    *,
-    state: EdgeState,
-    groups: tuple[ModuleGroup | None, ModuleGroup | None],
-    ctx: _CheckContext,
-) -> None:
-    """Honour a documented ignore for an incomplete edge, else report it."""
-    if not _record_exemption(edge, ctx=ctx):
-        _record_coverage(edge, state=state, groups=groups, ctx=ctx)
-
-
-def _record_exemption(edge: _Edge, *, ctx: _CheckContext) -> bool:
-    """Record a documented ignore covering ``edge``, if one exists.
-
-    Any non-permitted outcome is exemptible, so an edge the policy could not
-    classify or resolve can be suppressed under a documented reason just like a
-    forbidden one. The exemption is recorded so that it stays visible and so a
-    fail-on-unmatched-ignore run can still tell the entry applied.
-    """
-    ignored_import = ctx.policy.ignored_import_for(edge.importer, edge.imported)
-    if ignored_import is None:
-        return False
-    ctx.ignored[edge.importer, edge.imported] = IgnoredImportDiagnostic(
-        importer=edge.importer,
-        imported=edge.imported,
-        reason=ignored_import.reason,
-    )
-    return True
-
-
-def _record_coverage(
-    edge: _Edge,
-    *,
-    state: EdgeState,
-    groups: tuple[ModuleGroup | None, ModuleGroup | None],
-    ctx: _CheckContext,
-) -> None:
-    """Record an unclassified or unresolved edge at policy-determined severity."""
-    importer_group, imported_group = groups
-    diagnostic = CoverageDiagnostic(
-        state=state,
-        severity=coverage_severity(state, ctx.policy),
-        rule_id=ctx.policy.default_rule_id,
-        importer=edge.importer,
-        imported=edge.imported,
-        source_path=edge.source_path,
-        line=edge.line,
-        importer_group=importer_group.name if importer_group else None,
-        imported_group=imported_group.name if imported_group else None,
-    )
-    ctx.coverage[diagnostic.identity()] = diagnostic
-
-
-def _policy_claims_external(
-    imported_group: ModuleGroup | None, *, ctx: _CheckContext
-) -> bool:
-    """Return whether the policy takes a position on an external dependency.
-
-    ``include_external_packages`` widens what *can* be classified; it does not
-    assert that every third-party import was classified. So an external edge is
-    in scope only when the option is enabled *and* a configured group claims
-    its prefix. Anything else is a dependency the policy never expressed an
-    opinion about, and is skipped rather than reported: otherwise every stdlib
-    import would become an unclassified failure once strict mode meets
-    external packages.
-    """
-    if not ctx.policy.include_external_packages:
-        return False
-    return imported_group is not None
+        classify_origin(Edge.from_statement(statement, imported=origin), ctx=ctx)
 
 
 def _find_unmatched_ignores(
