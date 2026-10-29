@@ -12,29 +12,49 @@ if typ.TYPE_CHECKING:
 
 
 class RenderOptions(typ.TypedDict, total=False):
-    """Keyword options both renderers accept.
+    """Keyword options both renderers share.
 
     The options stay keywords rather than becoming one positional bundle:
     callers already pass them by name, and ``Unpack`` keeps that surface while
     documenting the accepted set in one place. The defaults differ per
-    renderer, so each one reads its own option with its own fallback.
+    renderer, so each one reads its own option with its own fallback. Options
+    that only one renderer understands belong in that renderer's own
+    ``TypedDict`` rather than here, so the runtime and static surfaces agree
+    about which call is valid.
     """
 
     show_ignored: bool
     show_coverage: bool
-    include_unclassified: bool
     passed: bool | None
 
 
-def _reject_unknown_options(options: cabc.Mapping[str, object]) -> None:
-    """Refuse a keyword the renderer does not define.
+class JsonRenderOptions(RenderOptions, total=False):
+    """Keyword options that only the JSON renderer accepts.
+
+    Text output always shows unclassified-module diagnostics, so a text caller
+    has no such control; accepting the keyword there would silently do
+    nothing. Splitting the option sets keeps the shared surface honest and
+    lets the runtime refusal below name the smaller set each renderer defines.
+    """
+
+    include_unclassified: bool
+
+
+def _reject_unknown_options(
+    options: cabc.Mapping[str, object],
+    accepted: type[RenderOptions],
+) -> None:
+    """Refuse a keyword the calling renderer does not define.
 
     ``**options`` accepts any keyword at runtime, so without this check a
     misspelled option would be silently ignored rather than raising the
     ``TypeError`` the previous named parameters produced. A caller passing
-    ``show_coverge=True`` would then get default output and believe it.
+    ``show_coverge=True`` would then get default output and believe it. The
+    same refusal covers an option another renderer owns: ``render_text``
+    ignores ``include_unclassified``, so accepting it would promise a control
+    the text format does not have.
     """
-    unknown = sorted(set(options) - set(RenderOptions.__annotations__))
+    unknown = sorted(set(options) - set(accepted.__annotations__))
     if unknown:
         msg = f"unexpected keyword argument(s): {', '.join(unknown)}"
         raise TypeError(msg)
@@ -64,8 +84,12 @@ def render_text(
     own outcome, which is the right answer when no enforcement policy is in
     force. A pass claim the result contradicts raises :class:`ValueError`
     rather than rendering output that disagrees with its own diagnostics.
+
+    ``include_unclassified`` belongs to :func:`render_json`; text output always
+    shows unclassified diagnostics, so this function refuses the keyword
+    instead of accepting a control it cannot honour.
     """
-    _reject_unknown_options(options)
+    _reject_unknown_options(options, RenderOptions)
     lines = [*_always_rendered_lines(result)]
     if options.get("show_ignored"):
         lines.extend(ignored.render() for ignored in result.ignored)
@@ -129,7 +153,7 @@ def _with_pass_notice(lines: list[str], *, ok: bool) -> list[str]:
 
 def render_json(
     result: ArchitectureCheckResult,
-    **options: typ.Unpack[RenderOptions],
+    **options: typ.Unpack[JsonRenderOptions],
 ) -> str:
     """Render deterministic JSON output.
 
@@ -151,7 +175,7 @@ def render_json(
     ``status`` falls back to the architecture outcome; a pass claim the result
     contradicts raises :class:`ValueError`.
     """
-    _reject_unknown_options(options)
+    _reject_unknown_options(options, JsonRenderOptions)
     passed = options.get("passed")
     payload: dict[str, object] = {
         "ok": result.ok,

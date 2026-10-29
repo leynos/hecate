@@ -52,8 +52,9 @@ hecate check --format json
 
 ## Exit codes
 
-- `0`: no architecture violations were found. Warning-level edges reported by
-  a group's `warn` list do not change this code.
+- `0`: no architecture violations and no error-severity diagnostics were found,
+  including coverage and unclassified-module diagnostics. Warning-level edges
+  reported by a group's `warn` list do not change this code.
 - `1`: architecture violations, a diagnostic at error severity, or
   warning-level edges under `--fail-on-warnings` were found.
 - `2`: command-line input, configuration, or package-root validation failed.

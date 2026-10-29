@@ -103,8 +103,9 @@ flowchart TD
 
 _Figure 1: One `hecate check` invocation from argument parsing to exit code.
 `passed` is `result.ok` unless `--fail-on-warnings` turns a warning-only run
-into a failure, so a run whose only findings were warnings leaves by the
-`false` branch. All three routes to exit code 2 converge on a single stderr
+into a failure. A run whose only findings were warnings therefore leaves by
+the `false` branch when `--fail-on-warnings` is enabled, and by the `true`
+branch otherwise. All three routes to exit code 2 converge on a single stderr
 node; a usage error exits 1 through Cyclopts instead, as described under
 [Check outcome and exit codes](#check-outcome-and-exit-codes)._
 
@@ -635,10 +636,13 @@ be explored symbolically.
 Rendering lives in `output.py`. A new format follows the shape of `render_text`
 and `render_json`: take an `ArchitectureCheckResult`, return a string, and keep
 the result deterministic. Both existing renderers take their options as
-keywords described by the `RenderOptions` `TypedDict`, so a caller writes
+keywords described by `RenderOptions`, with JSON-only options in the derived
+`JsonRenderOptions`, so a caller writes
 `render_json(result, show_coverage=False)` and ty reports an unknown or
-misspelled name. The runtime refuses an unknown keyword too, because
-`**options` alone would silently drop it. They default `show_coverage`
+misspelled name. The runtime refuses a keyword the calling renderer does not
+define too, because `**options` alone would silently drop it; that covers both
+a misspelling and an option another format owns, such as
+`include_unclassified` on the text renderer. They default `show_coverage`
 differently: `render_json` to `True`, `render_text` to `False`.
 `_emit_check_output` then makes the difference user-visible by always passing
 `show_coverage=True` for JSON, so machine consumers receive coverage without an
@@ -675,8 +679,9 @@ scanned package. Whole-payload snapshots live in
 `<tmp>`, and compare the entire document, so a reordering or a lost section
 fails rather than slipping past substring assertions.
 `tests/test_output_signatures.py` pins the call contract — the keyword options,
-the refusal of an unknown keyword, the explicit `passed` outcome, and the
-refusal of a contradicted pass claim. A behavioural scenario in
+the refusal of an unknown keyword and of a JSON-only option on the text
+renderer, the explicit `passed` outcome, and the refusal of a contradicted pass
+claim. A behavioural scenario in
 `tests/features/architecture_check.feature` is warranted when the format
 changes what a user sees from the command line, as the JSON step in the
 unclassified-subtree scenario does: it runs the check with `--format json` and

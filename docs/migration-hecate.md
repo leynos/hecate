@@ -212,9 +212,11 @@ warned edges still exits `0`. Warnings are also rendered beside violations, so
 a run that fails for a real violation still names the warned edges it found.
 
 `--fail-on-warnings` makes the run exit `1` when any warned edge was reported,
-after printing the diagnostics. Use it once a toleration is meant to be
-temporary; it turns the warning list into a ratchet that fails on the first new
-entry.
+after printing the diagnostics. Enforcement applies to every warned edge in the
+current run, not only to one that first appears after the flag is added: if the
+policy already reports a warned edge, enabling the flag exits `1` immediately.
+Use it once a toleration is meant to be temporary; it turns the warning list
+into a ratchet that fails while any warned edge remains.
 
 Edges in a warned direction are classified before the violation check, so a
 group that warns one target still forbids every target it does not allow.

@@ -142,9 +142,19 @@ def _edge_entry(imported: str, *, warned: bool) -> dict[str, object]:
         "line": 1,
         "rule_id": "HEC001",
         "severity": severity,
-        "source_path": f"<tmp>/{importer.replace('.', '/')}.py",
+        "source_path": _expected_source_path(importer),
         "state": state,
     }
+
+
+def _expected_source_path(importer: str) -> str:
+    """Return the serialized source path for one dotted importer name.
+
+    The payload stores ``str(Path)``, which uses the host separator, so the
+    expectation is joined through ``Path`` rather than assembled with ``/``;
+    otherwise the snapshot would only hold on POSIX.
+    """
+    return str(Path("<tmp>").joinpath(*importer.split(".")).with_suffix(".py"))
 
 
 def _warned_entry(imported: str) -> dict[str, object]:

@@ -1,9 +1,9 @@
 """Public-surface tests for the diagnostic renderers.
 
 These live apart from the per-diagnostic rendering tests because they pin the
-call contract rather than a rendering rule: the keyword-only parameters both
-renderers shipped before warning support, the explicit command outcome they
-now accept, and the contradiction they refuse to render.
+call contract rather than a rendering rule: the keyword surface the renderers
+shipped before warning support, the options each renderer refuses, the explicit
+command outcome they accept, and the contradiction they refuse to render.
 """
 
 from __future__ import annotations
@@ -158,6 +158,20 @@ def test_renderers_reject_an_unknown_keyword(
 
     with pytest.raises(TypeError, match="show_coverge"):
         render(result, show_coverge=True)
+
+
+def test_text_renderer_rejects_the_json_only_option() -> None:
+    """``include_unclassified`` is refused where it cannot take effect.
+
+    Text output always shows unclassified-module diagnostics, so the keyword
+    has nothing to switch off there. Accepting it would imply a control the
+    text format does not have, which is the same silent no-op the unknown
+    keyword refusal exists to prevent.
+    """
+    result = ArchitectureCheckResult(violations=())
+
+    with pytest.raises(TypeError, match="include_unclassified"):
+        render_text(result, include_unclassified=True)
 
 
 @pytest.mark.parametrize(
