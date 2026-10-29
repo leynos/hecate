@@ -11,6 +11,7 @@ import typing as typ
 from pathlib import Path
 
 import yaml
+from json_shape_fixtures import mapping, objects, text_sequence
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 _MAKEUTIL_REVISION: typ.Final = "29fc5a1634ffbaa18a773eed9dff1b2838a45d9c"
@@ -92,33 +93,11 @@ _RUNTIME_ENTRY_POINTS: typ.Final[dict[str, frozenset[str]]] = {
         "hecate.diagnostics.IgnoredImportDiagnostic.to_dict",
         "hecate.origins.OriginIndex.origins_for",
     }),
-    # A derived TypedDict's fields are annotations, not definitions, to Skylos,
-    # so the JSON-only keyword reaches the scanner as a misleadingly
-    # "unused" variable. The declaration kind is what makes the entry precise.
+    # Skylos reads a derived TypedDict's fields as variables, not annotations,
+    # so this keyword reaches the scanner as a misleadingly "unused" variable.
     "variable": frozenset({"hecate.output.JsonRenderOptions.include_unclassified"}),
 }
 _DOCUMENTED_WHITELIST_NAMES: typ.Final = frozenset[str]()
-
-
-def _mapping(value: object, *, subject: str) -> dict[str, object]:
-    """Return a JSON object, identifying the unexpected `subject` on failure."""
-    assert isinstance(value, dict), f"expected {subject} to be a JSON object"
-    return typ.cast("dict[str, object]", value)
-
-
-def _objects(value: object, *, subject: str) -> list[dict[str, object]]:
-    """Return a JSON object array, identifying the unexpected `subject`."""
-    assert isinstance(value, list), f"expected {subject} to be a JSON array"
-    return [_mapping(item, subject=f"{subject} item") for item in value]
-
-
-def _text_sequence(value: object, *, subject: str) -> tuple[str, ...]:
-    """Return a JSON string array, identifying the unexpected `subject`."""
-    assert isinstance(value, list), f"expected {subject} to be a JSON array"
-    assert all(isinstance(item, str) for item in value), (
-        f"expected {subject} to contain only JSON strings"
-    )
-    return tuple(typ.cast("list[str]", value))
 
 
 def _executable_path(name: str) -> str:
@@ -138,7 +117,7 @@ def _makefile_report() -> dict[str, object]:
         text=True,
     )
     report = typ.cast("dict[str, object]", json.loads(completed.stdout))
-    parse = _mapping(report.get("parse"), subject="Makeutil parse report")
+    parse = mapping(report.get("parse"), subject="Makeutil parse report")
     assert parse.get("status") == "complete", (
         f"makeutil did not complete the Makefile parse: {parse!r}"
     )
@@ -147,7 +126,7 @@ def _makefile_report() -> dict[str, object]:
 
 def _sole_variable(name: str) -> dict[str, object]:
     """Return Makeutil's sole variable fact for `name`."""
-    variables = _objects(_makefile_report().get("variables"), subject="variables")
+    variables = objects(_makefile_report().get("variables"), subject="variables")
     matches = [variable for variable in variables if variable.get("name") == name]
     assert len(matches) == 1, (
         f"expected one Makefile variable named {name!r}, found {len(matches)}"
@@ -157,12 +136,12 @@ def _sole_variable(name: str) -> dict[str, object]:
 
 def _sole_recipe_rule(target: str) -> dict[str, object]:
     """Return the sole parsed `target` rule containing recipes."""
-    rules = _objects(_makefile_report().get("rules"), subject="rules")
+    rules = objects(_makefile_report().get("rules"), subject="rules")
     matches = [
         rule
         for rule in rules
-        if target in _text_sequence(rule.get("targets"), subject="rule targets")
-        and _objects(rule.get("recipes"), subject="rule recipes")
+        if target in text_sequence(rule.get("targets"), subject="rule targets")
+        and objects(rule.get("recipes"), subject="rule recipes")
     ]
     assert len(matches) == 1, (
         f"expected one recipe-bearing Makefile rule named {target!r}, found "
@@ -173,16 +152,16 @@ def _sole_recipe_rule(target: str) -> dict[str, object]:
 
 def _rule_prerequisites(target: str) -> tuple[str, ...]:
     """Return the parsed prerequisites for the sole `target` rule."""
-    rules = _objects(_makefile_report().get("rules"), subject="rules")
+    rules = objects(_makefile_report().get("rules"), subject="rules")
     matches = [
         rule
         for rule in rules
-        if target in _text_sequence(rule.get("targets"), subject="rule targets")
+        if target in text_sequence(rule.get("targets"), subject="rule targets")
     ]
     assert len(matches) == 1, (
         f"expected one Makefile rule named {target!r}, found {len(matches)}"
     )
-    return _text_sequence(matches[0].get("prerequisites"), subject="prerequisites")
+    return text_sequence(matches[0].get("prerequisites"), subject="prerequisites")
 
 
 def _variable_tokens(name: str) -> tuple[str, ...]:
@@ -194,7 +173,7 @@ def _variable_tokens(name: str) -> tuple[str, ...]:
 
 def _recipe_tokens(target: str) -> tuple[tuple[str, ...], ...]:
     """Return shell-like tokens for every recipe in `target`."""
-    recipes = _objects(
+    recipes = objects(
         _sole_recipe_rule(target).get("recipes"), subject=f"{target} recipes"
     )
     return tuple(
@@ -207,9 +186,9 @@ def _recipe_tokens(target: str) -> tuple[tuple[str, ...], ...]:
 def _workflow_job(workflow_path: str, job_name: str) -> dict[str, object]:
     """Return the named job from a repository workflow."""
     workflow = yaml.safe_load((REPOSITORY_ROOT / workflow_path).read_text())
-    workflow_mapping = _mapping(workflow, subject=f"{workflow_path} workflow")
-    jobs = _mapping(workflow_mapping.get("jobs"), subject=f"{workflow_path} jobs")
-    return _mapping(jobs.get(job_name), subject=f"{workflow_path} job {job_name!r}")
+    workflow_mapping = mapping(workflow, subject=f"{workflow_path} workflow")
+    jobs = mapping(workflow_mapping.get("jobs"), subject=f"{workflow_path} jobs")
+    return mapping(jobs.get(job_name), subject=f"{workflow_path} job {job_name!r}")
 
 
 def _sole_workflow_step(
@@ -219,7 +198,7 @@ def _sole_workflow_step(
     workflow_path: str = ".github/workflows/ci.yml",
 ) -> dict[str, object]:
     """Return the sole named workflow step from `job_name`."""
-    steps = _objects(
+    steps = objects(
         _workflow_job(workflow_path, job_name).get("steps"),
         subject=f"{workflow_path} job {job_name!r} steps",
     )
@@ -288,10 +267,9 @@ def _entry_points_by_kind(
 ) -> dict[str, frozenset[str]]:
     """Return each declared entry point grouped by the kind Skylos reports.
 
-    The declaration kind is part of an exception's precision, so the names are
-    grouped by it rather than flattened: an entry declared for the wrong kind
-    would otherwise still satisfy the reviewed name set while matching nothing,
-    or matching more than the reviewed symbol.
+    The kind is part of an exception's precision: flattening the names would let
+    an entry declared for the wrong kind satisfy the reviewed set while matching
+    nothing, or matching more than the reviewed symbol.
     """
     names_by_kind: dict[str, set[str]] = {}
     for entry_point in entry_points:
@@ -310,7 +288,7 @@ def _entry_points_by_kind(
             "Skylos entry points must provide a non-empty runtime-caller reason"
         )
         names_by_kind.setdefault(kind, set()).update(
-            _text_sequence(
+            text_sequence(
                 entry_point.get("full_name"), subject="Skylos entry-point full names"
             )
         )
@@ -322,23 +300,23 @@ def test_skylos_configuration_models_only_verified_runtime_callers() -> None:
     with (REPOSITORY_ROOT / "pyproject.toml").open("rb") as configuration_file:
         configuration = tomllib.load(configuration_file)
 
-    tool = _mapping(configuration.get("tool"), subject="tool configuration")
-    skylos = _mapping(tool.get("skylos"), subject="Skylos configuration")
-    gate = _mapping(skylos.get("gate"), subject="Skylos gate configuration")
+    tool = mapping(configuration.get("tool"), subject="tool configuration")
+    skylos = mapping(tool.get("skylos"), subject="Skylos configuration")
+    gate = mapping(skylos.get("gate"), subject="Skylos gate configuration")
     assert gate.get("strict") is True, (
         "Skylos gate configuration must enable strict mode"
     )
-    dead_code = _mapping(
+    dead_code = mapping(
         skylos.get("dead_code"), subject="Skylos dead-code configuration"
     )
-    entry_points = _objects(dead_code.get("entrypoints"), subject="Skylos entry points")
+    entry_points = objects(dead_code.get("entrypoints"), subject="Skylos entry points")
 
     assert _entry_points_by_kind(entry_points) == _RUNTIME_ENTRY_POINTS, (
         "Skylos entry points must list only the verified runtime callers of each kind"
     )
 
-    whitelist = _mapping(skylos.get("whitelist"), subject="Skylos whitelist")
-    documented = _mapping(
+    whitelist = mapping(skylos.get("whitelist"), subject="Skylos whitelist")
+    documented = mapping(
         whitelist.get("documented"), subject="documented Skylos whitelist"
     )
     assert frozenset(documented) == _DOCUMENTED_WHITELIST_NAMES, (
@@ -386,7 +364,7 @@ def test_ci_runs_lint_and_bootstraps_makeutil_for_each_full_suite() -> None:
         (".github/workflows/coverage-main.yml", "coverage-upload"),
     ):
         job = _workflow_job(workflow_path, job_name)
-        environment = _mapping(
+        environment = mapping(
             job.get("env"), subject=f"{workflow_path} Makeutil environment"
         )
         assert environment.get("MAKEUTIL_REVISION") == _MAKEUTIL_REVISION, (
