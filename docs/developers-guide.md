@@ -103,10 +103,10 @@ flowchart TD
 
 _Figure 1: One `hecate check` invocation from argument parsing to exit code.
 `passed` is `result.ok` unless `--fail-on-warnings` turns a warning-only run
-into a failure. A run whose only findings were warnings therefore leaves by
-the `false` branch when `--fail-on-warnings` is enabled, and by the `true`
-branch otherwise. All three routes to exit code 2 converge on a single stderr
-node; a usage error exits 1 through Cyclopts instead, as described under
+into a failure. A run whose only findings were warnings therefore leaves by the
+`false` branch when `--fail-on-warnings` is enabled, and by the `true` branch
+otherwise. All three routes to exit code 2 converge on a single stderr node; a
+usage error exits 1 through Cyclopts instead, as described under
 [Check outcome and exit codes](#check-outcome-and-exit-codes)._
 
 ### Discovery and the two passes
@@ -641,16 +641,15 @@ keywords described by `RenderOptions`, with JSON-only options in the derived
 `render_json(result, show_coverage=False)` and ty reports an unknown or
 misspelled name. The runtime refuses a keyword the calling renderer does not
 define too, because `**options` alone would silently drop it; that covers both
-a misspelling and an option another format owns, such as
-`include_unclassified` on the text renderer. They default `show_coverage`
-differently: `render_json` to `True`, `render_text` to `False`.
-`_emit_check_output` then makes the difference user-visible by always passing
-`show_coverage=True` for JSON, so machine consumers receive coverage without an
-extra argument while text output keeps its previous shape unless
-`--show-coverage` is passed. JSON also carries the mode-dependent
-`include_unclassified` flag, which `_emit_check_output` sets from the policy
-rather than from a command-line option; a new format has to decide the same
-question, and the asymmetry described under
+a misspelling and an option another format owns, such as `include_unclassified`
+on the text renderer. They default `show_coverage` differently: `render_json` to
+`True`, `render_text` to `False`. `_emit_check_output` then makes the
+difference user-visible by always passing `show_coverage=True` for JSON, so
+machine consumers receive coverage without an extra argument while text output
+keeps its previous shape unless `--show-coverage` is passed. JSON also carries
+the mode-dependent `include_unclassified` flag, which `_emit_check_output` sets
+from the policy rather than from a command-line option; a new format has to
+decide the same question, and the asymmetry described under
 [Discovery and the two passes](#discovery-and-the-two-passes) is the intended
 answer.
 
@@ -681,11 +680,10 @@ fails rather than slipping past substring assertions.
 `tests/test_output_signatures.py` pins the call contract — the keyword options,
 the refusal of an unknown keyword and of a JSON-only option on the text
 renderer, the explicit `passed` outcome, and the refusal of a contradicted pass
-claim. A behavioural scenario in
-`tests/features/architecture_check.feature` is warranted when the format
-changes what a user sees from the command line, as the JSON step in the
-unclassified-subtree scenario does: it runs the check with `--format json` and
-asserts the payload mentions the expected edge state.
+claim. A behavioural scenario in `tests/features/architecture_check.feature` is
+warranted when the format changes what a user sees from the command line, as
+the JSON step in the unclassified-subtree scenario does: it runs the check with
+`--format json` and asserts the payload mentions the expected edge state.
 
 #### Adding an export form
 
