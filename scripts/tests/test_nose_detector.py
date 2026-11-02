@@ -50,25 +50,42 @@ class TestLoadSettings:
 
     def test_loads_the_repository_settings(self, tmp_path: Path) -> None:
         """A complete table produces validated settings."""
+        # Every value below deliberately differs from the default that a
+        # dropped key would fall back to: `surface` is the non-default
+        # `"default"` rather than the widened `"all"`, `top` is a bound rather
+        # than `None`, and `mode`/`min-size` avoid the values those keys carry
+        # elsewhere in this suite. A fixture written with the defaults could
+        # not tell a round-tripped value from a substituted one.
         pyproject = self._write(
             tmp_path,
             """\
             [tool.nose]
             version = "0.20.0"
-            roots = ["hecate"]
-            mode = "syntax"
-            min-size = 24
-            surface = "all"
-            top = 30
+            roots = ["hecate", "scripts"]
+            mode = "syntax,semantic,near"
+            min-size = 27
+            surface = "default"
+            top = 17
             exclude = ["**/generated/**"]
             """,
         )
         settings = detector.load_settings(pyproject)
-        assert settings.roots == ("hecate",), "Roots must round-trip in order."
+        # Asserting every scalar, not just the two containers and the bound, is
+        # what makes a silently dropped key observable: it would otherwise take
+        # its default and change what the gate scans without any test noticing.
+        assert settings.version == "0.20.0", "The detector pin must round-trip."
+        assert settings.roots == ("hecate", "scripts"), (
+            "Roots must round-trip in order."
+        )
+        assert settings.mode == "syntax,semantic,near", (
+            "The scan modes must round-trip."
+        )
+        assert settings.min_size == 27, "The size floor must round-trip."
+        assert settings.surface == "default", "An explicit surface must round-trip."
         assert settings.exclude == ("**/generated/**",), (
             "Exclude globs must round-trip."
         )
-        assert settings.top == 30, "The ranking bound must round-trip."
+        assert settings.top == 17, "The ranking bound must round-trip."
 
     def test_top_and_exclude_are_optional(self, tmp_path: Path) -> None:
         """Omitted optional keys fall back to nose's own view size."""

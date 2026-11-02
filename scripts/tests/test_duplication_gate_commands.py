@@ -521,6 +521,121 @@ class TestAllowCommand:
         )
 
 
+class TestRecordAllowEntry:
+    """The allow use case, driven entirely through injected dependencies.
+
+    The command tests above replace module globals, which proves the CLI is
+    wired but not that the use case can be exercised without a process-wide
+    seam. These drive the same behaviour through arguments alone.
+    """
+
+    def test_records_an_entry_covering_a_reported_family(self, tmp_path: Path) -> None:
+        """A covering key set reaches the writer with the caller's arguments."""
+        pyproject = tmp_path / "pyproject.toml"
+        recorded: list[tuple[Path, tuple[str, ...], str]] = []
+
+        def writer(path: Path, *, keys: cabc.Sequence[str], reason: str) -> None:
+            recorded.append((path, tuple(keys), reason))
+
+        outcome = gate.record_allow_entry(
+            ("hecate/a.py", "hecate/b.py"),
+            "reviewed exception",
+            gate.AllowDependencies(
+                detector=_double(detector.normalize_findings(STUB_REPORT)),
+                pyproject_path=pyproject,
+                writer=writer,
+            ),
+        )
+
+        assert outcome == gate.AllowOutcome(keys=("hecate/a.py", "hecate/b.py")), (
+            "The outcome must report the keys the caller supplied."
+        )
+        assert recorded == [
+            (pyproject, ("hecate/a.py", "hecate/b.py"), "reviewed exception")
+        ], "The writer must receive the destination, keys and reason unchanged."
+
+    def test_consults_the_injected_detector(self, tmp_path: Path) -> None:
+        """Coverage is decided by the supplied detector, not a module global."""
+        calls: list[int] = []
+
+        def detector_seam() -> list[detector.Finding]:
+            calls.append(1)
+            return detector.normalize_findings(STUB_REPORT)
+
+        gate.record_allow_entry(
+            ("hecate/a.py", "hecate/b.py"),
+            "reviewed",
+            gate.AllowDependencies(
+                detector=detector_seam,
+                pyproject_path=tmp_path / "pyproject.toml",
+                writer=_double(None),
+            ),
+        )
+
+        assert calls == [1], "The injected detector must be the one consulted."
+
+    def test_refuses_a_key_set_covering_no_family(self, tmp_path: Path) -> None:
+        """A refused key set is diagnosed and never reaches the writer."""
+        recorded: list[object] = []
+
+        def writer(path: Path, *, keys: cabc.Sequence[str], reason: str) -> None:
+            recorded.append(path)
+
+        with pytest.raises(gate.GateConfigError, match="covers no reported family"):
+            gate.record_allow_entry(
+                ("hecate/typo.py",),
+                "reviewed",
+                gate.AllowDependencies(
+                    detector=_double(detector.normalize_findings(STUB_REPORT)),
+                    pyproject_path=tmp_path / "pyproject.toml",
+                    writer=writer,
+                ),
+            )
+
+        assert recorded == [], "A refused key must not be written."
+
+    def test_translates_a_writer_fault(self, tmp_path: Path) -> None:
+        """A filesystem fault while writing becomes a configuration error."""
+        error = OSError("read-only filesystem")
+
+        with pytest.raises(gate.GateConfigError) as raised:
+            gate.record_allow_entry(
+                ("hecate/a.py", "hecate/b.py"),
+                "reviewed",
+                gate.AllowDependencies(
+                    detector=_double(detector.normalize_findings(STUB_REPORT)),
+                    pyproject_path=tmp_path / "pyproject.toml",
+                    writer=_double(error),
+                ),
+            )
+
+        assert str(raised.value) == "read-only filesystem", (
+            "The writer's own message must survive translation."
+        )
+        assert raised.value.__cause__ is error, (
+            "The original write fault must stay attached as the cause."
+        )
+
+    def test_leaves_a_tool_error_untranslated(self, tmp_path: Path) -> None:
+        """A detector provisioning fault keeps its own label and identity."""
+        error = detector.GateExecutionError("make install-nose")
+
+        with pytest.raises(gate.GateExecutionError) as raised:
+            gate.record_allow_entry(
+                ("hecate/a.py",),
+                "reviewed",
+                gate.AllowDependencies(
+                    detector=_double(error),
+                    pyproject_path=tmp_path / "pyproject.toml",
+                    writer=_double(None),
+                ),
+            )
+
+        assert raised.value is error, (
+            "A tool error must propagate rather than be relabelled."
+        )
+
+
 class TestSeamTranslation:
     """The contracts the gate's two dependency seams must satisfy."""
 

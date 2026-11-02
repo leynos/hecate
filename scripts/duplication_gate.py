@@ -24,6 +24,7 @@ POSIX hosts, including WSL.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import sys
 import tomllib
 from collections import abc as cabc
@@ -43,6 +44,7 @@ app = cyclopts.App(help="Run or configure the code-duplication gate.")
 
 type AllowlistReader = cabc.Callable[[Path], tuple[AllowEntry, ...]]
 type FindingDetector = cabc.Callable[[], list[Finding]]
+type AllowEntryWriter = cabc.Callable[..., None]
 
 
 def partition_findings(
@@ -202,22 +204,90 @@ def _require_covered(finding: Finding | None, keys: tuple[str, ...]) -> None:
         raise GateConfigError(msg)
 
 
-def _record_allow_entry(keys: tuple[str, ...], reason: str) -> None:
+@dc.dataclass(frozen=True, slots=True)
+class AllowOutcome:
+    """What the ``allow`` use case did, for the CLI to present.
+
+    Attributes
+    ----------
+    keys : tuple[str, ...]
+        Location keys of the recorded exception, in the order supplied.
+    """
+
+    keys: tuple[str, ...]
+
+
+@dc.dataclass(frozen=True, slots=True)
+class AllowDependencies:
+    """The three collaborators the allow use case needs from its caller.
+
+    Bundling them keeps the use case's own parameters to the two facts that
+    vary per invocation -- the keys and the reason -- so a caller cannot wire
+    one dependency and silently leave another pointing at this machine.
+
+    Attributes
+    ----------
+    detector : FindingDetector
+        Supplies the current report for coverage checking.
+    pyproject_path : pathlib.Path
+        Manifest the entry is written to.
+    writer : AllowEntryWriter
+        Persistence seam; called with ``pyproject_path``, ``keys`` and
+        ``reason`` as keywords.
+    """
+
+    detector: FindingDetector
+    pyproject_path: Path
+    writer: AllowEntryWriter
+
+
+def record_allow_entry(
+    keys: tuple[str, ...],
+    reason: str,
+    dependencies: AllowDependencies,
+) -> AllowOutcome:
     """Validate the keys against the report, then write the entry.
+
+    Every dependency is supplied by the caller so the use case is exercisable
+    without reaching the process environment: ``check`` and ``allow`` both
+    take their reader, detector and writer from their call site, and the
+    command handlers below are the only place the real ones are named.
 
     The detector runs before anything is written, so a key set that covers no
     reported family is refused while ``pyproject.toml`` is still untouched.
     A filesystem fault while writing is re-raised under the gate's own
-    vocabulary, so the command has a single error type to report and every
+    vocabulary, so the caller has a single error type to report and every
     diagnostic it prints carries the label its class defines.
+
+    Parameters
+    ----------
+    keys : tuple[str, ...]
+        Location keys naming the family to except.
+    reason : str
+        Reviewable justification recorded with the entry.
+    dependencies : AllowDependencies
+        The detector, destination and writer supplied by the caller.
+
+    Returns
+    -------
+    AllowOutcome
+        The recorded keys, for the CLI to report.
+
+    Raises
+    ------
+    GateConfigError
+        If a key is malformed, the keys cover no reported family, or the
+        manifest cannot be written.
     """
     for key in keys:
         validate_key(key, context=f"'{key}'")
-    _require_covered(_covered_family(_detect_findings(detect_findings), keys), keys)
+    findings = _detect_findings(dependencies.detector)
+    _require_covered(_covered_family(findings, keys), keys)
     try:
-        append_allow_entry(PYPROJECT, keys=keys, reason=reason)
+        dependencies.writer(dependencies.pyproject_path, keys=keys, reason=reason)
     except OSError as error:
         raise GateConfigError(str(error)) from error
+    return AllowOutcome(keys=keys)
 
 
 def _covered_family(findings: list[Finding], keys: tuple[str, ...]) -> Finding | None:
@@ -300,7 +370,15 @@ def allow(
         raise SystemExit(2)
     keys = (first, *(second or ()))
     try:
-        _record_allow_entry(keys, reason)
+        outcome = record_allow_entry(
+            keys,
+            reason,
+            AllowDependencies(
+                detector=detect_findings,
+                pyproject_path=PYPROJECT,
+                writer=append_allow_entry,
+            ),
+        )
     except GateConfigError as error:
         # ``GateExecutionError`` subclasses this and labels itself a tool
         # error, so reading the label off the error keeps a missing or wrong
@@ -308,7 +386,7 @@ def allow(
         # the operator asked the gate to update. ``check`` reports the same way.
         print(f"{error.label}: {error}", file=sys.stderr)
         raise SystemExit(2) from error
-    print(f"recorded duplication exception for {' ~ '.join(keys)}")
+    print(f"recorded duplication exception for {' ~ '.join(outcome.keys)}")
 
 
 if __name__ == "__main__":

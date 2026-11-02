@@ -1,4 +1,9 @@
-"""Provide cache support types and atomic writes for the spelling helper."""
+"""Provide the cache support types used by the spelling rollout helper.
+
+Persistence lives elsewhere: ``scripts/typos_rollout.py`` performs the writes
+through ``scripts/atomic_write.py``, so this module holds only the descriptions
+of the cache targets, refresh outcomes and HTTP response surface.
+"""
 
 from __future__ import annotations
 
