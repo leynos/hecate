@@ -1469,6 +1469,38 @@ entries, so concurrent allow commands cannot interleave their
 read-modify-write. It coordinates processes that follow its protocol; it does
 not coordinate an unrelated editor.
 
+### Recorded exceptions
+
+The repository records five exceptions, and each one survives for a reason that
+is checked beside the entry. Three of them are pairs whose two members differ
+only in the policy question they answer: the `allow-` and `warn-` list
+predicates in `policy.py`, the group walk that applies them, and the two
+classified-edge records in `classification.py`, which build the same fields into
+`ArchitectureViolation` and `ArchitectureWarning` respectively. Sharing code
+across each pair would mean passing the field, tuple, record type, or
+destination map as a parameter, which turns two named predicates into one
+function with a mode. The warning list is also not interchangeable with the
+allow list: `tests/test_policy.py` pins that a warning target is never also an
+allowed target.
+
+A fourth is the shared field block of the two exported diagnostics in
+`diagnostics.py`. Their `render` and `to_dict` bodies differ, so the repeated
+text is the field declarations plus `identity`, and expressing that once in a
+dataclass requires a base class. The diagnostics are unrelated records that
+deliberately read the same way, which is a property of the exported surface
+rather than an invitation to build a hierarchy behind it.
+
+The fifth is the shared import block between `checker.py` and
+`classification.py`: an import list can only be factored through a module that
+re-exports the names, which hides which module binds what.
+
+Each of these pairs is worth revisiting if it gains a third member with the
+same shape. A pair can be an intentional parallel between two policies; three
+copies of one predicate is a missing abstraction, and the entry then needs an
+edit rather than a wider key. Note also that a stale report does not close any
+of these. The scan is ranked and bounded, so an entry the run cannot match
+means only that its family fell outside the reported surface.
+
 ### Portability
 
 The gate is POSIX-only: it uses `fcntl.flock` and POSIX directory operations.

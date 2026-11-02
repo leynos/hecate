@@ -424,3 +424,18 @@ top = 30
 # that scan rather than proven gone: the scan stops at `top`, so widen it
 # before deleting an entry.
 [tool.duplication_gate]
+[[tool.duplication_gate.allow]]
+unit = "hecate/diagnostics.py"
+reason = "ArchitectureViolation and ArchitectureWarning are distinct exported diagnostics that deliberately share one field shape, so a consumer reads either with the same code and tells them apart by severity; a shared field block would need an inheritance relationship between two otherwise unrelated record types."
+[[tool.duplication_gate.allow]]
+members = ["hecate/checker.py", "hecate/classification.py"]
+reason = "checker and classification import the same five diagnostic record types because one assembles the result those records populate while the other decides which record an edge becomes; an import list cannot be factored into shared code without changing which names each module binds, and a re-export module would be the forwarding shim this plan forbids."
+[[tool.duplication_gate.allow]]
+members = ["hecate/policy.py::is_group_allowed", "hecate/policy.py::is_group_warned"]
+reason = "Each walks the configured groups to find the importer group, then asks whether one named group is in that group's own allow- or warn-list. Collapsing them would need a parameter selecting which ModuleGroup field to read, which is the boolean-mode helper this plan forbids; the two lists are deliberately disjoint and a test pins that a warning target is never also an allowed target."
+[[tool.duplication_gate.allow]]
+members = ["hecate/policy.py::group_allowed_by_list", "hecate/policy.py::group_warned_by_list"]
+reason = "The smallest coherent shared implementation would be one membership test over whichever string tuple it is handed, but each is the named predicate its caller reads and each asserts its own non-empty argument; a single helper would take the tuple as a parameter and give back the boolean-mode wrapper this plan forbids. The two lists encode different policy questions, allowed versus tolerated, and merging them would make is_allowed and is_warned one function with a mode."
+[[tool.duplication_gate.allow]]
+unit = "hecate/classification.py"
+reason = "The violation branch and _record_warning build one classified-edge diagnostic from the same edge fields but into two different record types and two different destination maps; the fields are the edge and the two group names, so any shared constructor would have to be told which diagnostic and which map to use, which is the mode-parameter helper this plan forbids. nose reports both copies as unnamed fragments, so only a file key can address them."

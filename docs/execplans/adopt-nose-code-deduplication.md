@@ -320,6 +320,21 @@ indiscriminate abstraction or suppression.
   recorded as revision-bound history in the decision log; they are not the
   current candidate's measurement. Acceptance of the breach remains pending and
   belongs to the human reviewer.
+- [x] (2026-11-02) Adjudicate the five duplication families the rebase
+  inherited. Replaying this branch onto `origin/main` (`17359db`) brought in
+  `Support warning-level dependency directions (#59) (#152)`, and the first
+  `make lint` against the rebased candidate failed at the duplication gate with
+  five unsuppressed families. All five are `main`'s, not this branch's:
+  `git diff --stat origin/main HEAD` is empty for `hecate/policy.py`,
+  `hecate/classification.py` and `hecate/checker.py`, and the four `policy.py`
+  predicate sites sit at the same lines on `origin/main`. The branch's own
+  extractable duplication was already closed by the `_FailureProperty`
+  descriptor, which is why `diagnostics.py` is the one file of the five that
+  this branch does touch, and it still has a family here. The gate now passes
+  with five reasoned exceptions and no code change; the reasoning for each is
+  stored beside the entry in `pyproject.toml`. This is the first time this
+  candidate records allow entries at all, so the earlier "no allow entry"
+  claims in this document describe the pre-rebase heads and only those.
 
 ## Surprises & discoveries
 
@@ -1844,3 +1859,52 @@ Markdown gate. That is pre-existing behaviour of
 regenerated file was reverted rather than committed: it is not part of this
 change's scope, and committing a generated file whose content depends on a
 remote dictionary refresh would put an unrelated diff in the pull request.
+
+Revision 15, 2026-11-02. Records the first green duplication gate on this
+branch since the rebase onto `origin/main`, and the five adjudications it took
+to get there.
+
+The rebase replayed 30 commits onto `17359db` and took `main`'s `warn` support
+with it. That work had never been scanned by a duplication gate before: the
+gate arrived on this branch, so the first candidate that contained both the
+gate and `main`'s warning-level code was the rebased one. `make lint` therefore
+failed at the duplication sub-gate with five unsuppressed families, none of
+them introduced here.
+
+Four of the five are families an extraction could not close without breaking a
+constraint this plan states. The two `policy.py` predicate pairs
+(`is_group_allowed`/`is_group_warned` and `group_allowed_by_list`/
+`group_warned_by_list`) differ only in which `ModuleGroup` field they read and
+which tuple they search. The smallest coherent shared implementation is one
+membership test and one group walk taking the field and the tuple as
+parameters, which is exactly the "boolean-mode helper" the Constraints forbid,
+and the two lists are not interchangeable: `tests/test_policy.py` pins that a
+warning target is never also an allowed target. `_record_classified_outcome` and
+`_record_warning` in `classification.py` build the same fields into two
+different records and two different destination maps, so a shared constructor
+would take the diagnostic class and the map as parameters -- the same shape
+again. `checker.py` and `classification.py` share an import block, and the only
+way to factor an import list is a re-export module, which the Constraints name
+as a prohibited forwarding shim.
+
+The fifth family, `ArchitectureViolation` against `ArchitectureWarning` in
+`diagnostics.py`, is the one the branch does touch, and it is recorded rather
+than extracted for the same class of reason: the two classes are unrelated
+exported records that deliberately share a field shape, and sharing that shape
+in code means an inheritance relationship the Constraints forbid. Their
+`render` and `to_dict` bodies differ, so the shared part is the seven field
+declarations and the identity tuple, which cannot be expressed once in a
+dataclass without a base class.
+
+All five entries were recorded through `make duplication-allow`, which runs the
+detector first and refuses a key set that covers no reported family, so each
+recorded entry is evidence that its keys match a family the gate actually
+reports. That check caught one draft directly: the `classification.py` family
+is reported with no unit name on either location, because nose matched the two
+constructor bodies as unnamed fragments, so the first draft's
+`::_record_classified_outcome` key was rejected and the entry correctly names
+the file. The gate then reports
+`duplication gate passed; 5 allowed by reasoned exceptions`. That is five
+entries, inside the six-entry adjudication tolerance, and the tolerance's
+warning still stands: a count that high is a reason to re-examine the roots and
+the size floor rather than to relax either.
