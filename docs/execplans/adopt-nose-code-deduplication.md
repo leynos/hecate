@@ -335,6 +335,16 @@ indiscriminate abstraction or suppression.
   stored beside the entry in `pyproject.toml`. This is the first time this
   candidate records allow entries at all, so the earlier "no allow entry"
   claims in this document describe the pre-rebase heads and only those.
+- [x] (2026-11-02) Repair the CodeScene `Complex Method` finding on `allow`.
+  CodeScene's review of `9d92455` failed both gates on that one function, at
+  complexity 9 against a threshold of 9 and file health 9.69 against 10.00. The
+  cause was this branch's own revision-13 repair, which split one `except` into
+  two to print the error's own label. `_record_allow_entry` now owns the
+  ordered validate-refuse-write sequence and re-raises a write fault as a
+  `GateConfigError`, so `allow` returns to the single `error.label` handler
+  `check` already uses and measures 3. Behaviour and stderr text are unchanged,
+  and a new test pins the blank-reason refusal, which is the one path the move
+  touched.
 
 ## Surprises & discoveries
 
@@ -1908,3 +1918,49 @@ the file. The gate then reports
 entries, inside the six-entry adjudication tolerance, and the tolerance's
 warning still stands: a count that high is a reason to re-examine the roots and
 the size floor rather than to relax either.
+
+Revision 16, 2026-11-02. Records the repair of the one CodeScene finding that
+the squashed candidate drew, and the reasoning that kept it a repair rather
+than an exception.
+
+CodeScene's review of `9d92455` failed both of its gates -- "New code is
+healthy" and "Enforce advisory code health rules" -- on a single new finding:
+`allow` in `scripts/duplication_gate.py` had a cyclomatic complexity of 9 at a
+threshold of 9, leaving the file at code health 9.69 against a gate of 10.00.
+The defect was real and this branch had introduced it one commit earlier, in
+`8f0d36b`. Revision 13's repair had split one
+`except (GateConfigError, OSError)` into two handlers so that the
+`GateConfigError` path could print the error's own label, which was the right
+diagnostic reached by adding a decision to the command rather than a concept to
+the module. Revision 13 also recorded that label change as a deliberate
+improvement over the previous blanket `configuration error:` prefix; that is
+still true, but the way it was reached was not.
+
+The repair keeps the behaviour and moves the branch into a helper.
+`_record_allow_entry` now owns the ordered sequence the `allow` docstring
+describes -- validate each key, refuse a key set that covers no reported
+family, then write -- and re-raises a write fault as a `GateConfigError`. The
+command therefore has exactly one error type to report and returns to the
+single handler `check` already uses, reading `error.label` off the exception
+class. `allow` measures 3 afterwards. No code-health rule was weighted down, no
+threshold raised, and no `.codescene` directory created; the repo's established
+precedent from `df02b21` is restructuring rather than suppression, and this
+follows it.
+
+One stderr path needed a decision. Moving the report left the blank-reason
+refusal with two candidate forms, and revision 13's own standard -- that CLI
+stderr stay byte-identical across error paths -- decided it. The bare
+`REASON must not be empty` line is about the operator's command rather than
+about the repository, so it keeps its unprefixed form while the `allow` handler
+prints `<label>: <message>` for everything raised from the manifest or the
+detector. A new test pins the exact stderr text, asserts that the detector
+never runs for a blank reason, and asserts that the manifest is left untouched.
+The test was checked for non-vacuity by running it against a prefixed variant,
+which it fails on the stderr text.
+
+All seven gates pass again: check-fmt, lint including Skylos and the
+duplication gate at
+`duplication gate passed; 5 allowed by reasoned exceptions`, typecheck, 593
+application tests, 157 gate helper tests, markdownlint and nixie. The resulting
+gate helper count is one higher than revision 15's because of the new
+blank-reason test.
