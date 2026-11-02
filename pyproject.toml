@@ -1,5 +1,5 @@
 [project]
-name = "hecate"
+name = "hecate-enforce"
 version = "0.1.0"
 description = "hecate package"
 readme = "README.md"
