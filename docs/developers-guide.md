@@ -1501,6 +1501,60 @@ edit rather than a wider key. Note also that a stale report does not close any
 of these. The scan is ranked and bounded, so an entry the run cannot match
 means only that its family fell outside the reported surface.
 
+### Atomic writes
+
+`scripts/atomic_write.py` is the shared persistence helper behind the
+duplication allowlist writer and the spelling-cache writes in
+`scripts/typos_rollout.py`. It owns no caller's domain: it writes the complete
+contents to a temporary file in the destination's own directory, then replaces
+the destination with `Path.replace`, so a reader sees either the old file or
+the new one and never a partial write.
+
+`AtomicWriteOptions` is a frozen dataclass whose three fields default to:
+
+- `create_parents: bool = True`, which creates a missing destination directory
+  with `mkdir(parents=True, exist_ok=True)`;
+- `preserve_mode: bool = False`, which copies the existing destination's
+  permission bits onto the replacement; and
+- `sync_file: bool = False`, which fsyncs the temporary file before the rename
+  and the parent directory after it.
+
+The default argument is the module-level `AtomicWriteOptions()` singleton
+rather than a fresh instance constructed in the signature, so every defaulted
+call shares one immutable value.
+
+Mode preservation applies only when the destination already exists. The writer
+reads the destination's `path.stat().st_mode` before the write and `chmod`s the
+temporary file before the rename. A destination that does not exist yet gets no
+`chmod`, so the replacement keeps the mode `NamedTemporaryFile` gave it; a new
+file is created rather than treated as an error.
+
+Syncing is controlled by `sync_file`. When it is set, the writer calls
+`os.fsync` on the temporary file's descriptor after flushing, and, once
+`Path.replace` has committed the rename, opens the parent directory read-only
+and fsyncs that descriptor too. POSIX does not require `fsync` to accept a
+directory descriptor: macOS refuses one with `EINVAL` while Linux accepts it. A
+refusal with `EINVAL` or `ENOTSUP` is therefore absorbed, because the file's
+own sync has already succeeded and the rename is already committed, so
+reporting the refusal would turn a completed mutation into a failure. Any other
+error, such as `EIO`, still propagates: the caller asked for durability and did
+not get it.
+
+The temporary file is created with `delete=False` and its path recorded before
+any content is written, so a failure during the write, the flush, or the sync
+leaves a name for the cleanup block to unlink. A completed replacement has
+already moved the file, so the same `missing_ok` unlink is the success path as
+well as a retried cleanup.
+
+`scripts/duplication_allowlist.py` is the strict caller. Its rewrite of
+`pyproject.toml` passes `create_parents=False`, `preserve_mode=True`, and
+`sync_file=True`: the file's existing mode survives, the new contents and the
+rename are durable before the command reports success, and a missing parent
+directory is an error rather than something the writer invents.
+`scripts/typos_rollout.py` writes the generated config, the HTTP freshness
+metadata, and the cached dictionary with the defaults, so those writes create
+missing parents, do not preserve a mode, and do not fsync.
+
 ### Portability
 
 The gate is POSIX-only: it uses `fcntl.flock` and POSIX directory operations.

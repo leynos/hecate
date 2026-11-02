@@ -340,6 +340,87 @@ groups. A `warn` list that names an undeclared group exits `2` with the
 offending groups reported, because such an entry can never match anything and
 would read as a migration that is not in place.
 
+## Duplication gate
+
+`make lint` runs a blocking code-duplication gate, so a change that adds
+duplication fails lint rather than merely being reported. The gate scans the
+`hecate` package with the pinned `nose` detector; the repository's helper
+scripts, tests, and documentation are out of scope. Its internals are in the
+[developers' guide](developers-guide.md#duplication-gate).
+
+Four targets cover the workflow:
+
+- `make install-nose` provisions the pinned detector into `.tools/nose`. It is
+  idempotent and is also a dependency of `make duplication`, so a standalone
+  gate run installs it when it is missing.
+- `make duplication` runs the gate on its own, outside `make lint`.
+- `make duplication-test` runs the gate helper's own tests. They live under
+  `scripts/tests/` and are not collected by `make test`.
+- `make duplication-allow` records a reasoned exception; see below.
+
+The detector version is pinned in `[tool.nose]` and mirrored by `NOSE_VERSION`
+in the Makefile. The gate refuses to run when the binary reports a different
+version, and it never compiles one from source. To use a detector provisioned
+elsewhere, set `NOSE_BIN`; a relative path resolves against the repository root.
+
+The gate exits `0` for a clean or fully-allowed scan and `1` when unsuppressed
+families remain. That status is what `make duplication` and `make lint` pass on
+as a failed recipe, but Make exits with status `2` for any failed recipe, so a
+shell that ran `make` cannot tell a `1` from a `2`. Read the printed
+diagnostic, not the exit status, to distinguish blocking duplication from a
+gate that could not form a verdict. On failure the gate prints the family
+count, one line per family, and the `make duplication-allow` command that would
+record an exception:
+
+```plaintext
+duplicate code: 1 unsuppressed family/families
+  hecate/a.py:1-9 run ~ hecate/b.py:1-9 run (exact, value 12.5)
+Extract the shared logic into one helper, or record a considered exception:
+  make duplication-allow FIRST='<path[::name]>' [SECOND='<path[::name]>'] REASON='<why this stays>'
+```
+
+A successful run prints `duplication gate passed`, with the number of allowed
+families appended when reasoned exceptions silenced anything. A stale entry is
+reported on a successful run too, as
+`stale allow entry (<keys>): unmatched in this scan`, followed by the advice to
+widen the scan before deleting it.
+
+Exit `2` means the gate could not produce a verdict, and the diagnostic is
+prefixed with the class of failure. A missing detector, a version mismatch, a
+failed command, a timeout, or a report that is not valid JSON prints a
+`tool error:` line; the missing or mismatched binary and an unrunnable command
+also tell the operator to run `make install-nose`. An allow entry that is
+readable but wrong, such as one with a missing reason, both `unit` and
+`members` set, or a malformed location key, prints a `configuration error:`
+line naming the offending entry. An allowlist the gate cannot read at all,
+because `pyproject.toml` is missing or is not valid TOML, is a `tool error:`
+rather than a `configuration error:`.
+
+Genuine duplication should be extracted, not allow-listed; an exception asserts
+that a parallel is intentional and reviewable. Record one with:
+
+```bash
+make duplication-allow FIRST='path[::name]' REASON='why this stays'
+make duplication-allow FIRST='path[::name]' SECOND='path[::name]' REASON='why this stays'
+```
+
+`FIRST` names one location key and is required. Repeat `SECOND` for a family
+with more members, adding one key per option with `SECOND=... SECOND+=...`.
+`REASON` is required and is stored beside the entry. A key is a POSIX glob
+`path` matching any location in a matching file, or `path::name`, which
+additionally requires the detector's unit name. An entry silences a family only
+when **every** location in it matches one of the entry's keys, so a new copy in
+an unlisted file still blocks, and partial coverage from several entries never
+adds up. The command runs the detector first and refuses a key set that covers
+no reported family, so a misspelled key fails instead of recording an exception
+that changes nothing.
+
+An entry the current run cannot match is reported as stale, meaning **unmatched
+in this scan** rather than proven gone. The scan is bounded by `top`, so a
+family below the ranking is not reported at all and the gate cannot tell that
+from a family that no longer exists. Widen the scan before deleting such an
+entry: raise `top`, or lower `min-size`, and re-run.
+
 ## Local validation
 
 Run the full local gate before publishing changes:

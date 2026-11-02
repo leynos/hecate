@@ -345,6 +345,19 @@ indiscriminate abstraction or suppression.
   `check` already uses and measures 3. Behaviour and stderr text are unchanged,
   and a new test pins the blank-reason refusal, which is the one path the move
   touched.
+- [x] (2026-11-02) Repair the five CodeRabbit pre-merge check rows that remained
+  open on `112b5fc8`: three errors (Testing (Overall), Module-Level
+  Documentation, Unit Architecture) and two warnings (User-Facing
+  Documentation, Developer Documentation). All five were verified as real
+  before any edit. The stale `typos_rollout_cache.py` docstring now describes
+  the module's actual contents; the settings test asserts every field against a
+  non-default fixture and was checked for non-vacuity by replacing each of the
+  seven loader reads with a fixed value in turn; `allow`'s use case became
+  `record_allow_entry`, taking its detector, destination and writer in an
+  `AllowDependencies` record and returning an `AllowOutcome`; and both guides
+  gained the sections the checks asked for. See revision 17 for the full
+  account, including the two seeded-fault results and the one mutation the new
+  test class does not catch.
 
 ## Surprises & discoveries
 
@@ -1204,13 +1217,18 @@ make nixie     2>&1 | tee /tmp/nixie-hecate-adopt-nose-code-deduplication.out
 ## Validation and acceptance
 
 Acceptance is behavioural. Run `make duplication` and observe exit code 0 on a
-clean tree, exit code 1 with a planted clone, exit code 0 again once a narrow
-reasoned exception covers that family exactly, and exit code 1 again once an
-extra out-of-scope member is added. Run it three times and compare the
-normalized output byte for byte. Run `make duplication-allow` twice with the
-same arguments and confirm the file changes once. Run `make duplication-allow`
-with a value containing spaces, single quotes, double quotes, a dollar sign,
-and a command-substitution-looking string, and confirm the reason stored in
+clean tree, a recipe failure with a planted clone, exit code 0 again once a
+narrow reasoned exception covers that family exactly, and a recipe failure
+again once an extra out-of-scope member is added. GNU Make reports any failed
+recipe as exit status 2, so the gate's own 1 and 2 are not distinguishable
+through `make`; check the printed diagnostic, and read the gate's status
+directly with
+`NOSE_BIN=.tools/nose/nose uv run scripts/duplication_gate.py check` when the
+distinction matters. Run it three times and compare the normalized output byte
+for byte. Run `make duplication-allow` twice with the same arguments and
+confirm the file changes once. Run `make duplication-allow` with a value
+containing spaces, single quotes, double quotes, a dollar sign, and a
+command-substitution-looking string, and confirm the reason stored in
 `pyproject.toml` is byte-identical to the value supplied.
 
 The new tooling tests fail before the modules exist and pass after. The
@@ -1964,3 +1982,74 @@ duplication gate at
 application tests, 157 gate helper tests, markdownlint and nixie. The resulting
 gate helper count is one higher than revision 15's because of the new
 blank-reason test.
+
+Revision 17, 2026-11-02. Records the repair of the five CodeRabbit pre-merge
+check rows that remained open on `112b5fc8`, and what each repair changed.
+
+All five rows were verified against the current tree before any edit, and all
+five were real. Three were errors and two were warnings; none was dismissed.
+
+**Testing (Overall).** `test_loads_the_repository_settings` asserted only
+`roots`, `exclude` and `top`, so a `load_settings` that validated `version`,
+`mode`, `min-size` and `surface` but returned hard-coded values would have
+passed. The test now asserts every field. The first attempt at this was vacuous
+in a way worth recording: the fixture used `mode = "syntax"` and
+`min-size = 24`, which are exactly the values a silent default would produce,
+and a seeded fault that replaced both reads with literals still passed. The
+fixture now carries non-default values throughout -- two roots, a three-channel
+mode, a 27 size floor, the `"default"` surface and a `17` ranking bound -- so
+no field coincides with a plausible default. A seeding harness then replaced
+each of the seven loader reads in turn with a fixed value and confirmed the
+test fails for every one of them; the harness restores the source at the end
+and reported "Every key is falsifiable."
+
+**Module-Level Documentation.** The `scripts/typos_rollout_cache.py` docstring
+still claimed the module provided atomic writes, which this branch had moved to
+`scripts/atomic_write.py`. It now names the module's actual contents -- the
+cache target, refresh-outcome and response-surface types -- and states where
+the persistence lives, so a reader following the old sentence is not sent to
+code that is no longer there.
+
+**Unit Architecture.** `check` took its reader and detector through the
+`_check_inputs(allowlist_reader, detector)` seam, but `allow` reached for the
+module globals `detect_findings`, `PYPROJECT` and `append_allow_entry`
+directly. The use case is now `record_allow_entry`, whose three collaborators
+arrive in an `AllowDependencies` record: a detector seam, the destination path,
+and a writer seam. It returns an `AllowOutcome` carrying the recorded keys, and
+the `cyclopts` handler is reduced to composing the real dependencies, mapping a
+`GateConfigError` to its label and exit status, and printing the success line.
+The bundling is not cosmetic: with five parameters the signature drew
+`PLR0913`, and a single record also means a caller cannot wire the detector
+while leaving the writer pointing at this machine.
+
+The new `TestRecordAllowEntry` class drives the use case entirely through
+arguments, with no `monkeypatch` of module globals. Five mutations were seeded
+into the use case -- ignoring the injected detector, skipping the coverage
+refusal, dropping the `OSError` translation, returning the wrong outcome, and
+removing key validation -- and the first four are caught by that class. Key
+validation is caught instead by the existing CLI test, which is the right level
+for it: the behaviour is reached through the command and the class is not the
+only guard. Separately, seeding a no-op writer into the CLI composition fails
+eight tests across the command and CLI modules, so the handler's wiring is
+still covered end to end rather than only by the seams it composes.
+
+**User-Facing Documentation.** `docs/users-guide.md` gained a
+`## Duplication gate` section covering the changed `make lint` behaviour, the
+four Make targets, detector provisioning and the `NOSE_BIN` override, the three
+exit codes and their diagnostic shapes, and the exception workflow including
+the all-or-nothing family rule and the widening step a stale entry requires.
+
+**Developer Documentation.** `docs/developers-guide.md` gained an
+`### Atomic writes` subsection describing temporary-sibling replacement, the
+`AtomicWriteOptions` defaults, mode preservation, file and directory syncing,
+the `EINVAL`/`ENOTSUP` tolerance for unsupported directory fsync, and which
+caller-specific options supply the durability and mode guarantees for
+`scripts/duplication_allowlist.py` and `scripts/typos_rollout.py`.
+
+Two smaller notes from this round. `ruff` reports `TC003` on
+`scripts/typos_rollout_cache.py` for its `pathlib` import, but the finding is
+pre-existing at `112b5fc8` and unrelated to this branch, so it was left alone
+rather than folded into a pre-merge repair. And `scripts/duplication_gate.py`
+now stands at 393 of the 400 lines `[tool.pylint.main] max-module-lines`
+allows; that is inside the limit, but the next structural addition to this
+module will need to move a concept out rather than append to it.
