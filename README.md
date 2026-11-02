@@ -11,8 +11,18 @@ Continuous Integration (CI).
 
 ## Quick start
 
-Install the package into the project environment, then add a `[tool.hecate]`
-section to `pyproject.toml`:
+Hecate is published to PyPI as **`hecate-enforce`**, because the `hecate`
+distribution name belongs to an unrelated third-party library. Install it into
+the project environment:
+
+```bash
+pip install hecate-enforce
+# or, with uv:
+uv add hecate-enforce
+```
+
+The installed command is still `hecate`, and the import package is still
+`hecate`. Then add a `[tool.hecate]` section to `pyproject.toml`:
 
 ```toml
 [tool.hecate]
@@ -112,3 +122,4 @@ filesystem, `ast.parse`, TOML parsing, and CLI code.
 - [ADR 001: use stdlib `ast` for v1 import analysis](docs/adr-001-stdlib-ast-import-engine.md)
 - [ADR 002: four-tier Python commit-gate linting and Skylos contracts](docs/adr-002-four-tier-python-linting.md)
 - [ADR 003: adopt the nose duplication gate](docs/adr-003-adopt-the-nose-duplication-gate.md)
+- [ADR 004: attested, reconciled release pipeline](docs/adr-004-attested-reconciled-release-pipeline.md)
