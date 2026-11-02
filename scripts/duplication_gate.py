@@ -202,6 +202,24 @@ def _require_covered(finding: Finding | None, keys: tuple[str, ...]) -> None:
         raise GateConfigError(msg)
 
 
+def _record_allow_entry(keys: tuple[str, ...], reason: str) -> None:
+    """Validate the keys against the report, then write the entry.
+
+    The detector runs before anything is written, so a key set that covers no
+    reported family is refused while ``pyproject.toml`` is still untouched.
+    A filesystem fault while writing is re-raised under the gate's own
+    vocabulary, so the command has a single error type to report and every
+    diagnostic it prints carries the label its class defines.
+    """
+    for key in keys:
+        validate_key(key, context=f"'{key}'")
+    _require_covered(_covered_family(_detect_findings(detect_findings), keys), keys)
+    try:
+        append_allow_entry(PYPROJECT, keys=keys, reason=reason)
+    except OSError as error:
+        raise GateConfigError(str(error)) from error
+
+
 def _covered_family(findings: list[Finding], keys: tuple[str, ...]) -> Finding | None:
     """Return the reported family these keys cover, if there is exactly one.
 
@@ -282,19 +300,13 @@ def allow(
         raise SystemExit(2)
     keys = (first, *(second or ()))
     try:
-        for key in keys:
-            validate_key(key, context=f"'{key}'")
-        _require_covered(_covered_family(_detect_findings(detect_findings), keys), keys)
-        append_allow_entry(PYPROJECT, keys=keys, reason=reason)
+        _record_allow_entry(keys, reason)
     except GateConfigError as error:
         # ``GateExecutionError`` subclasses this and labels itself a tool
-        # error, so printing the error's own label keeps a missing or wrong
-        # detector reported as provisioning rather than as malformed
-        # configuration. ``check`` reports through the same label.
+        # error, so reading the label off the error keeps a missing or wrong
+        # detector reported as provisioning rather than as a fault in the file
+        # the operator asked the gate to update. ``check`` reports the same way.
         print(f"{error.label}: {error}", file=sys.stderr)
-        raise SystemExit(2) from error
-    except OSError as error:
-        print(f"configuration error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
     print(f"recorded duplication exception for {' ~ '.join(keys)}")
 

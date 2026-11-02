@@ -252,6 +252,40 @@ class TestAllowCommand:
             _double(detector.normalize_findings(STUB_REPORT)),
         )
 
+    def test_allow_refuses_a_blank_reason(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """An empty reason is refused before the detector is consulted.
+
+        The refusal is about the operator's command, not about the repository,
+        so it must not depend on a bandit or detector run whose failure would
+        mask it, and it must not be reported as a fault in the configuration
+        file the command was asked to update.
+        """
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("[project]\nname = 'x'\n", encoding="utf-8")
+        monkeypatch.setattr(gate, "PYPROJECT", pyproject)
+        monkeypatch.setattr(
+            gate,
+            "detect_findings",
+            _double(AssertionError("the detector must not run for a blank reason")),
+        )
+
+        with pytest.raises(SystemExit) as error:
+            gate.allow(first="hecate/a.py", reason="   ")
+
+        assert error.value.code == 2, "A blank reason must return two."
+        assert capsys.readouterr().err == "REASON must not be empty\n", (
+            "The blank-reason diagnostic is about the command, so it carries no "
+            "file label."
+        )
+        assert pyproject.read_text(encoding="utf-8") == "[project]\nname = 'x'\n", (
+            "A refused command must not rewrite the manifest."
+        )
+
     def test_allow_reports_malformed_existing_entries(
         self,
         tmp_path: Path,
