@@ -162,7 +162,7 @@ def test_the_wheel_count_is_also_exactly_one(tmp_path: Path) -> None:
         {"WHEEL_DIR": "dist"},
     )
 
-    assert completed.returncode != 0
+    assert completed.returncode != 0, "a build with no wheel must fail"
     assert "Expected exactly one pure Python wheel." in completed.stderr
 
 

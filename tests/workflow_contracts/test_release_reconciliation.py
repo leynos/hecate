@@ -44,8 +44,10 @@ def test_every_name_converges_on_its_canonical_bytes(fake: FakeRelease) -> None:
         scene.NEITHER: scene.local(scene.NEITHER),
         scene.BOTH: b"both",
     }
-    assert scene.holdings(fake.pypi) == expected
-    assert scene.holdings(fake.github) == expected
+    assert scene.holdings(fake.pypi) == expected, "PyPI must hold the canonical bytes"
+    assert scene.holdings(fake.github) == expected, (
+        "the GitHub Release must hold the canonical bytes"
+    )
 
 
 def test_each_destination_is_sent_only_what_it_lacks(fake: FakeRelease) -> None:
@@ -209,6 +211,9 @@ def test_the_re_fetch_stays_bounded_when_the_index_never_catches_up(
 
     assert completed.returncode != 0, "a permanently stale index must fail"
     assert "still does not list" in completed.stderr
+    assert "::error" in completed.stderr, (
+        "the final gate must annotate, unlike the retried attempts"
+    )
     assert len(fake.calls("curl")) - before <= 6, "the poll must stay bounded"
 
 

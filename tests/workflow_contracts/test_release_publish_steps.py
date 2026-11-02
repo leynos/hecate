@@ -206,8 +206,10 @@ def test_a_project_absent_from_pypi_reads_as_an_empty_index(
 
     assert completed.returncode == 0, completed.stderr
     index = json.loads((tmp_path / "pypi-index.json").read_text(encoding="utf-8"))
-    assert index == {"files": []}
-    assert _remaining(tmp_path) == list(_ARTEFACTS)
+    assert index == {"files": []}, "a 404 must be read as an empty index"
+    assert _remaining(tmp_path) == list(_ARTEFACTS), (
+        "a first release must upload every artefact"
+    )
     assert written == {"attempts": "1", "status": "404", "remaining": "true"}
 
 

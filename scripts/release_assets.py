@@ -54,6 +54,22 @@ class Plan:
     github_uploads: frozenset[str]
 
 
+def _canonical_source(
+    name: str, on_pypi: cabc.Collection[str], on_github: cabc.Collection[str]
+) -> Source:
+    """Return the destination whose bytes win for ``name``.
+
+    PyPI is immutable once a file is published, so it outranks the GitHub
+    Release; the release outranks this run's rebuild, which may differ from
+    the bytes a consumer already fetched.
+    """
+    if name in on_pypi:
+        return Source.PYPI
+    if name in on_github:
+        return Source.GITHUB
+    return Source.LOCAL
+
+
 def plan(
     local: cabc.Iterable[str],
     on_pypi: cabc.Collection[str],
@@ -83,14 +99,7 @@ def plan(
 
     """
     names = frozenset(local)
-    canonical = {
-        name: Source.PYPI
-        if name in on_pypi
-        else Source.GITHUB
-        if name in on_github
-        else Source.LOCAL
-        for name in names
-    }
+    canonical = {name: _canonical_source(name, on_pypi, on_github) for name in names}
     return Plan(
         canonical=canonical,
         pypi_uploads=frozenset(name for name in names if name not in on_pypi),
@@ -173,7 +182,21 @@ class State:
 
 
 def carryover(state: State) -> list[str]:
-    """Return the names whose GitHub bytes PyPI may need."""
+    """Return the names whose GitHub bytes PyPI may need.
+
+    Parameters
+    ----------
+    state : State
+        The staged artefacts and both destinations' holdings.
+
+    Returns
+    -------
+    list[str]
+        The names this run built that the GitHub Release already holds,
+        sorted. ``draft-release`` downloads these so ``publish-pypi`` can
+        upload GitHub's canonical bytes without holding a GitHub token.
+
+    """
     return sorted(set(local_names(state.publish)) & set(state.github))
 
 
@@ -328,7 +351,24 @@ def _copy_unattached_bundles(bundles: Path, state: State, output: Path) -> None:
 
 
 def stage_github(state: State, bundles: Path, output: Path) -> list[tuple[str, str]]:
-    """Stage what the GitHub Release lacks; return the PyPI files to fetch."""
+    """Stage what the GitHub Release lacks; return the PyPI files to fetch.
+
+    Parameters
+    ----------
+    state : State
+        The staged artefacts and both destinations' holdings.
+    bundles : Path
+        The Sigstore bundles this run attested.
+    output : Path
+        The directory to stage the release's missing assets in.
+
+    Returns
+    -------
+    list[tuple[str, str]]
+        ``(name, url)`` pairs for the names whose canonical bytes are PyPI's,
+        which the caller downloads and then checks with :func:`check_fetched`.
+
+    """
     lacking = sorted(state.plan().github_uploads)
     fetch = _pypi_fetch_list(lacking, state.pypi)
     output.mkdir(parents=True, exist_ok=True)
@@ -338,7 +378,22 @@ def stage_github(state: State, bundles: Path, output: Path) -> list[tuple[str, s
 
 
 def check_fetched(state: State, output: Path) -> None:
-    """Raise unless every file fetched from PyPI matches PyPI's digest."""
+    """Raise unless every file fetched from PyPI matches PyPI's digest.
+
+    Parameters
+    ----------
+    state : State
+        The staged artefacts and both destinations' holdings.
+    output : Path
+        The directory holding the files downloaded from PyPI.
+
+    Raises
+    ------
+    ReleaseAssetError
+        If a downloaded file's digest differs from the index's, or the index
+        reports no digest for it.
+
+    """
     for name in sorted(state.plan().github_uploads & set(state.pypi)):
         check_digest(output / name, state.pypi[name].sha256)
 
@@ -349,6 +404,19 @@ def verify(state: State, bundles: Path) -> list[str]:
     A bundle is required only when it attests the bytes the release ships; see
     :func:`attests_canonical_bytes`. A run that reconciles any name onto other
     bytes cannot truthfully attach its own, and `verify` must not demand it.
+
+    Parameters
+    ----------
+    state : State
+        The staged artefacts and both destinations' holdings.
+    bundles : Path
+        The Sigstore bundles this run attested.
+
+    Returns
+    -------
+    list[str]
+        One message per disagreement, empty when the destinations agree.
+
     """
     pypi = {name: file.sha256 for name, file in state.pypi.items()}
     problems = mismatches(local_names(state.publish), pypi, state.github)
@@ -362,6 +430,20 @@ def verify(state: State, bundles: Path) -> list[str]:
 
 
 def write_output(name: str, *, value: bool) -> None:
-    """Append one ``true``/``false`` step output for the workflow."""
+    """Append one ``true``/``false`` step output for the workflow.
+
+    Parameters
+    ----------
+    name : str
+        The output name the workflow reads.
+    value : bool
+        The value, written lowercase as GitHub Actions expects.
+
+    Raises
+    ------
+    KeyError
+        If ``GITHUB_OUTPUT`` is unset, which means the caller is not a step.
+
+    """
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"{name}={str(value).lower()}\n")
