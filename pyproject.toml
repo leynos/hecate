@@ -1,7 +1,7 @@
 [project]
 name = "hecate-enforce"
-version = "0.1.0"
-description = "hecate package"
+version = "0.2.0"
+description = "Enforce hexagonal architecture boundaries in Python packages"
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "ISC" }

@@ -23,6 +23,10 @@ analysis can and cannot know.
 - [ADR 002: adopt the shared CV-005 contract library](
   adrs/adr-0002-adopt-the-shared-cv005-contract-library.md) records the
   coverage-workflow contract decision.
+- [ADR 004: attested, reconciled release pipeline](
+  adrs/adr-0004-attested-reconciled-release-pipeline.md) records how a tag
+  publishes `hecate-enforce` to PyPI and the GitHub Release without
+  overwriting either.
 - [Local validation of GitHub Actions](
   local-validation-of-github-actions-with-act-and-pytest.md) covers black-box
   workflow testing with `act`.
@@ -584,15 +588,22 @@ and analysis tools (`crosshair-tool`, `hypothesis`, `pytest`, `pytest-bdd`,
 
 The build backend is `hatchling`, and `[tool.hatch.build.targets.wheel]`
 declares `packages = ["hecate"]`, so the wheel contains the flat package
-directly with no source layout. To build the sdist and wheel locally, use
-`uv build --sdist --wheel`. Do not use `make build-release` for this: its
-recipe runs `python -m build`, and neither the project nor the `dev` dependency
-group installs the `build` package, so it fails with `No module named build` in
-a clean environment. The release workflow builds only a pure Python wheel, with
-`uv build --wheel`: the project ships no compiled extensions, so cross-platform
-`cibuildwheel` builds would add cost without adding a distinct artefact. The
-wheel is built under Python 3.13 even though the package requires 3.14, because
-packaging source does not import it.
+directly with no source layout. The distribution name is `hecate-enforce`,
+because the `hecate` name on PyPI belongs to an unrelated third-party library;
+the import package, the `hecate` console script, `python -m hecate`, and the
+`[tool.hecate]` namespace all remain `hecate`.
+
+To build the sdist and wheel locally, run `make build-release`, which runs
+`uv build --out-dir dist`. A plain `uv build` builds the sdist first and then
+the wheel from that sdist, so a local build proves the sdist is complete, and
+it produces exactly one of each. The project ships no compiled extensions, so
+there is no `cibuildwheel` matrix: the sdist is the artefact that covers other
+platforms. The build runs under Python 3.14, the version the package requires.
+
+The release workflow uses the same `uv build` through the local
+`pure-python-wheel` composite action, and `ci.yml` runs that action on every
+pull request. See [Publishing a release](#publishing-a-release) for the
+pipeline that consumes the result.
 
 Hecate checks its own architecture. `[tool.hecate]` in `pyproject.toml` declares
 `root_packages = ["hecate"]` and a single group, `hecate`, whose only allowed
@@ -1396,6 +1407,115 @@ it is not.
 
 Commit-message format, subject-line limits, body wrapping, and the
 atomic-commit rules are in [AGENTS.md](../AGENTS.md) and are not restated here.
+
+## Publishing a release
+
+Hecate publishes to PyPI as `hecate-enforce` and attaches the same bytes to the
+tag's GitHub Release. The design is recorded in
+[ADR 004](adrs/adr-0004-attested-reconciled-release-pipeline.md); this section
+is the operator's view.
+
+### Cutting a release
+
+1. Set `version` in `pyproject.toml` to the release version, and update
+   `docs/migration-hecate.md` with the user-facing changes. The tag and the
+   manifest must match exactly: `v0.2.0` matches `0.2.0`, and a pre-release
+   such as `v0.2.0-beta1` matches `0.2.0-beta1`.
+2. Run `uv lock` so `uv.lock` records the same version, and commit both files.
+3. Merge to `main` and wait for the pull request's checks to pass.
+4. Tag the merge commit and push the tag:
+
+   ```shell
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+The tag push starts `release.yml`. Nothing else is needed for a first release
+once the repository settings below exist.
+
+### What the workflow does
+
+Six jobs run in order, each with only the permissions it needs:
+
+- `check-version` compares the tag with `pyproject.toml` and reports whether
+  the version is a pre-release.
+- `build-wheels` runs the `pure-python-wheel` composite action, which builds
+  the sdist and then the wheel from it with `uv build` and uploads both as
+  `wheels-pure`.
+- `attest` collects every wheel and exactly one sdist, fails on a missing,
+  empty, or unexpected file, and attests them with
+  `actions/attest-build-provenance`. It stages the Sigstore bundle as
+  `hecate-enforce-<tag>.sigstore.json` and hands the files and bundle on as
+  `release-dist`.
+- `draft-release` creates the tag's GitHub Release as a draft, or reuses an
+  existing one, and snapshots its assets.
+- `publish-pypi` runs in the `pypi` environment, reads PyPI's Simple index,
+  and uploads only the filenames PyPI does not already list, with
+  `skip-existing: true`. It holds no GitHub token.
+- `publish-release` uploads only the assets the draft lacks, verifies that
+  every name has the same SHA-256 on PyPI and on GitHub, and then un-drafts the
+  release with the pre-release flag when the version check asked for one.
+
+The bundle is named after the tag alone, so a re-run meets the name the release
+already holds. It is attached only when every artefact's canonical bytes are
+the ones this run built; a re-run that rebuilt different bytes withholds it,
+because the attestation would otherwise describe bytes the release does not
+ship. The run's attestation still reaches the repository's attestation store.
+
+### Re-running a release
+
+Pushing the same tag again is safe. Each filename's canonical bytes are taken
+from PyPI first, then from the GitHub Release, then from this run, and each
+destination is sent only the names it lacks. A complete second run uploads
+nothing, adds no second bundle, and overwrites nothing. If the two destinations
+already disagree on a name, `publish-release` fails and the release stays a
+draft; recovery is manual, by deleting the offending GitHub Release asset
+(PyPI's published files cannot be deleted).
+
+PyPI serves its Simple index through a CDN cache, so the index is re-read after
+the upload and polled, within a bounded number of attempts, until it lists
+every name this run staged. A cache that is merely behind delays the release
+rather than failing it.
+
+### Release tests
+
+`tests/workflow_contracts/` holds the release's tests. They run the checked-in
+step scripts against recording `gh` and `curl` stand-ins and scratch
+directories, and pin the workflow's structure:
+
+- `test_release_workflow_contract.py` checks job scopes, the `pypi`
+  environment, concurrency, job ordering, pinned action SHAs, checkout
+  settings, and the absence of `release-telemetry`.
+- `test_workflow_run_scripts.py` scans every `run` script in every workflow and
+  composite action for a pasted `${{ }}` expression.
+- `test_release_publish_steps.py`, `test_release_github_steps.py`,
+  `test_release_reconciliation.py`, and `test_release_rerun.py` execute the
+  actual step scripts and assert the reconciliation, digest checks, index
+  polling, and re-run behaviour.
+- `test_ci_wheel_build.py` checks the pull-request build's sdist and wheel
+  cardinality and the clean-environment install.
+
+Run them with `make test-workflow-contracts`, or as part of `make test`.
+
+### Repository settings
+
+Two settings are not in the repository and must exist before the first tag:
+
+- The GitHub `pypi` environment, restricted to tags matching `v*.*.*`.
+- A PyPI Trusted Publisher for the `hecate-enforce` project, naming owner
+  `leynos`, repository `hecate`, workflow `release.yml`, and environment
+  `pypi`. No API token is stored in the repository.
+
+The `hecate-enforce` name was unregistered on PyPI when this pipeline was
+adopted; the `hecate` name belongs to an unrelated third-party library, which
+is why the distribution is named differently from the import package.
+
+### Release notes
+
+There is no `CHANGELOG.md`. The GitHub Release's generated notes list the
+merged pull requests, and `docs/migration-hecate.md` records the changes a
+consumer must act on. The pipeline writes no telemetry beyond GitHub's run
+history and the attestation store.
 
 ## Duplication gate
 
