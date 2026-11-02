@@ -125,7 +125,9 @@ def test_the_draft_check_reports_a_draft_release(tmp_path: pth.Path) -> None:
     )
 
     assert status == 0, stderr
-    assert "is-draft=true" in (tmp_path / "output").read_text(encoding="utf-8")
+    assert "is-draft=true" in (tmp_path / "output").read_text(encoding="utf-8"), (
+        "a draft release must be recorded as uploadable"
+    )
     assert calls == [["release", "view", _TAG, "--json", "isDraft", "--jq", ".isDraft"]]
 
 

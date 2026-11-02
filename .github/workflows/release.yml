@@ -235,8 +235,10 @@ jobs:
         id: index
         run: &fetch-index |
           set -euo pipefail
+          # `--poll` suppresses the error annotation, so only the retried
+          # attempts pass it; the final gate below must annotate its failure.
           index_is_current() {
-            python3 -m scripts.release_assets_cli index-expected --poll \
+            python3 -m scripts.release_assets_cli index-expected "$@" \
               --publish "${EXPECTED_PUBLISH}" --index pypi-index.json
           }
           attempt=0
@@ -251,7 +253,7 @@ jobs:
             case "${status}" in
               000|429|5??) [ "${attempt}" -lt 6 ] && sleep 2 ;;
               200|404)
-                if [ -z "${EXPECTED_PUBLISH:-}" ] || index_is_current; then
+                if [ -z "${EXPECTED_PUBLISH:-}" ] || index_is_current --poll; then
                   break
                 fi
                 [ "${attempt}" -lt 6 ] && sleep 5
