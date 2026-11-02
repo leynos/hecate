@@ -1,10 +1,14 @@
-"""Provide cache support types and atomic writes for the spelling helper."""
+"""Provide the cache support types used by the spelling rollout helper.
+
+Persistence lives elsewhere: ``scripts/typos_rollout.py`` performs the writes
+through ``scripts/atomic_write.py``, so this module holds only the descriptions
+of the cache targets, refresh outcomes and HTTP response surface.
+"""
 
 from __future__ import annotations
 
 import dataclasses as dc
 import pathlib
-import tempfile
 import typing as typ
 
 if typ.TYPE_CHECKING:
@@ -36,17 +40,3 @@ class RemoteResponse(typ.Protocol):
     def read(self) -> bytes:
         """Read the response body."""
         ...
-
-
-def atomic_write(path: pathlib.Path, content: bytes) -> None:
-    """Write content beside a path and atomically replace the destination."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        delete=False, dir=path.parent, prefix=f".{path.name}."
-    ) as stream:
-        stream.write(content)
-        temporary = pathlib.Path(stream.name)
-    try:
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)

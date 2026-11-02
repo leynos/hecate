@@ -18,6 +18,7 @@ from .config_helpers import (
     _read_severity,
     _read_string,
     _read_string_tuple,
+    _read_table_list,
 )
 from .config_validation import (
     _check_duplicate_group_names,
@@ -226,15 +227,13 @@ def _parse_root_packages(
     )
 
 
-def _parse_package_table_item(item: object, index: int, path: Path) -> PackageRoot:
+def _parse_package_table_item(
+    item: dict[str, object], index: int, path: Path
+) -> PackageRoot:
     """Parse and validate one entry from the ``package`` table list."""
-    if not isinstance(item, dict):
-        msg = f"{path}: tool.hecate.package[{index}] must be a table"
-        raise ConfigError(msg)
-    package_item = typ.cast("dict[str, object]", item)
     loc = _Loc(path=path, context=f"package[{index}]")
-    name = _read_string(package_item, "name", loc)
-    package_root_str = _read_string(package_item, "root", loc)
+    name = _read_string(item, "name", loc)
+    package_root_str = _read_string(item, "root", loc)
     return PackageRoot(
         name=name, root=_resolve_config_path(path, Path(package_root_str))
     )
@@ -253,37 +252,40 @@ def _parse_packages(
     configured = data.get("package")
     if configured is None:
         return _parse_root_packages(data, path)
-    if not isinstance(configured, list):
-        msg = f"{path}: tool.hecate.package must be a list of tables"
-        raise ConfigError(msg)
     return tuple(
         _parse_package_table_item(item, index, path)
-        for index, item in enumerate(configured)
+        for index, item in enumerate(
+            _read_table_list(configured, key="tool.hecate.package", path=path)
+        )
     )
 
 
 def _parse_group_item(
-    item: object,
+    item: dict[str, object],
     index: int,
     path: Path,
 ) -> ModuleGroup:
     """Parse and validate one entry from the ``groups`` table list."""
-    if not isinstance(item, dict):
-        msg = f"{path}: tool.hecate.groups[{index}] must be a table"
-        raise ConfigError(msg)
-    group_item = typ.cast("dict[str, object]", item)
     loc = _Loc(path=path, context=f"groups[{index}]")
     return ModuleGroup(
-        name=_read_string(group_item, "name", loc),
-        prefixes=_read_string_tuple(group_item, "prefixes", loc),
-        allowed=_read_string_tuple(group_item, "allowed", loc),
-        warn=_read_optional_string_tuple(group_item, "warn", loc),
+        name=_read_string(item, "name", loc),
+        prefixes=_read_string_tuple(item, "prefixes", loc),
+        allowed=_read_string_tuple(item, "allowed", loc),
+        warn=_read_optional_string_tuple(item, "warn", loc),
     )
 
 
 def _parse_groups(data: dict[str, object], path: Path) -> tuple[ModuleGroup, ...]:
-    groups = data.get("groups")
-    if not isinstance(groups, list) or not groups:
+    """Parse the required, non-empty ``groups`` table list.
+
+    An empty ``groups`` is rejected here rather than by the shape reader: a
+    configuration with no groups classifies no edge, so it would let every
+    boundary rule pass by defining nothing to check. The requirement belongs
+    to this key, not to the array shape in general, which is why it is stated
+    once at its only call site.
+    """
+    groups = _read_table_list(data.get("groups"), key="tool.hecate.groups", path=path)
+    if not groups:
         msg = f"{path}: tool.hecate.groups must be a non-empty list of tables"
         raise ConfigError(msg)
     return tuple(
@@ -292,18 +294,12 @@ def _parse_groups(data: dict[str, object], path: Path) -> tuple[ModuleGroup, ...
 
 
 def _parse_ignores(data: dict[str, object], path: Path) -> tuple[IgnoredImport, ...]:
-    ignores = data.get("ignore_imports", [])
-    if not isinstance(ignores, list):
-        msg = f"{path}: tool.hecate.ignore_imports must be a list of tables"
-        raise ConfigError(msg)
+    ignores = _read_table_list(
+        data.get("ignore_imports", []), key="tool.hecate.ignore_imports", path=path
+    )
     parsed: list[IgnoredImport] = []
-    for index, item in enumerate(ignores):
-        if not isinstance(item, dict):
-            msg = f"{path}: tool.hecate.ignore_imports[{index}] must be a table"
-            raise ConfigError(msg)
-        ignore_item = typ.cast("dict[str, object]", item)
-        context = f"ignore_imports[{index}]"
-        loc = _Loc(path=path, context=context)
+    for index, ignore_item in enumerate(ignores):
+        loc = _Loc(path=path, context=f"ignore_imports[{index}]")
         parsed.append(
             IgnoredImport(
                 importer=_read_string(ignore_item, "importer", loc),

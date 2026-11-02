@@ -1397,6 +1397,183 @@ it is not.
 Commit-message format, subject-line limits, body wrapping, and the
 atomic-commit rules are in [AGENTS.md](../AGENTS.md) and are not restated here.
 
+## Duplication gate
+
+`make lint` also runs the blocking code-duplication gate, and the whole
+pipeline is sequential:
+
+```shell
+make install-nose   # provision the pinned detector (idempotent)
+make duplication    # run the gate on its own
+make duplication-test           # the gate's own tests
+make duplication-allow FIRST='path[::name]' REASON='...'
+make duplication-allow FIRST='path[::name]' SECOND='path[::name]' REASON='...'
+```
+
+`make duplication` depends on `make install-nose`, so a standalone run
+provisions the detector if it is missing. The installer writes `nose-cli` at
+the version in `NOSE_VERSION` into `.tools/nose` using `cargo-binstall`'s git
+mode, and is a no-op when `.tools/nose/nose --version` already reports the
+pinned version. Set `NOSE_BIN` to run a detector provisioned elsewhere; a
+relative path resolves against the repository root. Source compilation is
+disabled, so a missing release artefact fails provisioning rather than starting
+a build.
+
+The detector is `nose`, the Rust-built `nose-cli` from
+<https://github.com/corca-ai/nose>, pinned at the revision recorded in
+[ADR 003](adr-003-adopt-the-nose-duplication-gate.md). It is not the Python
+`nose` test framework on PyPI, and no PyPI package of that name is installed
+here.
+
+The scan covers the `hecate` package: maintained production Python. The
+repository's helper scripts, tests, and documentation are out of scope. The
+scan settings live in `[tool.nose]`; the gate reads the version from there and
+refuses to run when the installed binary reports a different one, so a drifted
+local install cannot quietly change what blocks the build. Exit codes are 0 for
+a clean or fully-allowed scan, 1 for unsuppressed families, and 2 for a
+configuration or tool error; a missing binary, a timeout, a failed command, or
+a malformed report all fail closed as exit code 2.
+
+### Recording an exception
+
+Genuine duplication should be extracted, not allow-listed; an exception asserts
+that a parallel is intentional and reviewable. When that is the right call,
+record it with `make duplication-allow`, which keys the entry on locations
+rather than line spans:
+
+- `FIRST='path[::name]'` matches any location in a file matching the POSIX
+  glob `path`, or additionally requires nose's unit name when `::name` is
+  present.
+- `SECOND='path[::name]'` may be repeated for families with more members. One
+  `SECOND` makes a two-key `members` entry; no `SECOND` makes a single-key
+  `unit` entry. Exactly one of the two forms is written.
+- `REASON='...'` is stored beside the entry, and is required.
+
+An entry silences a family only when **every** location in it matches one of
+the entry's keys, so a new copy in an unlisted file still blocks, and partial
+coverage from several entries never adds up. An entry the run does not match is
+reported as stale, meaning **unmatched in this scan** — not "the duplication is
+gone". The scan is bounded by `top`, so a family that has dropped below the
+ranking is simply not reported, and the gate cannot tell that from a family
+that no longer exists. Widen the scan before deleting such an entry: raise
+`top`, or lower `min-size`, and re-run. Only two causes then remain — the
+duplication is genuinely gone, or the family changed shape, for example by
+gaining a member outside the entry's keys — and in the second case the
+duplication is still present and the entry is the starting point for extending
+it rather than for deleting it. Values pass through the environment verbatim,
+so spaces, quotes, and dollar signs in a reason are preserved rather than
+interpreted as shell or Make program text.
+
+The helper holds an advisory lock beside `pyproject.toml` while it rewrites the
+entries, so concurrent allow commands cannot interleave their
+read-modify-write. It coordinates processes that follow its protocol; it does
+not coordinate an unrelated editor.
+
+### Recorded exceptions
+
+The repository records five exceptions, and each one survives for a reason that
+is checked beside the entry. Three of them are pairs whose two members differ
+only in the policy question they answer: the `allow-` and `warn-` list
+predicates in `policy.py`, the group walk that applies them, and the two
+classified-edge records in `classification.py`, which build the same fields into
+`ArchitectureViolation` and `ArchitectureWarning` respectively. Sharing code
+across each pair would mean passing the field, tuple, record type, or
+destination map as a parameter, which turns two named predicates into one
+function with a mode. The warning list is also not interchangeable with the
+allow list: `tests/test_policy.py` pins that a warning target is never also an
+allowed target.
+
+A fourth is the shared field block of the two exported diagnostics in
+`diagnostics.py`. Their `render` and `to_dict` bodies differ, so the repeated
+text is the field declarations plus `identity`, and expressing that once in a
+dataclass requires a base class. The diagnostics are unrelated records that
+deliberately read the same way, which is a property of the exported surface
+rather than an invitation to build a hierarchy behind it.
+
+The fifth is the shared import block between `checker.py` and
+`classification.py`: an import list can only be factored through a module that
+re-exports the names, which hides which module binds what.
+
+Each of these pairs is worth revisiting if it gains a third member with the
+same shape. A pair can be an intentional parallel between two policies; three
+copies of one predicate is a missing abstraction, and the entry then needs an
+edit rather than a wider key. Note also that a stale report does not close any
+of these. The scan is ranked and bounded, so an entry the run cannot match
+means only that its family fell outside the reported surface.
+
+### Atomic writes
+
+`scripts/atomic_write.py` is the shared persistence helper behind the
+duplication allowlist writer and the spelling-cache writes in
+`scripts/typos_rollout.py`. It owns no caller's domain: it writes the complete
+contents to a temporary file in the destination's own directory, then replaces
+the destination with `Path.replace`, so a reader sees either the old file or
+the new one and never a partial write.
+
+`AtomicWriteOptions` is a frozen dataclass whose three fields default to:
+
+- `create_parents: bool = True`, which creates a missing destination directory
+  with `mkdir(parents=True, exist_ok=True)`;
+- `preserve_mode: bool = False`, which copies the existing destination's
+  permission bits onto the replacement; and
+- `sync_file: bool = False`, which fsyncs the temporary file before the rename
+  and the parent directory after it.
+
+The default argument is the module-level `AtomicWriteOptions()` singleton
+rather than a fresh instance constructed in the signature, so every defaulted
+call shares one immutable value.
+
+Mode preservation applies only when the destination already exists. The writer
+reads the destination's `path.stat().st_mode` before the write and `chmod`s the
+temporary file before the rename. A destination that does not exist yet gets no
+`chmod`, so the replacement keeps the mode `NamedTemporaryFile` gave it; a new
+file is created rather than treated as an error.
+
+Syncing is controlled by `sync_file`. When it is set, the writer calls
+`os.fsync` on the temporary file's descriptor after flushing, and, once
+`Path.replace` has committed the rename, opens the parent directory read-only
+and fsyncs that descriptor too. POSIX does not require `fsync` to accept a
+directory descriptor: macOS refuses one with `EINVAL` while Linux accepts it. A
+refusal with `EINVAL` or `ENOTSUP` is therefore absorbed, because the file's
+own sync has already succeeded and the rename is already committed, so
+reporting the refusal would turn a completed mutation into a failure. Any other
+error, such as `EIO`, still propagates: the caller asked for durability and did
+not get it.
+
+The temporary file is created with `delete=False` and its path recorded before
+any content is written, so a failure during the write, the flush, or the sync
+leaves a name for the cleanup block to unlink. A completed replacement has
+already moved the file, so the same `missing_ok` unlink is the success path as
+well as a retried cleanup.
+
+`scripts/duplication_allowlist.py` is the strict caller. Its rewrite of
+`pyproject.toml` passes `create_parents=False`, `preserve_mode=True`, and
+`sync_file=True`: the file's existing mode survives, the new contents and the
+rename are durable before the command reports success, and a missing parent
+directory is an error rather than something the writer invents.
+`scripts/typos_rollout.py` writes the generated config, the HTTP freshness
+metadata, and the cached dictionary with the defaults, so those writes create
+missing parents, do not preserve a mode, and do not fsync.
+
+### Portability
+
+The gate is POSIX-only: it uses `fcntl.flock` and POSIX directory operations.
+The supported developer workflow is POSIX or WSL, and the blocking run happens
+on Linux CI. Native Windows is not supported.
+
+The gate's entry point `scripts/duplication_gate.py` declares the Python 3.14
+floor and its pinned helper libraries in uv inline script metadata; the other
+gate modules are plain imports without metadata of their own.
+`make duplication` and `make duplication-test` therefore select that
+interpreter and those pins explicitly, rather than inheriting the application's
+virtualenv. `tests/toolchain_contract/` keeps the Makefile, the CI workflow, and
+`[tool.nose]` pinned to the same version.
+
+The gate's own tests live under `scripts/tests/` and are not collected by
+`make test` or the coverage job; `[tool.pytest.ini_options]` sets
+`testpaths = ["tests"]` so application discovery stays within `tests/`. Run
+them with `make duplication-test`.
+
 ______________________________________________________________________
 
 [^1]: The shared-actions caller guide lives in a separate repository and is
