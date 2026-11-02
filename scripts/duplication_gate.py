@@ -286,7 +286,14 @@ def allow(
             validate_key(key, context=f"'{key}'")
         _require_covered(_covered_family(_detect_findings(detect_findings), keys), keys)
         append_allow_entry(PYPROJECT, keys=keys, reason=reason)
-    except (GateConfigError, OSError) as error:
+    except GateConfigError as error:
+        # ``GateExecutionError`` subclasses this and labels itself a tool
+        # error, so printing the error's own label keeps a missing or wrong
+        # detector reported as provisioning rather than as malformed
+        # configuration. ``check`` reports through the same label.
+        print(f"{error.label}: {error}", file=sys.stderr)
+        raise SystemExit(2) from error
+    except OSError as error:
         print(f"configuration error: {error}", file=sys.stderr)
         raise SystemExit(2) from error
     print(f"recorded duplication exception for {' ~ '.join(keys)}")

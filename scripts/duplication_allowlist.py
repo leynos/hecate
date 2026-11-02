@@ -31,7 +31,7 @@ import tomlkit
 import tomlkit.exceptions
 import tomlkit.items
 from atomic_write import AtomicWriteOptions, atomic_write
-from nose_schema import Finding, GateConfigError, Location
+from nose_schema import Finding, GateConfigError, Location, require_table
 
 __all__ = [
     "AllowEntry",
@@ -171,9 +171,9 @@ def load_allowlist(pyproject_path: Path) -> tuple[AllowEntry, ...]:
     """
     with pyproject_path.open("rb") as handle:
         data = tomllib.load(handle)
-    root = _config_mapping(data, context="pyproject")
-    tool = _config_mapping(root.get("tool", {}), context="pyproject.tool")
-    table = _config_mapping(
+    root = require_table(data, context="pyproject")
+    tool = require_table(root.get("tool", {}), context="pyproject.tool")
+    table = require_table(
         tool.get("duplication_gate", {}),
         context="pyproject.tool.duplication_gate",
     )
@@ -188,19 +188,9 @@ def load_allowlist(pyproject_path: Path) -> tuple[AllowEntry, ...]:
     )
 
 
-def _config_mapping(value: object, *, context: str) -> cabc.Mapping[str, object]:
-    """Validate one TOML table before configuration logic consumes it."""
-    if not isinstance(value, cabc.Mapping) or not all(
-        isinstance(key, str) for key in value
-    ):
-        msg = f"{context} must be a table with string keys"
-        raise GateConfigError(msg)
-    return typ.cast("cabc.Mapping[str, object]", value)
-
-
 def _allow_entry(raw: object, *, index: int) -> AllowEntry:
     """Validate and normalize one reasoned TOML allow entry."""
-    table = _config_mapping(raw, context=f"duplication_gate.allow[{index}]")
+    table = require_table(raw, context=f"duplication_gate.allow[{index}]")
     reason = table.get("reason", "")
     if not isinstance(reason, str) or not reason.strip():
         msg = f"duplication_gate.allow[{index}] requires a non-empty reason"
@@ -346,7 +336,7 @@ def _existing_table(
         return created
     # Every mapping a ``tomlkit`` document yields is a mutable table, so this
     # cast states what parsing guarantees rather than narrowing by hand.
-    checked = _config_mapping(parent[key], context=context)
+    checked = require_table(parent[key], context=context)
     return typ.cast("cabc.MutableMapping[str, object]", checked)
 
 

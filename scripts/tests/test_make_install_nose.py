@@ -232,9 +232,6 @@ class TestMakeInstallNose:
         invocation = _run_install_nose(tmp_path, installed_version="0.19.0")
 
         assert invocation.result.returncode == 0, invocation.result.stderr
-        assert ".tools/nose/nose --version" not in invocation.result.stdout, (
-            "The recipe must verify through the configured NOSE_BIN."
-        )
         assert (tmp_path / "tools" / "nose").exists(), (
             "Installation must place the detector at NOSE_TOOLS_DIR."
         )

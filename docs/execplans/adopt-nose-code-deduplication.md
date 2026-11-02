@@ -1736,3 +1736,111 @@ and 27 net lines to the gate implementation.
 This revision also applies the rebase's own platform statement, which already
 said the gate is POSIX-only, so no documentation of support needed to change;
 the code now behaves as that statement implies.
+
+Revision 13, 2026-11-02. Records the repair of the ten findings in CodeRabbit's
+formal review of `b4fdaae`.
+
+Nine were applied as stated. CI's install step now calls
+`make install-nose CARGO_BINSTALL=...` rather than copying the installer, so
+the strategy prohibition, install directory, and crate pin have one
+implementation; the toolchain contract was inverted to match, asserting that CI
+names the Makefile target and carries no crate specification of its own.
+`duplication-allow` now rejects whitespace-only `FIRST` and `REASON` with the
+same `case`-based test `skylos-allow` uses, and `test -n` retired from that
+target. `_config_mapping` in `scripts/duplication_allowlist.py` is gone in
+favour of `nose_schema.require_table`, which already had the predicate, the
+cast, the exception type and the diagnostic wording. `allow` now prints
+`error.label` instead of a hard-coded `configuration error:`, so a missing or
+unpinned detector reads as `tool error:` from both `check` and `allow`. Three
+smaller ones stand as stated: the doubled "first" in `AGENTS.md`, the ADR's
+checksum claim scoped to CI, the round-trip test rewritten around a single file
+key, and a dead assertion removed from the reinstall test -- `make` never echoes
+`@`-prefixed recipe lines, so the assertion could not fail. The `gate_pin`
+reader in `tests/toolchain_contract/reading.py` now parses `pyproject.toml` with
+`tomllib` instead of a `DOTALL` regex that could read a later table's
+`version`.
+
+The tenth needed a different remedy. CodeRabbit correctly found that
+`typ.ClassVar[property]` makes `diagnostic.is_failure` infer as `Any`, then
+proposed a typed `@property` in each class -- which is the duplication the gate
+blocks, so applying it would reopen the family the previous revision closed.
+`ty` accepts `Any` where `bool` is required, so no type-only test can
+distinguish the two spellings; a probe with a known-`bool` control and a
+`reveal_type` on the descriptor established both the defect and the fix. The
+descriptor is now `_FailureProperty`, generic over the value it yields and
+delegating to `property.__get__`, which keeps one shared object and gives
+consumers exactly `bool`. It was first written with the pre-3.12 `Generic[...]`
+spelling, which Ruff rejects as `UP046`; the PEP 695 parameter that replaced it
+is `Value`, because Ruff rejects a leading underscore there too (`UP049`). The
+vacuous type test was replaced by a behavioural one: both diagnostics are
+queried in turn, so a slip that rebound the descriptor to class state would
+answer for whichever instance was touched last.
+
+Two findings were repaired beyond their literal text. The tool-error label
+gained a regression test that fails if the label is hard-coded again. And the
+CI install step's contract assertions were narrowed, not merely reworded: the
+old `"nose-cli@${NOSE_VERSION}"` check was replaced by one asserting that CI
+carries no crate specification at all, because with the install moved into the
+Makefile the meaningful invariant is the absence of a second copy.
+
+All seven gates pass on the repaired candidate -- `check-fmt`, `lint` including
+Skylos and the duplication gate with no allow entry, `typecheck`, the
+application suite, the gate helper suite with one test added, `markdownlint`,
+and `nixie`. That claim is withdrawn in revision 14: it was written from the
+gate results of the previous head, and the first run against this revision's
+own candidate failed its lint gate.
+
+Revision 14, 2026-11-02. Records the lint failure that revision 13's candidate
+produced, and the module split that repaired it.
+
+`make lint` failed with `C0302: Too many lines in module (428/400)` in
+`tests/test_unclassified_modules.py`, and Pylint's line budget is a real gate
+here: `[tool.pylint.main]` sets `max-module-lines = 400` and `too-many-lines`
+is listed in the enabled messages, so the default-off spelling does not apply.
+The file was 394 lines at the previous head, and revision 13 added the aliasing
+test to it. That was the wrong home for it regardless of the line count: the
+new module is about the diagnostics' shared descriptor, not about the policy
+that produces an unclassified-module diagnostic, and the file's docstring
+already scopes itself to the policy.
+
+The two `is_failure` cases now live in `tests/test_diagnostic_is_failure.py`,
+which owns the public attribute, the three severities, and the aliasing check.
+`tests/test_unclassified_modules.py` returns to 361 lines and drops the
+`CoverageDiagnostic` and `EdgeState` imports that only the moved test used --
+they were never part of this module's subject, which is the evidence that the
+placement was wrong rather than the budget being tight. No test was weakened or
+dropped in the move; both cases carry their assertions and rationale across
+unchanged.
+
+Revision 13's closing gate claim is corrected by this revision rather than left
+standing. The first run against the split candidate then failed twice more, and
+both failures are instructive rather than incidental.
+
+`check-fmt` rejected a paragraph of revision 13 itself, which `mdtablefix`
+wanted wrapped differently from how it was written; running `make fmt` applied
+the wrap. Nothing about the change moved.
+
+`lint` rejected the split with `TC001` in `tests/test_unclassified_modules.py`:
+with the moved cases gone, the only surviving use of
+`UnclassifiedModuleDiagnostic` is the return annotation of
+`_unclassified_by_module`, so the import became type-only. It now sits behind
+`if typ.TYPE_CHECKING:`, the idiom the neighbouring test modules already use,
+and `ty` still resolves the annotation because the module carries
+`from __future__ import annotations`.
+
+All seven gates then passed on the split candidate, run once each and
+sequentially: `check-fmt` clean (62 application files and 17 script files
+already formatted, 24 Markdown files unchanged); `lint` with Ruff clean in both
+trees, Pylint 10.00/10, Skylos reporting no dead code, and the duplication gate
+passing with no allow entry; `typecheck` clean under `ty 0.0.61` for both
+`hecate tests` and `scripts`; 547 application tests passed with none failed or
+skipped; `markdownlint` clean over 24 files with the spelling helper's 15 tests
+passing at 90.61% coverage; `nixie` validating every diagram; and 156 gate
+helper tests passing.
+
+The `spelling` prerequisite rewrote the tracked `typos.toml` during the
+Markdown gate. That is pre-existing behaviour of
+`scripts/generate_typos_config.py`, unrelated to this branch, and the
+regenerated file was reverted rather than committed: it is not part of this
+change's scope, and committing a generated file whose content depends on a
+remote dictionary refresh would put an unrelated diff in the pull request.

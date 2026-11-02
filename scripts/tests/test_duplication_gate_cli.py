@@ -66,7 +66,13 @@ class TestAllowCli:
     """`allow` driven through the gate's own command line."""
 
     def test_allow_cli_round_trips_a_unit_key(self, tmp_path: Path) -> None:
-        """A single named unit covering its whole family is recorded as ``unit``."""
+        """One file key covering the whole family is recorded as ``unit``.
+
+        A file key without ``::name`` matches every unit in that file, so a
+        single ``--first`` covers the family and the entry round-trips through
+        the ``unit`` field rather than ``members``. The named-unit form needs a
+        ``--second``, and is covered separately.
+        """
         _workspace, script = copied_gate_workspace(tmp_path)
         stub = write_stub_nose(
             tmp_path, report=_report_with_named_locations("beta", "gamma")
@@ -75,17 +81,15 @@ class TestAllowCli:
             script,
             "allow",
             "--first",
-            "hecate/b.py::beta",
-            "--second",
-            "hecate/b.py::gamma",
+            "hecate/b.py",
             "--reason",
             "reviewed exception",
             environment=gate_environment(NOSE_BIN=str(stub)),
         )
         assert result.returncode == 0, result.stderr
         entries = allowlist.load_allowlist(script.parent.parent / "pyproject.toml")
-        assert entries[0].keys == ("hecate/b.py::beta", "hecate/b.py::gamma"), (
-            "CLI must retain its requested keys."
+        assert entries[0].keys == ("hecate/b.py",), (
+            "CLI must retain its single requested file key."
         )
         assert entries[0].reason == "reviewed exception", (
             "CLI must retain the supplied reason."

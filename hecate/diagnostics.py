@@ -43,9 +43,27 @@ def _is_failure(self: CoverageDiagnostic | UnclassifiedModuleDiagnostic) -> bool
     return self.severity is Severity.ERROR
 
 
+class _FailureProperty[Value](property):
+    """A property descriptor that keeps its accessed value's type.
+
+    ``typ.ClassVar[property]`` would annotate the descriptor itself, so a type
+    checker infers ``Any`` for ``diagnostic.is_failure`` and the public
+    interface stops being ``bool``. Generic over the value it yields, the same
+    descriptor gives consumers the declared type while still being one shared
+    object, which is what keeps the rule from being written twice.
+
+    The method beneath this one exists only to state that type. It delegates
+    straight to ``property.__get__``, so access behaves exactly as the plain
+    descriptor did and the body adds no rule of its own.
+    """
+
+    def __get__(self, instance: object, owner: type | None = None) -> Value:
+        return typ.cast("Value", super().__get__(instance, owner))
+
+
 #: The one shared implementation of the failure rule above, bound into both
 #: severity-carrying diagnostics under the name their consumers use.
-_is_failure_property = property(_is_failure)
+_is_failure_property: _FailureProperty[bool] = _FailureProperty(_is_failure)
 
 
 class _ClassifiedEdge(typ.Protocol):
@@ -227,8 +245,9 @@ class CoverageDiagnostic:
     imported_group: str | None = None
 
     # See ``_is_failure``: the shared rule is bound here rather than inherited,
-    # so neither diagnostic class is a special case of the other.
-    is_failure: typ.ClassVar[property] = _is_failure_property
+    # so neither diagnostic class is a special case of the other. The
+    # descriptor is generic so this attribute still reads as ``bool``.
+    is_failure: typ.ClassVar[_FailureProperty[bool]] = _is_failure_property
 
     def identity(self) -> tuple[str, str, str, str, int]:
         """Return the stable identity used for sorting and de-duplication."""
@@ -275,7 +294,7 @@ class UnclassifiedModuleDiagnostic:
     severity: Severity
 
     # See ``_is_failure``: the same rule, bound rather than inherited.
-    is_failure: typ.ClassVar[property] = _is_failure_property
+    is_failure: typ.ClassVar[_FailureProperty[bool]] = _is_failure_property
 
     @property
     def rule_id(self) -> str:

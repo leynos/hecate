@@ -87,11 +87,8 @@ jobs:
             "https://github.com/cargo-bins/cargo-binstall/releases/download/${BINSTALL_VERSION}/cargo-binstall-x86_64-unknown-linux-musl.tgz"
           echo "${BINSTALL_SHA256}  ${binstall_archive}" | sha256sum -c -
           tar -xzf "$binstall_archive" -C "$binstall_directory"
-          mkdir -p .tools/nose
-          "$binstall_directory/cargo-binstall" --no-confirm \
-            --disable-strategies compile,quick-install \
-            --install-path .tools/nose \
-            --git https://github.com/corca-ai/nose "nose-cli@${NOSE_VERSION}"
+          # One installer, in the Makefile: CI supplies only the verified binary.
+          make install-nose CARGO_BINSTALL="$binstall_directory/cargo-binstall"
           .tools/nose/nose --version
 
       - name: Validate Makefile

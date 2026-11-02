@@ -391,6 +391,39 @@ class TestAllowCommand:
             "configuration error: read-only filesystem\n"
         ), "Write failures must use the configuration diagnostic."
 
+    def test_allow_labels_a_detector_failure_as_a_tool_error(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+    ) -> None:
+        """A detector failure must not send the operator to ``pyproject.toml``.
+
+        ``GateExecutionError`` reports a provisioning fault -- a missing or
+        unpinned binary, a timeout, a non-zero exit -- and labels itself
+        accordingly. Replacing that label with the configuration one would tell
+        an operator to look for a fault in the file they just asked the gate to
+        update, while the actual repair is ``make install-nose``.
+        """
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("[project]\nname = 'x'\n", encoding="utf-8")
+        monkeypatch.setattr(gate, "PYPROJECT", pyproject)
+        monkeypatch.setattr(
+            gate, "detect_findings", _double(detector.GateExecutionError("gone"))
+        )
+
+        with pytest.raises(SystemExit) as exit_error:
+            gate.allow(
+                first="hecate/a.py",
+                second=["hecate/b.py"],
+                reason="reviewed exception",
+            )
+
+        assert exit_error.value.code == 2, "A tool failure must return two."
+        assert capsys.readouterr().err == "tool error: gone\n", (
+            "A detector failure must keep the label its error defines."
+        )
+
     @pytest.mark.parametrize(
         "case",
         [

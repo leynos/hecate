@@ -84,8 +84,14 @@ class TestProvisioningFallbacks:
             f"CI caches {cached!r} but the Makefile installs nose into "
             f"{installed!r}; a cache of the wrong directory never hits"
         )
-        assert f"mkdir -p {installed}" in cache_step(NOSE_INSTALL_STEP), (
-            "CI must create the detector install directory before binstall runs"
+        assert "make install-nose" in cache_step(NOSE_INSTALL_STEP), (
+            "CI must install through the Makefile target, so the strategy "
+            "prohibition and install directory have one implementation rather "
+            "than a copy that can drift"
+        )
+        assert "CARGO_BINSTALL=" in cache_step(NOSE_INSTALL_STEP), (
+            "CI must hand make the checksum-verified installer it downloaded, "
+            "rather than letting the target find an unverified one on PATH"
         )
 
     def test_ci_installs_the_pinned_detector_with_binstall(self) -> None:
@@ -110,8 +116,10 @@ class TestProvisioningFallbacks:
             "the pinned cargo-binstall checksum must be a SHA-256 digest, got "
             f"{checksums[0]!r}"
         )
-        assert "nose-cli@${NOSE_VERSION}" in step, (
-            "CI must install the version-pinned nose crate, not a floating one"
+        assert "nose-cli@" not in step, (
+            "CI must not carry its own crate specification: the install-nose "
+            "target owns it, and a second copy can drift from the pin the gate "
+            "verifies against"
         )
 
 

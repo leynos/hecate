@@ -242,8 +242,8 @@ duplication-allow: export DUPLICATION_FIRST = $(call cli_value,FIRST)
 duplication-allow: export DUPLICATION_SECOND = $(call cli_value,SECOND)
 duplication-allow: export DUPLICATION_REASON = $(call cli_value,REASON)
 duplication-allow: ## Record one reasoned duplication exception
-	@test -n "$${DUPLICATION_FIRST}" || { printf "Error: FIRST is required (path[::name])\\n" >&2; exit 2; }
-	@test -n "$${DUPLICATION_REASON}" || { printf "Error: REASON is required for a duplication exception\\n" >&2; exit 2; }
+	@case "$${DUPLICATION_FIRST}" in *[![:space:]]*) ;; *) printf "Error: FIRST is required (path[::name])\\n" >&2; exit 2;; esac
+	@case "$${DUPLICATION_REASON}" in *[![:space:]]*) ;; *) printf "Error: REASON is required for a duplication exception\\n" >&2; exit 2;; esac
 	@case "$${DUPLICATION_SECOND}" in *[![:print:][:space:]]*) printf "Error: SECOND members must be printable text\\n" >&2; exit 2;; esac
 	@set -f; set --; for key in $${DUPLICATION_SECOND}; do set -- "$$@" --second "$$key"; done; \
 		$(DUPLICATION_GATE) allow --first "$${DUPLICATION_FIRST}" "$$@" \

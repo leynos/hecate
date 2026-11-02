@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import itertools
 import re
+import tomllib
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -135,18 +136,19 @@ def gate_pin() -> str:
     Raises
     ------
     ToolchainContractError
-        If ``[tool.nose]`` declares no version.
+        If ``[tool.nose]`` declares no string version.
 
     """
-    match = re.search(
-        r"^\[tool\.nose\]$.*?^version\s*=\s*\"([^\"]*)\"",
-        PYPROJECT_PATH.read_text(encoding="utf-8"),
-        flags=re.MULTILINE | re.DOTALL,
-    )
-    if match is None:
+    # Parsed rather than pattern-matched: a regex anchored to the table header
+    # and allowed to span lines would read a later table's ``version`` when
+    # ``[tool.nose]`` omits its own, and the contract would then pin a value
+    # the gate never loads.
+    with PYPROJECT_PATH.open("rb") as handle:
+        version = tomllib.load(handle).get("tool", {}).get("nose", {}).get("version")
+    if not isinstance(version, str):
         message = "pyproject.toml does not set [tool.nose] version"
         raise ToolchainContractError(message)
-    return match.group(1)
+    return version
 
 
 def makefile_variable(name: str) -> str:

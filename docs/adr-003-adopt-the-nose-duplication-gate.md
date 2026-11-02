@@ -107,8 +107,9 @@ and none was needed.
   respect. Episodic's installer allows `cargo-binstall` to fall back to
   compiling nose from source; here `--disable-strategies compile,quick-install`
   makes a missing trusted artefact an explicit provisioning failure instead of
-  the start of a costly source build. The installer itself is pinned by version
-  and verified against a platform-specific SHA-256 before it runs.
+  the start of a costly source build. In CI, the installer itself is pinned by
+  version and verified against a platform-specific SHA-256 before it runs;
+  locally, `make install-nose` uses the developer's own `cargo-binstall`.
 - The gate resolves `NOSE_BIN`, or the repository-local binary, and refuses to
   run when `nose --version` differs from `[tool.nose] version`, so a drifted
   local install cannot quietly change what blocks the build. A missing binary,
