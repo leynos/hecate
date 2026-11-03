@@ -12,6 +12,11 @@ distribution name belongs to an unrelated third-party library. Install it with
 `pip install hecate-enforce` or `uv add hecate-enforce`; the installed command
 is still `hecate`, and the import package is still `hecate`.
 
+Projects that pin Hecate through a Git or direct-URL requirement must rename
+that requirement from `hecate` to `hecate-enforce`, then refresh their
+lockfile. Installers reject a requirement whose name differs from the built
+distribution's metadata name.
+
 ## Coverage reporting
 
 Every in-scope import edge receives exactly one of five outcomes: `permitted`,
