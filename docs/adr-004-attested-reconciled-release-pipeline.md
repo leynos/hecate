@@ -237,10 +237,14 @@ action is reintroduced.
 
 `scripts/release_assets_cli.py` wraps the importable reconciliation library
 `scripts/release_assets.py`, `scripts/release_index.py` reads the Simple index,
-and `scripts/release_version.py` compares the tag with the manifest. All three
-modules use only the Python standard library, not Cyclopts or Plumbum, and the
-entry points run under the runner's preinstalled `python3` rather than through
-`uv run`. This is a deliberate, documented exception to
+and `scripts/release_version.py` compares the tag with the manifest.
+`scripts/verify_installed_distribution.py` checks the wheel the pull-request
+build installed into a clean environment. These modules use only the Python
+standard library, not Cyclopts or Plumbum, and their entry points run under the
+runner's preinstalled `python3` rather than through `uv run`. The verifier has
+its own reason: it runs with the runner's interpreter *outside* the environment
+under test, so it cannot import anything that environment installs. This is a
+deliberate, documented exception to
 [scripting standards](scripting-standards.md): `publish-pypi` holds the PyPI
 OpenID Connect (OIDC) credential and must not resolve any third-party package
 while that credential is live. Every network call these scripts might otherwise

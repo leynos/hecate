@@ -1494,7 +1494,9 @@ directories, and pin the workflow's structure:
 - `test_ci_wheel_build.py` checks the pull-request build's sdist and wheel
   cardinality and the clean-environment install.
 
-Run them with `make test-workflow-contracts`, or as part of `make test`.
+Run them with `uv run pytest tests/workflow_contracts`, or as part of
+`make test`. `make test-workflow-contracts` runs only the shared CV-005
+contract checker and does not execute these tests.
 
 ### Repository settings
 
