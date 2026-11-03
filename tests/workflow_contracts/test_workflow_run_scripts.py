@@ -35,14 +35,38 @@ _ALLOWED_EXPANSIONS: typ.Final = frozenset({
 })
 
 
+def _mapping_children(
+    document: object, where: str
+) -> cabc.Iterator[tuple[str, object]]:
+    """Yield each mapping entry with the location its own ``run`` would have."""
+    for key, value in typ.cast("dict[str, object]", document).items():
+        yield f"{where}.{key}", value
+
+
+def _sequence_children(
+    document: object, where: str
+) -> cabc.Iterator[tuple[str, object]]:
+    """Yield each sequence item with the location its own ``run`` would have."""
+    for index, value in enumerate(typ.cast("list[object]", document)):
+        yield f"{where}[{index}]", value
+
+
+#: How each container kind yields its children. A dispatch table keeps the walk
+#: free of nested conditionals, which CodeScene scores as a bumpy road.
+_CHILD_READERS: typ.Final[
+    dict[type, cabc.Callable[[object, str], cabc.Iterator[tuple[str, object]]]]
+] = {
+    dict: _mapping_children,
+    list: _sequence_children,
+}
+
+
 def _children(document: object, where: str) -> cabc.Iterator[tuple[str, object]]:
     """Yield each child node with the location its own ``run`` would have."""
-    if isinstance(document, dict):
-        for key, value in document.items():
-            yield f"{where}.{key}", value
-    elif isinstance(document, list):
-        for index, value in enumerate(document):
-            yield f"{where}[{index}]", value
+    reader = _CHILD_READERS.get(type(document))
+    if reader is None:
+        return iter(())
+    return reader(document, where)
 
 
 def _run_scripts(
