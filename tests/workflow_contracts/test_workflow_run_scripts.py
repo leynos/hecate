@@ -35,18 +35,24 @@ _ALLOWED_EXPANSIONS: typ.Final = frozenset({
 })
 
 
+def _children(document: object, where: str) -> cabc.Iterator[tuple[str, object]]:
+    """Yield each child node with the location its own ``run`` would have."""
+    if isinstance(document, dict):
+        for key, value in document.items():
+            yield f"{where}.{key}", value
+    elif isinstance(document, list):
+        for index, value in enumerate(document):
+            yield f"{where}[{index}]", value
+
+
 def _run_scripts(
     document: object, where: str
 ) -> cabc.Iterator[tuple[str, dict[str, object]]]:
     """Yield every mapping that declares a ``run`` script, with its location."""
-    if isinstance(document, dict):
-        if isinstance(document.get("run"), str):
-            yield where, typ.cast("dict[str, object]", document)
-        for key, value in document.items():
-            yield from _run_scripts(value, f"{where}.{key}")
-    elif isinstance(document, list):
-        for index, value in enumerate(document):
-            yield from _run_scripts(value, f"{where}[{index}]")
+    if isinstance(document, dict) and isinstance(document.get("run"), str):
+        yield where, typ.cast("dict[str, object]", document)
+    for child_where, child in _children(document, where):
+        yield from _run_scripts(child, child_where)
 
 
 def _expansions_in(name: str, document: object) -> list[str]:
