@@ -155,6 +155,18 @@ instead of arriving as a surprise CI failure? The observable end state:
      the gate's reach, while `reading.py` answers one about the rule
      selection, so the split follows the concern rather than a line budget.
      `REPO_ROOT` became public to share it.
+- [x] Milestone 1, third review pass: three findings, all taken. The
+     nested-configuration test walked only each file's own directory, so a
+     `ruff.toml` in an intermediate directory holding no module directly
+     escaped it; `directories_between` now walks every ancestor and a planted
+     intermediate config proves it fires. The other two asked for complete
+     NumPy sections on the public readers; those sections are now present
+     throughout. Restoring them pushed `reading.py` back over the cap, so it
+     was split again along the same concern: `inventory.py` reads the
+     committed artefact and the dump it is regenerated from, `provenance.py`
+     reads the lockfile and Makefile that pin the binary, and `reading.py`
+     reads the configuration and the binary's resolved settings. The modules
+     now run 109 to 311 lines each.
 - [ ] Milestone 2: pin Ruff provenance in `make build` and add the toolchain
      contract.
 - [ ] Milestone 3: resolve `D421` docstrings and migrate suppressions with a
@@ -374,18 +386,19 @@ Delivered. `explicit-preview-rules = true` sits in `[tool.ruff.lint]` above
 `select`, with a comment that says why; `extend-select` names 106 preview codes
 grouped by linter. The resolved set is byte-identical to the pre-change 673,
 measured by diffing `linter.rules.enabled` from `--show-settings` before and
-after. `tests/ruff_policy_contract/` holds `reading.py` (pure readers over
-configuration, lockfile, Makefile, and Ruff's own output), `discovery.py` (the
-readers that decide which configuration governs which file), `enabled_rules.txt`
-(the reviewed inventory with a `# ruff-version: 0.15.13` header),
-`test_reading.py` (reader negative cases), `test_inventory.py` (the
+after. `tests/ruff_policy_contract/` holds `reading.py` (the configuration and
+the binary's resolved settings), `inventory.py` (the committed artefact and the
+dump it is regenerated from), `provenance.py` (the lockfile and Makefile that
+pin the binary), `discovery.py` (which configuration governs which file),
+`enabled_rules.txt` (the reviewed inventory with a `# ruff-version: 0.15.13`
+header), `test_reading.py` (reader negative cases), `test_inventory.py` (the
 two-directional comparison, the policy switches, and the single-row
 precondition), and `test_preview_adoption.py` (the behaviour fixture).
 Acceptance evidence:
 
 ```plaintext
 $ uv run pytest tests/ruff_policy_contract -q
-29 passed
+32 passed
 
 # inventory with F401 deleted
 AssertionError: Ruff now enables rules the inventory does not list ... ['F401']

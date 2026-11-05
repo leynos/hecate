@@ -20,15 +20,21 @@ from __future__ import annotations
 
 import pytest
 
-from .discovery import checked_python_files, ruff_configuration_candidates
-from .reading import (
-    SAMPLE_FILE,
+from .discovery import (
+    checked_python_files,
+    directories_between,
+    ruff_configuration_candidates,
+)
+from .inventory import (
     enabled_rule_lines,
-    extend_select_entries,
-    installed_ruff_version,
     inventory_codes,
     inventory_header,
     inventory_text,
+)
+from .reading import (
+    SAMPLE_FILE,
+    extend_select_entries,
+    installed_ruff_version,
     is_explicit_preview,
     is_preview,
     pyproject_document,
@@ -66,25 +72,23 @@ class TestEnabledRuleInventory:
         )
 
     def test_one_sample_represents_every_tracked_python_file(self) -> None:
-        """No nearer Ruff configuration may re-root the sample's own file.
+        """No nearer Ruff configuration may re-root a tracked file.
 
-        The inventory is a single row, which is only honest while the sampled
-        module resolves against the same configuration as every other file.
-        Ruff stops at the nearest directory carrying a ``pyproject.toml`` with
-        ``[tool.ruff]`` or a ``ruff.toml``, so a nested project file would make
-        the sample describe a policy the rest of the tree does not use.
+        The inventory is a single row, which is only honest while every
+        tracked module resolves against the same configuration as the sample.
+        Ruff stops at the nearest ancestor carrying a ``pyproject.toml`` with
+        ``[tool.ruff]`` or a ``ruff.toml``, so a nested one would make the
+        sample describe a policy the rest of the tree does not use.
+
+        The walk covers every ancestor, not each file's own directory. A
+        configuration two levels up governs a module just as surely as one
+        beside it, and Ruff's search passes through directories that contain
+        only further directories.
         """
         root = SAMPLE_FILE.parents[1]
-        # Only directories *below* the root are nested: the root's own
-        # configuration is the one the inventory records.
-        directories = sorted({
-            path.parent
-            for path in checked_python_files()
-            if root in path.parents and path.parent != root
-        })
         nested = {
             directory.relative_to(root).as_posix(): candidates
-            for directory in directories
+            for directory in directories_between(root, checked_python_files())
             if (candidates := ruff_configuration_candidates(directory))
         }
         assert not nested, (
