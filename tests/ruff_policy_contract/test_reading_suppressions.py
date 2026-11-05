@@ -23,7 +23,22 @@ from .test_suppressions import violations
 
 
 def reported(source: str) -> list[str]:
-    """Return the convention messages for every suppression in ``source``."""
+    """Return the convention messages for every suppression in ``source``.
+
+    Parameters
+    ----------
+    source : str
+        Python source read as if it were a checked module. It is passed to
+        the same reader and the same rules the repository scan uses, so a
+        fixture cannot agree with a copy of the policy.
+
+    Returns
+    -------
+    list[str]
+        One message per broken rule, in source order. Empty means every
+        suppression in the text follows the convention.
+
+    """
     return [
         message
         for suppression in suppressions_in(source)

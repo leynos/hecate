@@ -31,9 +31,15 @@ pytestmark = pytest.mark.skipif(
     ),
 )
 
-#: The Python directories the lint targets name. Reading them from the
-#: Makefile would make the contract depend on parsing it; Ruff's own file list
-#: already reflects exclusions, which is the property that matters.
+#: The Python directories the gate checks. Deliberately not parsed out of the
+#: Makefile: Ruff's file list already reflects ``extend-exclude`` and per-file
+#: settings, which is the property the contract needs, and a Makefile parser
+#: here would be a second implementation of variable expansion.
+#:
+#: That leaves the two lists able to drift, so
+#: ``test_the_scan_covers_every_file_the_gate_checks`` compares the directories
+#: named here against every module a bare ``ruff check`` reports, and fails on
+#: any module this list leaves outside the scan.
 LINT_TARGETS = ("hecate", "tests", "scripts")
 
 #: The codes whose breadth would hide a subprocess risk. ``S404`` guards the
@@ -49,7 +55,20 @@ BROAD_FORMS = frozenset({"file-ignore", "disable"})
 
 
 def read_module(path: str) -> str:
-    """Return one module's source, relative to the repository root."""
+    """Return one module's source, relative to the repository root.
+
+    Parameters
+    ----------
+    path : str
+        The module to read, as Ruff reported it: relative to the root and
+        spelled with forward slashes.
+
+    Returns
+    -------
+    str
+        The module's text, decoded as UTF-8.
+
+    """
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
@@ -153,6 +172,44 @@ class TestRepositorySuppressions:
             "these suppressions break the house convention: "
             f"{broken}. Write `# ruff: ignore[CODE]  # why this is safe` on "
             "the line Ruff reports the diagnostic on"
+        )
+
+    def test_the_scan_covers_every_file_the_gate_checks(self) -> None:
+        """A directory added to the gate must not slip past the convention.
+
+        ``LINT_TARGETS`` is a hand-written list beside a Makefile that owns
+        the real one, so the two can drift: a new directory added to
+        ``PYTHON_TARGETS`` would be linted by Ruff and never read here, and
+        this suite would still pass. Ruff's own file list is what the gate
+        acts on, so it is the set the reader must cover.
+
+        Only ``.py`` files are compared. A bare ``ruff check`` also lists the
+        ``pyproject.toml`` that configures it, which carries no suppression
+        comments and which the gate never passes as a target.
+        """
+        try:
+            without_targets = subprocess.run(
+                [sys.executable, "-m", "ruff", "check", "--show-files"],
+                capture_output=True,
+                check=True,
+                cwd=REPO_ROOT,
+                text=True,
+            )
+        except (OSError, subprocess.CalledProcessError) as error:
+            message = f"cannot list every module Ruff checks: {error}"
+            raise RuffPolicyError(message) from error
+        root = f"{REPO_ROOT}/"
+        scanned = set(checked_modules())
+        unreachable = {
+            line.removeprefix(root)
+            for line in without_targets.stdout.splitlines()
+            if line.startswith(root) and line.endswith(".py")
+        } - scanned
+        assert not unreachable, (
+            "Ruff checks these modules but the suppression contract never "
+            f"reads them: {sorted(unreachable)}. Add their directory to "
+            "LINT_TARGETS, or narrow the Makefile's Ruff targets so the two "
+            "describe the same set"
         )
 
     def test_the_scan_actually_reaches_suppression_comments(self) -> None:
