@@ -19,7 +19,7 @@ from __future__ import annotations
 import dataclasses as dc
 import enum
 import fcntl
-import subprocess  # noqa: S404 - tests start fixed gate commands.
+import subprocess  # ruff: ignore[S404]  # tests start fixed gate commands.
 import sys
 import time
 import tomllib
@@ -63,7 +63,7 @@ def _start_writer(
     script: Path, key: str, reason: str, environment: dict[str, str]
 ) -> subprocess.Popen[str]:
     """Start one allow command in the background and return its handle."""
-    return subprocess.Popen(  # noqa: S603 - fixed copied gate command.
+    return subprocess.Popen(  # ruff: ignore[S603]  # fixed copied gate command.
         gate_command(script, "allow", "--first", key, "--reason", reason),
         cwd=script.parent.parent,
         env=environment,
