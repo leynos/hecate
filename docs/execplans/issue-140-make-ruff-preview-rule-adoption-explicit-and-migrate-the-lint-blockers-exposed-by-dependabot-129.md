@@ -1114,9 +1114,9 @@ no_comment                 excluded=[]        missing=[]        line2_excluded=F
 ```
 
 Both directive orders and the pragma-only control report the line as excluded
-from coverage's statement set; the no-comment control reports it as a
-statement that is not excluded. That is the reader consuming the pragma
-giving its own verdict, rather than an inference from the comment's text.
+from coverage's statement set; the no-comment control reports it as a statement
+that is not excluded. That is the reader consuming the pragma giving its own
+verdict, rather than an inference from the comment's text.
 
 The behaviour fixtures also changed two of the plan's assumptions. The plan
 said to run them through Ruff with `--isolated --preview`; on the then-pinned
