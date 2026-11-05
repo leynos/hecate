@@ -18,32 +18,9 @@ from __future__ import annotations
 
 import pytest
 
+from .reporting import reported
 from .suppressions import NOQA, Suppression, classify, suppressions_in
 from .test_suppressions import violations
-
-
-def reported(source: str) -> list[str]:
-    """Return the convention messages for every suppression in ``source``.
-
-    Parameters
-    ----------
-    source : str
-        Python source read as if it were a checked module. It is passed to
-        the same reader and the same rules the repository scan uses, so a
-        fixture cannot agree with a copy of the policy.
-
-    Returns
-    -------
-    list[str]
-        One message per broken rule, in source order. Empty means every
-        suppression in the text follows the convention.
-
-    """
-    return [
-        message
-        for suppression in suppressions_in(source)
-        for message in violations((suppression,))
-    ]
 
 
 class TestAcceptedForms:
@@ -208,44 +185,6 @@ class TestBareSuppressions:
         )
 
 
-class TestNonCodeEntries:
-    """A suppression naming a rule rather than a code.
-
-    Ruff accepts rule names in suppression comments in preview mode, which
-    this project runs. A name is version-coupled prose: it cannot be looked
-    up against a code list without a second implementation of Ruff's rule
-    registry, and the security check below compares codes, so a named
-    security rule would slip through it. Measured on the pinned binary: a
-    ``file-ignore`` naming S603's rule leaves S607 reported and S603
-    silenced, which is exactly one security code suppressed.
-    """
-
-    @pytest.mark.parametrize(
-        "comment",
-        [
-            "# ruff: file-ignore[subprocess-without-shell-equals-true]  # Reviewed.",
-            "# ruff: ignore[subprocess-without-shell-equals-true]  # Reviewed.",
-            "# ruff: ignore[S60]  # Truncated code.",
-        ],
-        ids=["file-ignore-name", "ignore-name", "truncated-code"],
-    )
-    def test_an_entry_that_is_not_a_code_shape_is_reported(self, comment: str) -> None:
-        """Rule names and typos must be reported, not compared as codes."""
-        messages = reported(f"x = 1  {comment}\n")
-        assert any("not a rule code" in message for message in messages), (
-            f"{comment!r} named an entry that is not a rule code and was "
-            "accepted, so it is compared as a code the security rules will "
-            f"never match; messages were {messages}"
-        )
-
-    def test_a_real_code_is_still_accepted(self) -> None:
-        """The shape rule must not reject the codes the project uses."""
-        messages = reported("x = 1  # ruff: ignore[PLW1514, RUF100]  # Both.\n")
-        assert messages == [], (
-            "a code list of real Ruff codes was reported as malformed"
-        )
-
-
 class TestBroadForms:
     """File- and block-level suppressions of a security code."""
 
@@ -307,6 +246,36 @@ class TestReaderBoundaries:
         source = 'DOC = "# noqa"\nOTHER = "# ruff: ignore[S603]"\n'
         assert not suppressions_in(source), (
             "comment text inside a string literal was read as policy"
+        )
+
+    @pytest.mark.parametrize(
+        "comment",
+        [
+            "# Ruff: ignores generated files",
+            "# ruff: disabled after the rewrite",
+            "# ruff: enablement guard",
+        ],
+        ids=["ignores-plural", "disabled", "enablement"],
+    )
+    def test_a_directive_word_inside_a_longer_word_is_prose(self, comment: str) -> None:
+        """Ruff requires the directive name to stand alone, so this is prose.
+
+        Measured on the pinned binary: ``# Ruff: ignores generated files``
+        above a ``subprocess.run`` leaves S603 reported, so Ruff did not read
+        it as a directive. A reader that matched the prefix reported it as a
+        suppression with no codes and no rationale, which is a false positive
+        about a comment nobody meant as policy.
+        """
+        assert not suppressions_in(f"{comment}\nx = 1\n"), (
+            f"{comment!r} is prose that begins with a directive word, and was "
+            "reported as an unreviewed suppression"
+        )
+
+    def test_a_bracketless_directive_is_still_read(self) -> None:
+        """Requiring a delimiter must not stop the missing-code-list report."""
+        assert suppressions_in("# ruff: ignore  # Reviewed.\nx = 1\n"), (
+            "a bracketless directive naming no codes stopped being read, so "
+            "the missing code list is no longer reported"
         )
 
     def test_prose_comments_are_not_suppressions(self) -> None:

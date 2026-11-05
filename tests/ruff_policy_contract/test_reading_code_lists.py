@@ -1,0 +1,67 @@
+"""Contract: what a suppression's code list may contain.
+
+The rest of the fixture suite asks whether a suppression is *placed* and
+*explained* within the convention. This module asks a narrower question about
+the text between the brackets, because that is where a comment can name
+something the contract cannot check.
+
+Ruff accepts rule names there in preview mode, and this project runs preview.
+A name is version-coupled prose: it matches no code, so the security check that
+compares codes cannot see what it suppresses. Measured on the pinned binary, a
+``file-ignore`` naming S603's rule silences S603 across the module and leaves
+S607 reported — one security code suppressed by a comment the contract would
+otherwise clear.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from .reporting import reported
+
+
+class TestNonCodeEntries:
+    """A suppression naming something other than a rule code."""
+
+    @pytest.mark.parametrize(
+        "comment",
+        [
+            "# ruff: file-ignore[subprocess-without-shell-equals-true]  # Reviewed.",
+            "# ruff: ignore[subprocess-without-shell-equals-true]  # Reviewed.",
+            "# ruff: ignore[S60]  # Truncated code.",
+        ],
+        ids=["file-ignore-name", "ignore-name", "truncated-code"],
+    )
+    def test_an_entry_that_is_not_a_code_shape_is_reported(self, comment: str) -> None:
+        """Rule names and typos must be reported, not compared as codes."""
+        messages = reported(f"x = 1  {comment}\n")
+        assert any("not a rule code" in message for message in messages), (
+            f"{comment!r} named an entry that is not a rule code and was "
+            "accepted, so it is compared as a code the security rules will "
+            f"never match; messages were {messages}"
+        )
+
+    def test_a_name_in_the_noqa_form_is_reported_too(self) -> None:
+        """``noqa`` takes the same selector grammar, so the same rule applies."""
+        messages = reported("x = 1  # noqa: subprocess-without-shell-equals-true\n")
+        assert any("not a rule code" in message for message in messages), (
+            "a rule name in a noqa comment was accepted, so the two spellings "
+            "are held to different code-list rules"
+        )
+
+
+class TestAcceptedCodeLists:
+    """Shapes that are codes, including the ones the reader normalizes."""
+
+    @pytest.mark.parametrize(
+        "codes",
+        ["PLW1514, RUF100", "S603", "s603", "E501 F401"],
+        ids=["two-codes", "one-code", "lower-case", "space-separated"],
+    )
+    def test_a_list_of_real_codes_is_not_reported(self, codes: str) -> None:
+        """The shape rule must reject names, not spellings Ruff accepts."""
+        messages = reported(f"x = 1  # ruff: ignore[{codes}]  # Reviewed.\n")
+        assert messages == [], (
+            f"the code list {codes!r} is all real codes, and was reported as "
+            f"malformed: {messages}"
+        )
