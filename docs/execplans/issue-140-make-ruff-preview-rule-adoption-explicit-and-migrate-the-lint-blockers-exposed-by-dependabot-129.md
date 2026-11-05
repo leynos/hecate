@@ -184,8 +184,27 @@ instead of arriving as a surprise CI failure? The observable end state:
      with a deliberately drifted lock exits 1 under `--locked` and installs
      the new package without it, and `make build` here leaves `uv.lock`
      byte-identical. The developers' guide explains why the flag is there.
-- [ ] Milestone 3: resolve `D421` docstrings and migrate suppressions with a
-     local contract and behaviour fixtures.
+- [x] Milestone 3, part one: `D421` fixed by docstring-only edits. Six
+     summary lines in `hecate/` and `scripts/nose_schema.py` began with
+     `Return`/`Returns`, and eleven properties in
+     `scripts/tests/test_duplication_gate_contention.py` followed the same
+     shape. Each now opens with the noun phrase the attribute names, so no
+     behaviour, signature, or code changed. Verified clean on both 0.16.9 and
+     0.17.3 across `hecate tests scripts`.
+- [x] Milestone 3, part two: all 30 `noqa` comments migrated to
+     `ruff: ignore[CODE]  # reason`, and two new contracts added.
+     `tests/ruff_policy_contract/suppressions.py` reads comments by tokenizing
+     rather than by regex over the file, so a `#` inside a string literal is
+     never policy. `test_suppressions.py` applies the house convention to every
+     module Ruff reports for `hecate tests scripts`; `test_reading_suppressions.py`
+     applies the same two functions to literal text, which is what makes the
+     repository scan non-vacuous; `test_suppression_behaviour.py` runs the
+     pinned binary over fixtures in `tmp_path` to prove the migrated spelling
+     actually suppresses, and only where Ruff reports the code. Three seeded
+     mutations of the reader and of the broad-form rule each failed the suite
+     (21, 6, and 3 failures respectively), and the restored tree is 70 passed.
+- [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
+     run every gate, and record results.
 - [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
      run every gate, and record results.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
@@ -266,6 +285,35 @@ instead of arriving as a surprise CI failure? The observable end state:
   `D100`/`D406`/`D407` — it looked like the rule was off. A copied
   configuration needs a violation that matches the configured convention, not
   just a violation in the abstract.
+- Where Ruff reports a diagnostic decides where the suppression has to go, and
+  the two security codes differ. S603 is reported on the `subprocess.run(` call
+  line; S607 is reported on the line holding the argument vector. For a
+  single-line call those are the same physical line and a trailing comment
+  covers both. For a multi-line call they are different lines, so an own-line
+  comment above the call covers S603 and the *entire logical line* below it,
+  while S607 still needs a comment on the vector's line. `discovery.py` relies
+  on exactly this: its own-line `# ruff: ignore[S607]` sits above the vector
+  inside a `subprocess.run(` whose call line is separate.
+- A suppression on the call line of a multi-line call does not reach the
+  argument line, and a suppression on the argument line does not reach the call
+  line. That asymmetry is what makes "put it where Ruff reports it" both
+  necessary and sufficient, and it is now pinned by
+  `test_a_call_line_suppression_does_not_reach_an_argument_line`.
+- Ruff 0.17 finds a suppression directive *anywhere* in a comment that a `#`
+  introduces, including inside prose and inside backticks, not only at the
+  comment's start. A comment documenting the syntax, such as one naming a code
+  inside double backticks, is therefore a live directive: 0.17.3 reports it as
+  an unused suppression, or warns that it is invalid. 0.16.9 does not, so this
+  class of mistake is invisible on the pinned binary and appears on upgrade.
+  The reader now searches rather than anchors to match, and the repository
+  contract immediately flagged the two explanatory comments in
+  `suppressions.py` itself, which is the strongest evidence that the rule has
+  teeth. Documentation of this syntax must be written without a literal
+  directive.
+- Ruff accepts `ruff:ignore` without a space after the colon, and accepts a
+  directive with no brackets, but only the bracketed form is a directive:
+  `# ruff: ignore` with no code list is silently inert, and neither RUF100 nor
+  RUF104 remarks on it.
 - `ty` rejected the readers' `dict[str, object]` parameters: `dict` is
   invariant in its value type, so the literal nested tables the negative cases
   pass in do not conform. The readers now take `collections.abc.Mapping` and
@@ -294,6 +342,30 @@ instead of arriving as a surprise CI failure? The observable end state:
   keep the rationale after a second `#`. Rationale: RUF105 is explicitly
   described upstream as opinionated; a written decision plus a local contract
   is the difference between a policy and an unexplained suppression.
+- Decision: enable `--preview` in the behaviour fixtures, and add a case
+  asserting that the migrated syntax is inert without it. Rationale: measured,
+  not assumed — with preview off, Ruff emits
+  `#ruff:ignore comment found but not active, enable preview mode` and still
+  reports the diagnostic. Every scope assertion in the fixture file would
+  otherwise have passed while proving nothing about the mode the project
+  actually runs.
+- Decision: give each fixture the smallest argument vector that trips the code
+  under test, rather than one vector that trips both. Rationale: measured —
+  S603 fires only when the vector is not entirely literal strings, while an
+  all-literal `['make']` draws S607 alone. One variable element
+  (`name = 'make'`, then `['make', name]`) produces both, which is why the
+  suppression scope fixture uses that shape and the single-code cases do not.
+- Decision: record a bracket-less `ruff: ignore` as a suppression, even though
+  Ruff treats it as prose. Rationale: measured — a call line carrying that
+  comment as a trailing suppression still reports S607, and RUF100 does not
+  flag the comment as unused, so Ruff does not warn. A comment an author
+  believes suppresses something and which in fact suppresses nothing is exactly
+  what the contract should catch, and only the reader can catch it.
+- Decision: keep the readers and the convention in separate modules
+  (`suppressions.py` reads; `test_suppressions.py` judges), so the literal-text
+  fixtures import the same function the repository scan uses. Rationale: the
+  plan's requirement 4 asks for fixtures fed to that checker; a second judging
+  implementation in the test file would prove only that the copy works.
 - Decision: enforce the suppression convention with a tokenizer-based contract
   over tracked Python files rather than a regex grep. Rationale: comments
   inside string literals would otherwise be counted, and the contract needs to
@@ -331,9 +403,10 @@ Not yet delivered. This section is completed at the end of milestone 4.
 - `leynos/shared-actions#588` is the destination for the migration canary
   evidence; this plan deliberately does not create a runner.
 
-Trace: `#140 AC1 -> M3 -> tests/test_d421... + migrated docstrings`;
-`#140 AC2 -> M1 -> tests/ruff_policy_contract/`;
-`#140 AC3 -> M3 -> tests/ suppression_contract/`;
+Trace: `#140 AC1 -> M3 -> the D421-clean run over hecate tests scripts`;
+`#140 AC2 -> M1 -> tests/ruff_policy_contract/test_preview_adoption.py`;
+`#140 AC3 -> M3 -> tests/ruff_policy_contract/test_suppressions.py`,
+`test_reading_suppressions.py`, `test_suppression_behaviour.py`;
 `#140 AC4 -> M4 -> gate transcripts`;
 `#140 AC5 -> M4 -> issue comment on shared-actions#588`.
 
@@ -482,6 +555,36 @@ behaviour fixtures enforce both. Acceptance: the focused Ruff run over
 `hecate tests scripts` is clean on the pinned version, and the fixtures
 demonstrate suppression scope, restored diagnostics, and adjacent-diagnostic
 visibility.
+
+Delivered. The `D421` edits are docstring-only and touch no signature or
+statement. The migration rewrote 30 `noqa` comments across 12 files; the only
+ones left in the tree are two `S310` comments in `scripts/typos_rollout.py`,
+which `extend-exclude` keeps out of the gate, so rewriting them would be policy
+no gate enforces.
+
+Three modules carry the new contract. `suppressions.py` tokenizes and returns a
+`Suppression` record with its line, form, codes, and rationale; it is
+deliberately judgement-free. `test_suppressions.py` holds the judgement and the
+repository scan, asking Ruff for `--show-files hecate tests scripts` so an
+excluded module is not failed for a comment the gate never reads (95 files, and
+`scripts/typos_rollout.py` is absent from that list).
+`test_reading_suppressions.py` feeds literal text to those same two functions,
+which is what makes a passing repository scan mean something.
+`test_suppression_behaviour.py` proves the syntax rather than the reading.
+
+Non-vacuity was demonstrated by seeding faults. Making `has_reason` always true
+failed 6 cases; making the reader return nothing failed 21, including the
+repository scan's own non-vacuity test; removing the broad-form rule from
+`violations` failed the 3 broad-form cases. The restored tree is 70 passed, and
+`uv run ruff check hecate tests scripts` reports `All checks passed!`.
+
+The behaviour fixtures also changed two of the plan's assumptions. The plan
+said to run them through Ruff with `--isolated --preview`; the `--preview` half
+turned out to be load-bearing, not decoration, and now has its own case. And
+the plan implied one fixture could trip both security codes; in fact an
+all-literal vector trips S607 alone and only a vector with a variable element
+trips S603. Both facts are recorded in `Surprises & discoveries` because a
+future maintainer adding a fixture will otherwise repeat the mistake.
 
 ### Milestone 4: adopt the refreshed update and record the evidence
 
