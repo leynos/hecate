@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Outcomes & retrospective`, `Conformance basis`, and `Verification plan` must
 be kept up to date as work proceeds.
 
-Status: IN PROGRESS.
+Status: COMPLETE.
 
 Issue: <https://github.com/leynos/hecate/issues/140>
 
@@ -231,10 +231,10 @@ instead of arriving as a surprise CI failure? The observable end state:
      rationale — a `disable`/`enable` pair is one reviewed decision and the
      reason lives on the opening comment. The third finding asked for
      `re.IGNORECASE` to be dropped from the directive pattern; that would have
-     made the reader *skip* wrongly-cased directives as prose, which is worse, and
-     measurement showed the real problem is wider than reported: Ruff matches
-     the prefix, the name **and the codes** case-sensitively, reports nothing
-     at all for a wrong-case prefix or code, and would therefore leave a
+     made the reader *skip* wrongly-cased directives as prose, which is worse,
+     and measurement showed the real problem is wider than reported: Ruff
+     matches the prefix, the name **and the codes** case-sensitively, reports
+     nothing at all for a wrong-case prefix or code, and would therefore leave a
      wrongly-cased comment clearing nothing while reading as policy. The pattern
      still matches case-insensitively so those comments are *read*, the record
      now keeps the literal spelling, `records_canonical_case` decides whether
@@ -280,18 +280,38 @@ instead of arriving as a surprise CI failure? The observable end state:
 - [x] Milestone 4: adopt Ruff 0.17.3 and record the evidence. Locked with
      `uv lock --upgrade-package 'ruff==0.17.3'`; the lock still holds the same
      45 packages and only Ruff changes version, though uv also bumped the
-     lock's own `revision = 3` to `5`. Resolved rule set is **identical**: 673
-     codes before and after, none added, none removed, and 0.17.3 and 0.17.4
-     resolve identically under this configuration. That is the setting doing
-     its job: `explicit-preview-rules = true` keeps the three blockers (`D421`,
-     `RUF105`, `UP052`) inert, so no source change was needed for them. The one
-     behaviour that did move is the suppression syntax, recorded in
-     `Surprises & discoveries`. `enabled_rules.txt` changes by its version
-     header alone, and every gate passes: fmt, check-fmt, lint (Ruff 0.17.3,
-     Pylint 10.00, Skylos, duplication), typecheck, 725 tests, markdownlint,
-     nixie.
-- [ ] Feed the old/new fixture and rule-set delta to
-     `leynos/shared-actions#588`.
+     lock's own `revision = 3` to `5`. Under the **new** configuration the
+     resolved rule set is identical: 673 codes before and after, none added,
+     none removed, and 0.17.3 and 0.17.4 resolve identically. That is the
+     setting doing its job: `explicit-preview-rules = true` keeps the three
+     blockers (`D421`, `RUF105`, `UP052`) inert, so no source change was
+     needed for them. The one behaviour that did move is the suppression
+     syntax, recorded in `Surprises & discoveries`. `enabled_rules.txt`
+     changes by its version header alone, and every gate passes: fmt,
+     check-fmt, lint (Ruff 0.17.3, Pylint 10.00, Skylos, duplication),
+     typecheck, 725 tests, markdownlint, nixie.
+- [x] Milestone 4, review pass: three findings, all taken. Two were spelling
+     (`artefact`, `stabilized`). The third was structural and correct:
+     `reporting.py` is the non-test seam the fixtures import, and it was
+     importing `test_suppressions` to reach `violations`, so it also evaluated
+     that module's `pytestmark` and inherited a repository-presence skip
+     condition for a scan it does not perform. The judgement moved to
+     `convention.py`, which reads no files; `test_suppressions.py` keeps only
+     the scan. `violations` itself is unchanged, so the suite stays at 132
+     passed. The follow-up review returned 0 findings.
+- [x] Measured the old-configuration delta, which the earlier record did not
+     separate: on the base `pyproject.toml` (`preview = true` only), 0.15.13
+     resolves 673 codes and 0.17.3 resolves **683**, adding ten preview rules
+     (`D421`, `RUF074`, `RUF075`, `RUF077`, `RUF105`, `RUF106`, `RUF201`,
+     `UP048`, `UP051`, `UP052`). Dependabot #176's 19-error failure is three of
+     those ten. This is the four-cell matrix in `Outcomes & retrospective`.
+- [x] Feed the old/new fixture and rule-set delta to
+     `leynos/shared-actions#588`. Posted as
+     <https://github.com/leynos/shared-actions/issues/588#issuecomment-6668251648>:
+     versions, both configurations, the four-cell matrix, the reproduced
+     19-error CI failure at head `b8bb4bd`, the suppression-behaviour pair,
+     the suggested fixture shape, and an explicit statement of what is not
+     claimed.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
      `leynos/shared-actions#588`.
 
@@ -586,7 +606,86 @@ instead of arriving as a surprise CI failure? The observable end state:
 
 ## Outcomes & retrospective
 
-Not yet delivered. This section is completed at the end of milestone 4.
+Delivered. The four milestones are complete, and the branch carries 32 commits
+from the base of `74af1a6~1`. Every acceptance criterion is discharged by
+something a reader can run.
+
+### What a contributor can now do that they could not before
+
+Ask `pyproject.toml` which preview rules this project adopts and get a list of
+106 exact codes, each on its own line, rather than an inference from which
+prefixes happen to overlap upstream's preview set. Run
+`uv run pytest tests/ruff_policy_contract` and have the repository compare its
+committed 673-code inventory against what the installed binary actually
+resolves, in both directions, naming any code that appeared or disappeared.
+Read `convention.py` and find the whole suppression policy as one function with
+no file I/O. And answer "which Ruff is the gate running" from `uv.lock` plus
+the recipe assertion, rather than from whatever `ruff` is first on `PATH`.
+
+### The measurement that mattered
+
+The migration was accepted on a claim that the resolved rule set is unchanged.
+That claim was verified in four cells rather than one, because a single-cell
+comparison cannot distinguish a harmless bump from a policy that absorbed the
+bump. On the old configuration (`preview = true`, no `extend-select`),
+0.15.13 resolved 673 codes and 0.17.3 resolved 683 — the bump silently added
+ten preview rules. On the new configuration both resolve 673, with zero added
+and zero removed. Holding Ruff at 0.15.13, the policy change moves the set by
+zero; holding the new configuration, the bump moves it by zero. Only the
+old-configuration bump moves it, which is exactly the defect.
+
+The ten codes were `D421`, `RUF074`, `RUF075`, `RUF077`, `RUF105`, `RUF106`,
+`RUF201`, `UP048`, `UP051`, `UP052`. Dependabot #176's CI failure contains
+three of them — `D421`, `RUF105`, `UP052` — as 19 errors on `hecate tests`,
+with 29 more waiting on `scripts`. The other seven were the quietly-reviewed
+part: they arrived inert on this tree and nobody had approved them.
+
+### What the plans did not anticipate
+
+Three findings changed the shape of the work. `ruff: ignore[...]` was a preview
+feature on 0.15.13 — a warning and no suppression in stable mode — and became
+stable by 0.17.3, which inverted a contract test that had been written as a
+negative control. The rule-set inventory is structurally incapable of catching
+that: the set of rule *codes* was identical across the change while the meaning
+of a *comment* changed under it, so only a fixture running the real binary could
+see it. And the directive grammar accepted a rule *name* inside the brackets,
+which suppresses in preview mode but matches no code, so a policy that trusted
+the mode rather than the code list would have silently disabled itself in any
+stable-mode run.
+
+Each of these was found by asserting something that could fail, not by reading
+the changelog. The pattern worth carrying forward: when a dependency is treated
+as a policy boundary, the contract has to exercise the binary, because the
+configuration file describes intent and the binary describes behaviour.
+
+### Cost
+
+The change exceeds the plan's original 30-file / 1200-line tolerance. Counting
+only non-ExecPlan files, as the plan's own exception clause requires: 40 files,
+4143 insertions and 77 deletions. The overrun was escalated and recorded in the
+Decision log rather than trimmed to fit. Most of it is the 106-code adoption
+list, the committed inventory, and the contract suite, all of which are the
+deliverable rather than incidental.
+
+### Lessons
+
+- A rule-set snapshot proves the set, not the semantics. Both contracts are
+  needed and neither substitutes for the other.
+- "Unchanged" is a claim about a cell, not about a version pair. The four-cell
+  matrix is the minimum that attributes a delta to a cause.
+- Extracting the judgement from a test module is what lets the fixtures and the
+  repository scan share one implementation; the first placement chose
+  convenience over structure and the review caught it.
+- Spelling gates run over Markdown only, so a docstring using the -ise form
+  survives `make lint` and surfaces only in review. Worth knowing before the
+  next review round rather than after it.
+
+### Delivered outside this repository
+
+The rule-set delta, the four-cell matrix and the suppression-behaviour pair
+were posted to `leynos/shared-actions#588`, which tracks the campaign fixture
+for this failure class, rather than building a new runner here. That is
+Task 4's instruction and the reason the campaign row already exists.
 
 ## Conformance basis
 
