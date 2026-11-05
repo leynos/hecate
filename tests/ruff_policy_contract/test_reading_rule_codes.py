@@ -66,7 +66,7 @@ class TestRefusedEntries:
             "PLR09",
             "PLR0",
             "PLR09112",
-            "PLR09111",
+            "PLR091112",
             "plr0911",
             "PLR0911X",
             "PLR 0911",
