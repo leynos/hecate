@@ -208,6 +208,44 @@ class TestBareSuppressions:
         )
 
 
+class TestNonCodeEntries:
+    """A suppression naming a rule rather than a code.
+
+    Ruff accepts rule names in suppression comments in preview mode, which
+    this project runs. A name is version-coupled prose: it cannot be looked
+    up against a code list without a second implementation of Ruff's rule
+    registry, and the security check below compares codes, so a named
+    security rule would slip through it. Measured on the pinned binary: a
+    ``file-ignore`` naming S603's rule leaves S607 reported and S603
+    silenced, which is exactly one security code suppressed.
+    """
+
+    @pytest.mark.parametrize(
+        "comment",
+        [
+            "# ruff: file-ignore[subprocess-without-shell-equals-true]  # Reviewed.",
+            "# ruff: ignore[subprocess-without-shell-equals-true]  # Reviewed.",
+            "# ruff: ignore[S60]  # Truncated code.",
+        ],
+        ids=["file-ignore-name", "ignore-name", "truncated-code"],
+    )
+    def test_an_entry_that_is_not_a_code_shape_is_reported(self, comment: str) -> None:
+        """Rule names and typos must be reported, not compared as codes."""
+        messages = reported(f"x = 1  {comment}\n")
+        assert any("not a rule code" in message for message in messages), (
+            f"{comment!r} named an entry that is not a rule code and was "
+            "accepted, so it is compared as a code the security rules will "
+            f"never match; messages were {messages}"
+        )
+
+    def test_a_real_code_is_still_accepted(self) -> None:
+        """The shape rule must not reject the codes the project uses."""
+        messages = reported("x = 1  # ruff: ignore[PLW1514, RUF100]  # Both.\n")
+        assert messages == [], (
+            "a code list of real Ruff codes was reported as malformed"
+        )
+
+
 class TestBroadForms:
     """File- and block-level suppressions of a security code."""
 
