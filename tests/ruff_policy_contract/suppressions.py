@@ -34,6 +34,14 @@ if typ.TYPE_CHECKING:
 #: optional there, and a bare comment suppresses every diagnostic on the line,
 #: which is the breadth the contract forbids.
 #:
+#: Three spellings are accepted because all three suppress, measured on
+#: 0.17.3: a bare ``noqa``, one carrying a ``ruff:`` or ``flake8:`` prefix,
+#: and any casing. The prefixed forms matter most. On a line of their own they
+#: are **file-level** — Ruff applies them to the whole module and warns only
+#: when one is trailing — so a reader that skipped them would clear a
+#: suppression covering every line in the file, which is the exact breadth
+#: this contract exists to refuse.
+#:
 #: Both patterns search rather than anchor. Ruff 0.17 finds a directive
 #: anywhere in a comment that a ``#`` introduces, including inside prose and
 #: inside backticks, and reports it as an unused suppression. Anchoring here
@@ -42,7 +50,9 @@ if typ.TYPE_CHECKING:
 #: (This comment deliberately avoids writing a literal directive: Ruff parses
 #: one even inside backticks, so an example here would be a live suppression.)
 _NOQA_RE = re.compile(
-    r"#\s*noqa(?![\w-])(?::\s*(?P<codes>[A-Za-z0-9]+(?:[,\s]+[A-Za-z0-9]+)*))?",
+    r"#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa(?![\w-])"
+    r"(?::\s*(?P<codes>[A-Za-z0-9]+(?:[,\s]+[A-Za-z0-9]+)*))?",
+    flags=re.IGNORECASE,
 )
 
 #: The Ruff form, a directive name with an optional bracketed code list and an
