@@ -174,8 +174,16 @@ instead of arriving as a surprise CI failure? The observable end state:
      per-file policy, when requirement 4 is about comments written in source
      files and `lint.per-file-ignores` was already documented as outside the
      inventory; the paragraph now says so.
-- [ ] Milestone 2: pin Ruff provenance in `make build` and add the toolchain
-     contract.
+- [x] Milestone 2: pin Ruff provenance in `make build` and add the toolchain
+     contract. `build` now runs `uv sync --locked --group dev`, and
+     `tests/ruff_policy_contract/test_provenance.py` asserts both that the
+     recipe carries `--locked` and that the version `uv.lock` pins equals the
+     version the virtualenv imports. Written red first: without the flag the
+     build-recipe case failed on
+     `['$(UV_ENV)', '$(UV)', 'sync', '--group', 'dev']`. A throwaway project
+     with a deliberately drifted lock exits 1 under `--locked` and installs
+     the new package without it, and `make build` here leaves `uv.lock`
+     byte-identical. The developers' guide explains why the flag is there.
 - [ ] Milestone 3: resolve `D421` docstrings and migrate suppressions with a
      local contract and behaviour fixtures.
 - [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
@@ -290,6 +298,16 @@ instead of arriving as a surprise CI failure? The observable end state:
   over tracked Python files rather than a regex grep. Rationale: comments
   inside string literals would otherwise be counted, and the contract needs to
   distinguish inline, file-level, and block forms.
+- Decision: put `--locked` in the `build` goal rather than in a separate
+  target or in `UV_ENV`. Rationale: `build` is what CI runs and what every
+  other gate depends on, so the flag reaches every install path without a new
+  invocation to remember. A separate target would leave the re-resolving one
+  available and reachable.
+- Decision: assert the lock and the running interpreter agree, and assert the
+  recipe carries `--locked`, as two separate cases. Rationale: each can be true
+  while the other is false. A `--locked` build of a lock that no longer matches
+  `pyproject.toml` fails loudly, but one that matches yet pins a different Ruff
+  than the virtualenv imports would still pass a recipe-only check.
 - Decision: hold the grouped update's other seven packages until the Ruff
   migration is green, then let Dependabot recreate the branch. Rationale: a
   passing Ruff migration does not certify the other packages; the separation
@@ -429,6 +447,31 @@ contract asserts the lockfile version, the `--locked` spelling, and the running
 binary agree. Acceptance: `make build` exits 0 without re-resolving, and the
 test fails if `--locked` is removed or the lock is regenerated without updating
 the expectation.
+
+Delivered. The build recipe carries `--locked`, and
+`tests/ruff_policy_contract/test_provenance.py` holds two cases over the real
+files plus two over the readers. The first case compares `locked_ruff_version`
+with `installed_ruff_version`; the second requires `--locked` in the joined
+recipe. Acceptance evidence, from a throwaway project whose `pyproject.toml`
+gained a dependency after `uv lock`:
+
+```plaintext
+$ uv sync --locked
+error: The lockfile at `uv.lock` needs to be updated, but `--locked` was provided.
+hint: To update the lockfile, run `uv lock`.
+exit=1
+
+$ uv sync
+Resolved 2 packages
+Installed 1 package
+  + six==1.17.0
+exit=0
+```
+
+In this worktree, `make build` printed `Resolved 45 packages` from the lock and
+left `uv.lock` byte-identical (`sha256sum -c` reports `uv.lock: OK`). The
+recovery path is to revert the one Makefile line and the test file, which
+returns the repository to the baseline.
 
 ### Milestone 3: resolve the demonstrated blockers
 
