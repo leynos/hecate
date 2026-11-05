@@ -204,6 +204,24 @@ instead of arriving as a surprise CI failure? The observable end state:
      actually suppresses, and only where Ruff reports the code. Three seeded
      mutations of the reader and of the broad-form rule each failed the suite
      (21, 6, and 3 failures respectively), and the restored tree is 70 passed.
+- [x] Milestone 3, fifth review pass: two findings, both taken. A regex hole
+     wider than the one reported: `# ruff: noqa: S607` and `# flake8: noqa` on
+     their own line are *file-level* suppressions on 0.17.3, and the reader
+     matched only a bare lower-case `noqa`, so both read as prose and the whole
+     module they silenced was clear. The pattern now accepts either prefix and
+     is case-insensitive, and five literal fixtures (prefixed with codes,
+     prefixed bare, no space, upper-case, trailing) prove it. A drift test
+     binds the scan's `LINT_TARGETS` to Ruff's own `--show-files` output. Both
+     were shown to fail when their fix is reverted: 6 and 17 named modules.
+- [x] Milestone 3, sixth and seventh review passes: two findings raised and
+     falsified by measurement, one clarified. Ruff 0.15.13 reads the spaced
+     `# ruff: ignore[...]` form exactly as it reads the compact spelling (all
+     four suppression/non-suppression combinations identical, and both inert
+     without `--preview`), so the 30 migrated comments were not rewritten. The
+     RUF106 claim that `explicit-preview-rules` is absent was measured false:
+     it is set at `pyproject.toml:52` and 0.17.3 reports `All checks passed!`.
+     The suppression-placement bullet conflated line placement with the codes
+     a comment names; it now separates them and carries the measurement.
 - [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
      run every gate, and record results.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
@@ -482,13 +500,17 @@ Obligations introduced or preserved by this change:
    test asserts the diagnostic is *present* in the unsuppressed variant and
    *absent* in the suppressed one, so a fixture that never triggers cannot pass.
 4. *Rationale and code scope are enforced locally.* Invariant: every suppression
-   comment in `hecate/`, `tests/`, and `scripts/` has explicit codes and a
-   non-empty rationale, has no bare `noqa`, and has no security code in
-   file-level or block form. Method: tokenizer-based contract with positive and
-   negative fixtures covering missing rationale, whitespace-only rationale, bare
-   `noqa`, and `S603` inside `file-ignore`/`disable`. Non-vacuity: the
-   negative fixtures are fed to the same checker function the repository scan
-   uses.
+   comment in every module the gate checks has explicit codes and a non-empty
+   rationale, writes no `noqa` in any spelling Ruff accepts, and has no
+   security code in file-level or block form. Method: tokenizer-based contract
+   with positive and negative fixtures covering missing rationale,
+   whitespace-only rationale, bare `noqa`, `noqa` with a `ruff:` or `flake8:`
+   prefix (file-level in either position), upper-case `noqa`, and `S603` inside
+   `file-ignore`/`disable`. A second invariant binds the set of files read to
+   Ruff's own `--show-files` output, so a directory added to the Makefile
+   cannot be linted and unread. Non-vacuity: the negative fixtures are fed to
+   the same checker function the repository scan uses, and removing `scripts`
+   from the scan's target list names all 17 modules it would have skipped.
 5. *The gate runs the locked Ruff.* Invariant: the Ruff version the gate runs
    equals the version recorded in `uv.lock`, and `make build` syncs with
    `--locked`. Method: `tomllib` comparison against
