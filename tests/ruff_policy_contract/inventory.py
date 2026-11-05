@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .reading import RuffPolicyError
+from .reading import RuffPolicyError, is_rule_code
 
 #: The reviewed inventory, beside this module so a checkout carries it.
 INVENTORY_PATH = Path(__file__).resolve().parent / "enabled_rules.txt"
@@ -84,7 +84,10 @@ def inventory_codes(text: str) -> tuple[str, ...]:
     Raises
     ------
     RuffPolicyError
-        If a line is not a comment, blank, or a rule code.
+        If a line is not a comment, blank, or a rule code. What a code looks
+        like is :func:`reading.is_rule_code`, shared with the selector and
+        suppression contracts: a second, looser shape here would accept an
+        entry those two refuse and record it as reviewed policy.
 
     """
     codes: list[str] = []
@@ -92,7 +95,7 @@ def inventory_codes(text: str) -> tuple[str, ...]:
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
             continue
-        if not re.fullmatch(r"[A-Z]+\d+", stripped):
+        if not is_rule_code(stripped):
             message = f"unrecognized inventory entry: {line!r}"
             raise RuffPolicyError(message)
         codes.append(stripped)

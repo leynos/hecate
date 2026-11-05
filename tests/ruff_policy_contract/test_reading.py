@@ -90,6 +90,20 @@ class TestInventoryReader:
         with pytest.raises(RuffPolicyError, match="unrecognized inventory entry"):
             inventory_codes("F 401\n")
 
+    @pytest.mark.parametrize("entry", ["PLR0", "PLR09", "PLR09111"])
+    def test_uses_the_shared_rule_code_shape(self, entry: str) -> None:
+        """Keep no second, looser definition of a code in this reader.
+
+        ``"D"`` and ``"F 401"`` are refused by any shape worth having, so the
+        cases above cannot show which shape runs here. These entries are
+        upper-case and end in a digit, which the loose pattern this reader
+        used to carry accepted; the selector and suppression contracts
+        already refuse them. ``PLR091`` is deliberately absent: it follows the
+        grammar without naming a rule, which no shape check can detect.
+        """
+        with pytest.raises(RuffPolicyError, match="unrecognized inventory entry"):
+            inventory_codes(f"F401\n{entry}\n")
+
 
 class TestLockReader:
     """The reader over ``uv.lock``."""
