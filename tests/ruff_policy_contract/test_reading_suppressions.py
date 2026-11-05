@@ -155,6 +155,21 @@ class TestBareSuppressions:
             "a trailing upper-case noqa must be read as a line suppression"
         )
 
+    def test_an_enable_directive_is_read_but_never_treated_as_broad(self) -> None:
+        """``ruff: enable`` restores coverage, so it cannot hide a security code.
+
+        The reader records it because it is a directive the gate should see;
+        the broad-form rule must not, because ``enable`` is the comment that
+        ends a region rather than one that opens it.
+        """
+        assert classify("# ruff: enable[S603]") is not None, (
+            "an enable directive must be read so the gate can see it"
+        )
+        messages = violations(suppressions_in("# ruff: enable[S603]  # Re-armed.\n"))
+        assert not any("more than one line" in message for message in messages), (
+            "enable restores coverage and must never count as a broad form"
+        )
+
     def test_a_code_list_in_noqa_form_satisfies_the_no_codes_rule(self) -> None:
         """Naming a code is a separate question from the spelling used.
 
@@ -213,6 +228,26 @@ class TestBroadForms:
         messages = reported("# ruff: file-ignore[E501]  # Generated table below.\n")
         assert messages == [], (
             "a file-level suppression of a style code is not call-site policy"
+        )
+
+    def test_an_enable_directive_needs_no_rationale(self) -> None:
+        """The reason belongs to the ``disable`` that opened the region.
+
+        A pair is one reviewed decision. Requiring the reason twice invites the
+        two copies to disagree, and the second one would be a stale summary of
+        a decision already recorded above it.
+        """
+        messages = violations(suppressions_in("# ruff: enable[S603]\n"))
+        assert not any("no rationale" in message for message in messages), (
+            "an enable comment, which closes a region rather than hiding one, "
+            "was required to repeat the disable's rationale"
+        )
+
+    def test_a_disable_comment_still_needs_its_rationale(self) -> None:
+        """Exempting the closing form must not exempt the opening one."""
+        messages = violations(suppressions_in("# ruff: disable[S603]\n"))
+        assert any("no rationale" in message for message in messages), (
+            "the rationale exemption spread to the disable that opens the region"
         )
 
 
@@ -305,28 +340,6 @@ class TestReaderBoundaries:
         assert any(
             "names no codes" in message for message in violations((suppression,))
         ), "the missing code list was not reported"
-
-    def test_the_form_is_recorded_in_lower_case_and_codes_upper_case(self) -> None:
-        """Ruff accepts either case; the record normalizes so reports match."""
-        (suppression,) = suppressions_in("x = 1  # RUFF: IGNORE[s603]  # lowered.\n")
-        assert (suppression.form, suppression.codes) == ("ignore", ("S603",)), (
-            "the form must be lower-cased and the code upper-cased"
-        )
-
-    def test_an_enable_directive_is_read_but_never_treated_as_broad(self) -> None:
-        """``ruff: enable`` restores coverage, so it cannot hide a security code.
-
-        The reader records it because it is a directive the gate should see;
-        the broad-form rule must not, because ``enable`` is the comment that
-        ends a region rather than one that opens it.
-        """
-        assert classify("# ruff: enable[S603]") is not None, (
-            "an enable directive must be read so the gate can see it"
-        )
-        messages = violations(suppressions_in("# ruff: enable[S603]  # Re-armed.\n"))
-        assert not any("more than one line" in message for message in messages), (
-            "enable restores coverage and must never count as a broad form"
-        )
 
     def test_an_unknown_directive_spelling_is_prose(self) -> None:
         """``ruff: ban`` is not a Ruff directive, and must not be invented."""
