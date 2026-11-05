@@ -621,21 +621,21 @@ Ask `pyproject.toml` which preview rules this project adopts and get a list of
 prefixes happen to overlap upstream's preview set. Run
 `uv run pytest tests/ruff_policy_contract` and have the repository compare its
 committed 673-code inventory against what the installed binary actually
-resolves, in both directions, naming any code that appeared or disappeared.
-Read `convention.py` and find the whole suppression policy as one function with
-no file I/O. And answer "which Ruff is the gate running" from `uv.lock` plus
-the recipe assertion, rather than from whatever `ruff` is first on `PATH`.
+resolves, in both directions, naming any code that appeared or disappeared. Read
+`convention.py` and find the whole suppression policy as one function with no
+file I/O. And answer "which Ruff is the gate running" from `uv.lock` plus the
+recipe assertion, rather than from whatever `ruff` is first on `PATH`.
 
 ### The measurement that mattered
 
 The migration was accepted on a claim that the resolved rule set is unchanged.
 That claim was verified in four cells rather than one, because a single-cell
 comparison cannot distinguish a harmless bump from a policy that absorbed the
-bump. On the old configuration (`preview = true`, no `extend-select`),
-0.15.13 resolved 673 codes and 0.17.3 resolved 683 — the bump silently added
-ten preview rules. On the new configuration both resolve 673, with zero added
-and zero removed. Holding Ruff at 0.15.13, the policy change moves the set by
-zero; holding the new configuration, the bump moves it by zero. Only the
+bump. On the old configuration (`preview = true`, no `extend-select`), 0.15.13
+resolved 673 codes and 0.17.3 resolved 683 — the bump silently added ten
+preview rules. On the new configuration both resolve 673, with zero added and
+zero removed. Holding Ruff at 0.15.13, the policy change moves the set by zero;
+holding the new configuration, the bump moves it by zero. Only the
 old-configuration bump moves it, which is exactly the defect.
 
 The ten codes were `D421`, `RUF074`, `RUF075`, `RUF077`, `RUF105`, `RUF106`,
@@ -651,11 +651,11 @@ feature on 0.15.13 — a warning and no suppression in stable mode — and becam
 stable by 0.17.3, which inverted a contract test that had been written as a
 negative control. The rule-set inventory is structurally incapable of catching
 that: the set of rule *codes* was identical across the change while the meaning
-of a *comment* changed under it, so only a fixture running the real binary could
-see it. And the directive grammar accepted a rule *name* inside the brackets,
-which suppresses in preview mode but matches no code, so a policy that trusted
-the mode rather than the code list would have silently disabled itself in any
-stable-mode run.
+of a *comment* changed under it, so only a fixture running the real binary
+could see it. And the directive grammar accepted a rule *name* inside the
+brackets, which suppresses in preview mode but matches no code, so a policy
+that trusted the mode rather than the code list would have silently disabled
+itself in any stable-mode run.
 
 Each of these was found by asserting something that could fail, not by reading
 the changelog. The pattern worth carrying forward: when a dependency is treated
@@ -688,8 +688,8 @@ deliverable rather than incidental.
 
 The rule-set delta, the four-cell matrix and the suppression-behaviour pair
 were posted to `leynos/shared-actions#588`, which tracks the campaign fixture
-for this failure class, rather than building a new runner here. That is
-Task 4's instruction and the reason the campaign row already exists.
+for this failure class, rather than building a new runner here. That is Task
+4's instruction and the reason the campaign row already exists.
 
 ## Conformance basis
 
