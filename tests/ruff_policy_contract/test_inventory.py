@@ -26,6 +26,7 @@ from .discovery import (
     ruff_configuration_candidates,
 )
 from .inventory import (
+    INVENTORY_PATH,
     enabled_rule_lines,
     inventory_codes,
     inventory_header,
@@ -42,11 +43,16 @@ from .reading import (
     settings_dump,
 )
 
+#: The committed inventory this module reads beyond the shared files. A
+#: partial checkout that carries the configuration but not the inventory would
+#: otherwise raise out of ``inventory_text`` instead of skipping.
+REQUIRED_FILES = (INVENTORY_PATH,)
+
 pytestmark = pytest.mark.skipif(
-    not repository_files_present(),
+    not repository_files_present(*REQUIRED_FILES),
     reason=(
-        "pyproject.toml or the sample module is not present in this working "
-        "copy (for example inside a mutation-testing sandbox)"
+        "the committed rule inventory is not present in this working copy "
+        "(for example inside a mutation-testing sandbox)"
     ),
 )
 

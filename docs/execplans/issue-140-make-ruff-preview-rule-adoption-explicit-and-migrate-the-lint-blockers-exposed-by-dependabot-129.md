@@ -245,6 +245,21 @@ instead of arriving as a surprise CI failure? The observable end state:
      The casing fixtures moved to `test_reading_casing.py`, which is a
      separate question from placement, after the additions took
      `test_reading_suppressions.py` to 426 lines against Pylint's 400 cap.
+- [x] Milestone 3, fifteenth review pass: one finding, taken. The
+     partial-checkout guard checked only `pyproject.toml` and the sampled
+     module, while `test_provenance.py` went on to read `uv.lock` and the
+     `Makefile` through readers that raise rather than return nothing. The
+     predicate's own docstring already said the mutation sandbox "need not
+     carry the repository root or the lockfile", so it disagreed with itself. A
+     partial checkout carrying the first two files and not the third therefore
+     reported an `IOError` instead of skipping. `repository_files_present` now
+     takes caller-specific paths, which `test_provenance.py` uses for the
+     lockfile and `Makefile` and `test_inventory.py` for `enabled_rules.txt`.
+     Written red first: the new `test_guard.py` failed with `TypeError:
+     repository_files_present() takes 0 positional arguments`. Removing
+     `uv.lock` now skips the four provenance cases and restores cleanly; the
+     unguarded `lock_text()` raises `FileNotFoundError` on the same tree, which
+     is the failure the guard prevents.
 - [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
      run every gate, and record results.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
