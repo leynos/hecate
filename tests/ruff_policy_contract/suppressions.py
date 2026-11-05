@@ -60,14 +60,19 @@ _NOQA_RE = re.compile(
 #: token as a trailing one; what differs is where it sits relative to the
 #: statement, which is a placement question rather than a reading one.
 #:
-#: The name must end at a delimiter, because ``# ruff: ignores generated
-#: files`` is prose: measured on the pinned binary, it leaves the diagnostic
-#: below it reported, so Ruff never read it as an ``ignore``. Matching the
-#: prefix would report a comment nobody wrote as policy. The lookahead admits
-#: a bracket, a second ``#`` starting the rationale, whitespace, or the end of
-#: the token, and the trailing ``\s*`` is what lets a bracketless directive
-#: with no more than a rationale stay readable — it names no codes, which is
-#: the finding the contract wants to report.
+#: The name must end at a delimiter, because a comment reading ``ruff:
+#: ignores generated files`` is prose: measured on the pinned binary, it leaves
+#: the diagnostic below it reported, so Ruff never read it as an ``ignore``.
+#: Matching the prefix would report a comment nobody wrote as policy. The
+#: lookahead admits a bracket, a second ``#`` starting the rationale,
+#: whitespace, or the end of the token, and the trailing ``\s*`` is what lets
+#: a bracketless directive with no more than a rationale stay readable — it
+#: names no codes, which is the finding the contract wants to report.
+#:
+#: This comment deliberately does not spell a directive with its own ``#``.
+#: Ruff 0.17.3 reads a directive after any ``#`` in a comment, including one
+#: inside backticks, and reports RUF103 on this very text — measured, at this
+#: column — so an example here would be a lint failure on the next upgrade.
 _RUFF_COMMENT_RE = re.compile(
     r"#\s*ruff:\s*(?P<form>file-ignore|ignore|disable|enable)(?![\w-])"
     r"(?:\[(?P<codes>[^\]]*)\])?\s*(?:#\s*(?P<reason>.*))?",
