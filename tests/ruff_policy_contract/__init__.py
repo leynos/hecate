@@ -15,4 +15,9 @@ a rule listed here may still be ignored on a particular path. The readers live
 in ``reading.py`` so the rule tests apply them to the real files while the
 cases in ``test_reading.py`` apply them to text this repository does not
 contain.
+
+``discovery.py`` holds the readers that decide *which* configuration applies
+to a file. The inventory is one row, and it describes the whole tree only
+while no subdirectory carries a config of its own, so those readers answer a
+question about the gate's reach rather than about the rule selection.
 """

@@ -140,6 +140,21 @@ instead of arriving as a surprise CI failure? The observable end state:
      unselected prefix, which is silent for a second reason and would keep
      passing if the switch stopped working; the fixture now compares three
      variants of the repository's own configuration.
+- [x] Milestone 1, second review pass: two more findings. `settings_dump` now
+     documents its parameters and return value. The inventory test asserted a
+     per-file property from one sample; the repository currently has only the
+     root configuration, but nothing stopped a nested one from silently
+     re-rooting resolution. A companion test now lists the tracked Python files
+     through Git and fails if any directory below the root declares its own
+     Ruff configuration.
+- [x] Milestone 1, second review pass follow-up: the added readers took
+     `tests/ruff_policy_contract/reading.py` to 452 lines against Pylint's
+     400-line `max-module-lines`, failing `make lint`. The readers that decide
+     *which* configuration applies to a file were split into
+     `tests/ruff_policy_contract/discovery.py`; they answer a question about
+     the gate's reach, while `reading.py` answers one about the rule
+     selection, so the split follows the concern rather than a line budget.
+     `REPO_ROOT` became public to share it.
 - [ ] Milestone 2: pin Ruff provenance in `make build` and add the toolchain
      contract.
 - [ ] Milestone 3: resolve `D421` docstrings and migrate suppressions with a
@@ -161,6 +176,12 @@ instead of arriving as a surprise CI failure? The observable end state:
   emitted; that is not the same as "the rule is clean".
 - `explicit-preview-rules = true` is accepted by 0.15.13, 0.16.9, and 0.17.3.
   Settings dump confirms `linter.explicit_preview_rules = true`.
+- A nearer configuration silently re-roots the resolution. A probe with a
+  `sub/pyproject.toml` carrying `[tool.ruff.lint]` made `--show-settings` for a
+  file in `sub/` report only the `F` rules, ignoring the root policy entirely,
+  and a `pyproject.toml` *without* `[tool.ruff]` was ignored as expected. That
+  is why the single-row inventory needs the companion "no nested configuration"
+  test rather than a second sample.
 - `linter.rules.enabled` in `--show-settings` is identical for every Python
   file in the repository. `per-file-ignores` is reported as its own
   `linter.per_file_ignores` structure and does not enter that set: it is a
@@ -168,6 +189,13 @@ instead of arriving as a surprise CI failure? The observable end state:
   therefore sufficient for the selected set, and a code listed there may still
   be ignored on a particular path. Per-file behaviour belongs in a separate
   assertion; it is out of scope for this inventory.
+- The repository caps a module at 400 lines (`max-module-lines` in
+  `pyproject.toml`). Reading Ruff's policy presses on that cap from two
+  directions at once: the configuration needs many small readers because each
+  one raises rather than returning a default, and `--show-settings` is a human
+  dump that needs its own tolerant-but-strict parser. The cap is a real design
+  input here, not incidental. Grouping the readers by the question they answer
+  keeps each module under it without merging concerns.
 - The live grouped update #176 fails with 19 errors in `hecate tests`: 5
   `D421`, 12 `RUF105`, and 2 `UP052` (a rule that does not exist in 0.16.9).
   The 5 `D421` hits are all in `hecate/`; the remaining 11 `D421` hits and 16
@@ -278,11 +306,17 @@ Obligations introduced or preserved by this change:
 
 1. *Preview policy is a reviewed artifact.* Invariant: for every tracked
    Python file, the set Ruff reports as enabled equals the committed inventory,
-   and per-file ignores do not enter that set. Method: contract test that runs
-   the locked binary with `--show-settings`, extracts `linter.rules.enabled`,
-   and compares. Non-vacuity: the test is shown to fail against a hand-edited
-   inventory row and against a planted `pyproject.toml` selector change before
-   it is accepted.
+   and per-file ignores do not enter that set. A single inventory row is only
+   honest while one configuration governs the whole tree, so a companion
+   invariant forbids a nearer configuration: no directory below the root may
+   hold a `pyproject.toml` with `[tool.ruff]`, a `ruff.toml`, or a
+   `.ruff.toml`. Method: contract tests that run the locked binary with
+   `--show-settings`, extract `linter.rules.enabled`, and compare; the
+   companion test lists the tracked Python files through Git and checks each
+   directory's candidates. Non-vacuity: the inventory comparison is shown to
+   fail against a hand-edited row and a planted selector change, and the
+   companion test fails against a planted `hecate/pyproject.toml` and against a
+   planted `tests/ruff.toml`.
 2. *A new preview rule cannot be picked up unreviewed.* Invariant: with
    `explicit-preview-rules = true`, selecting a prefix whose new preview member
    is not named produces no diagnostic for that member. Method: fixture that
@@ -341,15 +375,17 @@ Delivered. `explicit-preview-rules = true` sits in `[tool.ruff.lint]` above
 grouped by linter. The resolved set is byte-identical to the pre-change 673,
 measured by diffing `linter.rules.enabled` from `--show-settings` before and
 after. `tests/ruff_policy_contract/` holds `reading.py` (pure readers over
-configuration, lockfile, Makefile, and Ruff's own output), `enabled_rules.txt`
+configuration, lockfile, Makefile, and Ruff's own output), `discovery.py` (the
+readers that decide which configuration governs which file), `enabled_rules.txt`
 (the reviewed inventory with a `# ruff-version: 0.15.13` header),
 `test_reading.py` (reader negative cases), `test_inventory.py` (the
-two-directional comparison and the policy switches), and
-`test_preview_adoption.py` (the behaviour fixture). Acceptance evidence:
+two-directional comparison, the policy switches, and the single-row
+precondition), and `test_preview_adoption.py` (the behaviour fixture).
+Acceptance evidence:
 
 ```plaintext
 $ uv run pytest tests/ruff_policy_contract -q
-22 passed
+29 passed
 
 # inventory with F401 deleted
 AssertionError: Ruff now enables rules the inventory does not list ... ['F401']

@@ -1375,7 +1375,10 @@ _Code block 6: Recording the resolved Ruff rule set._
 
 The inventory is generated data, but a reviewed artefact: copy the codes in the
 order that command prints them and keep its `# ruff-version:` header in step
-with the binary that produced it.
+with the binary that produced it. One row describes the whole tree because one
+configuration governs it; a `pyproject.toml` with `[tool.ruff]`, a `ruff.toml`,
+or a `.ruff.toml` in any subdirectory would re-root Ruff for the files beneath
+it and make the row a lie for those files, so the contract fails if one appears.
 `tests/ruff_policy_contract/test_preview_adoption.py` rounds this out by
 running a throwaway project under this repository's configuration: a preview
 rule outside the list stays silent, and an adopted one flags.

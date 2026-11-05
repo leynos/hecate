@@ -25,14 +25,15 @@ import tomllib
 import typing as typ
 from pathlib import Path
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 INVENTORY_PATH = Path(__file__).resolve().parent / "enabled_rules.txt"
 
 #: A representative source file for ``--show-settings``. The rule selection is
 #: configuration-wide, so every Python file resolves the same enabled set and
-#: one file is enough to record it.
-SAMPLE_FILE = _REPO_ROOT / "hecate" / "checker.py"
+#: one file is enough to record it. ``discovery`` checks that no nearer
+#: configuration re-roots the resolution between the root and this file.
+SAMPLE_FILE = REPO_ROOT / "hecate" / "checker.py"
 
 #: A rule code as Ruff prints it inside ``linter.rules.enabled``.
 _ENABLED_ENTRY_RE = re.compile(r"^\s+(?P<name>\S.*?) \((?P<code>[A-Z]+\d+)\),$")
@@ -285,6 +286,19 @@ def installed_ruff_version() -> str:
 def settings_dump(path: Path, *arguments: str) -> str:
     """Return the resolved settings Ruff reports for ``path``.
 
+    Parameters
+    ----------
+    path : Path
+        The file to resolve settings for. Ruff applies the configuration
+        nearest to this file, so the path is what selects the policy.
+    *arguments : str
+        Extra ``ruff check`` arguments, inserted before the path.
+
+    Returns
+    -------
+    str
+        The complete standard output of ``ruff check --show-settings``.
+
     Raises
     ------
     RuffPolicyError
@@ -335,12 +349,12 @@ def locked_ruff_version(lock_text: str) -> str:
 
 def lock_text() -> str:
     """Return the committed ``uv.lock`` source."""
-    return (_REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
+    return (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
 
 
 def makefile_text() -> str:
     """Return the Makefile source."""
-    return (_REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    return (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
 
 
 def goal_body(goal: str) -> str:
