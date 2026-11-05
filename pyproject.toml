@@ -39,6 +39,12 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
+# Adopt preview rules one code at a time. With `preview = true` alone a prefix
+# such as "D" or "RUF" also acquires every preview rule a future Ruff release
+# adds, so a dependency bump could change this project's lint policy without a
+# commit here. Naming each code makes adoption a reviewable change and leaves
+# the prefix selectors below covering stable rules only.
+explicit-preview-rules = true
 select = [
     "F",        # Pyflakes rules
     "W",        # PyCodeStyle warnings
@@ -90,6 +96,132 @@ select = [
     "RUF064",
     "RUF066",
 ]
+# Preview rules this project has adopted. `explicit-preview-rules = true`
+# stops the prefix selectors above from acquiring these, so each one is
+# listed here after review and a new upstream preview rule stays inert
+# until someone adds it deliberately. The set reproduces what `preview=true`
+# plus the prefix selectors used to enable on Ruff 0.15.13.
+extend-select = [
+    # flake8-bugbear (B); preview, so the prefix does not carry it.
+    "B043",
+    "B901",
+    "B903",
+    "B909",
+    # flake8-bandit (S); preview, so the prefix does not carry it.
+    "S401",
+    "S402",
+    "S403",
+    "S404",
+    "S405",
+    "S406",
+    "S407",
+    "S408",
+    "S409",
+    "S411",
+    "S412",
+    "S413",
+    "S415",
+    # flake8-implicit-str-concat (ISC); preview, so the prefix does not carry it.
+    "ISC004",
+    # flake8-logging (LOG); preview, so the prefix does not carry it.
+    "LOG004",
+    # flake8-pytest-style (PT); preview, so the prefix does not carry it.
+    "PT029",
+    # flake8-tidy-imports (TID); preview, so the prefix does not carry it.
+    "TID254",
+    "TID255",
+    # flake8-type-checking (TC); preview, so the prefix does not carry it.
+    "TC008",
+    # pydocstyle (D); preview, so the prefix does not carry it.
+    "D420",
+    # Pylint (PLR); preview, so the prefix does not carry it.
+    "PLR0904",
+    "PLR0917",
+    "PLR1708",
+    "PLR1712",
+    # pycodestyle (E/W); preview, so the prefix does not carry it.
+    "E111",
+    "E112",
+    "E113",
+    "E114",
+    "E115",
+    "E116",
+    "E117",
+    "E201",
+    "E202",
+    "E203",
+    "E204",
+    "E211",
+    "E221",
+    "E222",
+    "E223",
+    "E224",
+    "E225",
+    "E226",
+    "E227",
+    "E228",
+    "E231",
+    "E241",
+    "E242",
+    "E251",
+    "E252",
+    "E261",
+    "E262",
+    "E265",
+    "E266",
+    "E271",
+    "E272",
+    "E273",
+    "E274",
+    "E275",
+    "E301",
+    "E302",
+    "E303",
+    "E304",
+    "E305",
+    "E306",
+    "E502",
+    "W391",
+    # refurb (FURB); preview, so the prefix does not carry it.
+    "FURB101",
+    "FURB103",
+    "FURB113",
+    "FURB118",
+    "FURB131",
+    "FURB140",
+    "FURB142",
+    "FURB145",
+    "FURB148",
+    "FURB152",
+    "FURB154",
+    "FURB156",
+    "FURB164",
+    "FURB180",
+    "FURB189",
+    "FURB192",
+    # Ruff-specific rules (RUF); preview, so the prefix does not carry it.
+    "RUF027",
+    "RUF029",
+    "RUF031",
+    "RUF038",
+    "RUF039",
+    "RUF045",
+    "RUF047",
+    "RUF050",
+    "RUF052",
+    "RUF054",
+    "RUF056",
+    "RUF063",
+    "RUF065",
+    "RUF067",
+    "RUF068",
+    "RUF069",
+    "RUF070",
+    "RUF071",
+    "RUF072",
+    "RUF073",
+]
+
 extend-ignore = [
     "D203",  # Conflicts with D211; prefer enforcing no blank line before class docstring.
     "D213",  # Conflicts with D212; keep summary on the first line.

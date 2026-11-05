@@ -1,0 +1,135 @@
+"""Contract: the effective Ruff rule set is the reviewed inventory.
+
+The configuration states its policy twice over: prefixes decide which stable
+rules are in scope, and ``extend-select`` names the preview rules adopted on
+top. Neither list is what the gate enforces. Ruff resolves them, plus
+``extend-ignore`` and the per-file ignores, into an effective set that exists
+only at run time, and that set is what a dependency bump can change without a
+line of this repository moving.
+
+These tests compare the resolved set against the committed inventory in both
+directions, pin that inventory to the binary that produced it, and check the
+policy switches that make the comparison meaningful. A test that only
+snapshotted the set would report an unreviewed addition but not the removal of
+a check the project depends on, so the comparison here reports both and names
+the codes in each.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from .reading import (
+    SAMPLE_FILE,
+    enabled_rule_lines,
+    extend_select_entries,
+    installed_ruff_version,
+    inventory_codes,
+    inventory_header,
+    inventory_text,
+    is_explicit_preview,
+    is_preview,
+    pyproject_document,
+    repository_files_present,
+    settings_dump,
+)
+
+pytestmark = pytest.mark.skipif(
+    not repository_files_present(),
+    reason=(
+        "pyproject.toml or the sample module is not present in this working "
+        "copy (for example inside a mutation-testing sandbox)"
+    ),
+)
+
+
+class TestEnabledRuleInventory:
+    """The resolved rule set must equal the reviewed inventory."""
+
+    def test_inventory_matches_the_resolved_rules(self) -> None:
+        """Added and removed codes are reported separately and by name."""
+        resolved = enabled_rule_lines(settings_dump(SAMPLE_FILE))
+        reviewed = inventory_codes(inventory_text())
+        added = sorted(set(resolved) - set(reviewed))
+        removed = sorted(set(reviewed) - set(resolved))
+        assert not added, (
+            "Ruff now enables rules the inventory does not list. That is lint "
+            "policy nobody reviewed; review each code and add it to "
+            f"tests/ruff_policy_contract/enabled_rules.txt: {added}"
+        )
+        assert not removed, (
+            "Ruff no longer enables rules the inventory lists. That is house "
+            "policy that stopped running; either restore the selector or "
+            f"review the removal and update the inventory: {removed}"
+        )
+
+    def test_inventory_has_no_duplicates(self) -> None:
+        """A duplicated code would hide a one-for-one swap in the diff."""
+        codes = inventory_codes(inventory_text())
+        duplicated = sorted({code for code in codes if codes.count(code) > 1})
+        assert not duplicated, f"the inventory repeats rule codes: {duplicated}"
+
+    def test_inventory_records_the_binary_that_produced_it(self) -> None:
+        """An inventory is only reviewable against the version it describes."""
+        recorded, sample = inventory_header()
+        assert recorded == installed_ruff_version(), (
+            f"the inventory was produced by Ruff {recorded} but the gate runs "
+            f"{installed_ruff_version()}; regenerate it and review the delta"
+        )
+        assert sample == SAMPLE_FILE.relative_to(SAMPLE_FILE.parents[1]).as_posix(), (
+            "the inventory header must name the module whose settings it "
+            f"records; got {sample!r}"
+        )
+
+
+class TestPreviewAdoptionPolicy:
+    """The policy switches that keep preview adoption reviewable."""
+
+    def test_explicit_preview_rules_is_enabled(self) -> None:
+        """Without it, a prefix silently adopts each new preview rule."""
+        assert is_explicit_preview(pyproject_document()), (
+            "[tool.ruff.lint].explicit-preview-rules must stay true: the "
+            "prefix selectors would otherwise acquire every preview rule a "
+            "Ruff release adds, which is the failure issue #140 documents"
+        )
+
+    def test_every_adopted_preview_code_is_named_individually(self) -> None:
+        """The adoption list must be codes, not prefixes or globs."""
+        adopted = extend_select_entries(pyproject_document())
+        assert adopted, "no preview rules are adopted explicitly"
+        for entry in adopted:
+            assert entry.isupper(), (
+                "every [tool.ruff.lint].extend-select entry must be an exact "
+                "rule code under explicit-preview-rules, so adoption is a "
+                f"reviewable line; got {entry!r}"
+            )
+            assert entry[-1].isdigit(), (
+                "a selector ending outside the digits is a prefix or a glob, "
+                "not one code; explicit preview adoption names individual "
+                f"codes, got {entry!r}"
+            )
+
+    def test_the_security_codes_the_gate_relies_on_stay_enabled(self) -> None:
+        """The subprocess suppressions are only meaningful if these codes run.
+
+        ``S404`` is preview and reaches the gate only through the explicit
+        adoption list, while ``S603`` and ``S607`` are stable and arrive with
+        the ``S`` prefix. Both routes are policy, so both are checked: an
+        accidental prefix removal is as damaging as a dropped adoption.
+        """
+        enabled = set(inventory_codes(inventory_text()))
+        expected = {"S404", "S603", "S607"}
+        missing = sorted(expected - enabled)
+        assert not missing, (
+            "these codes back the house subprocess suppressions, so the "
+            f"inventory must keep them enabled: {missing}"
+        )
+
+    def test_preview_stays_enabled(self) -> None:
+        """Disabling preview would drop the adopted codes with the rest."""
+        document = pyproject_document()
+        assert is_preview(document), (
+            "[tool.ruff] preview must stay true so the adopted preview codes "
+            "remain active; issue #140 prohibits disabling preview wholesale"
+        )
+        assert is_explicit_preview(document), "explicit preview policy is absent"
