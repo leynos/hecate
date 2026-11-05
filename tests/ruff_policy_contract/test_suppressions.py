@@ -15,6 +15,7 @@ keeps a passing repository scan from being vacuous.
 
 from __future__ import annotations
 
+import re
 import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
 import sys
 from pathlib import Path
@@ -53,6 +54,15 @@ SECURITY_CODES = frozenset({"S404", "S603", "S607"})
 #: the contract forbids, because the author's review covered one call site and
 #: the comment covers a region.
 BROAD_FORMS = frozenset({"file-ignore", "disable"})
+
+#: What one entry in a suppression's code list may look like. Ruff also
+#: accepts rule *names* in preview mode, which this project runs, and a name
+#: matches no code: ``file-ignore[subprocess-without-shell-equals-true]``
+#: silences S603 across the module (measured on the pinned binary, which then
+#: reports only S607). Comparing that string against :data:`SECURITY_CODES`
+#: would clear it, so a name is a violation in its own right rather than
+#: something to resolve against Ruff's rule registry.
+_RULE_CODE_RE = re.compile(r"^[A-Z]{1,4}\d{3,4}$")
 
 
 def read_module(path: str) -> str:
@@ -167,6 +177,14 @@ def violations(suppressions: tuple[Suppression, ...]) -> list[str]:
             found.append(
                 f"{where}: names no codes, so it hides every diagnostic the "
                 "line grows, including ones nobody has reviewed yet"
+            )
+        if names := [
+            code for code in suppression.codes if not _RULE_CODE_RE.match(code)
+        ]:
+            found.append(
+                f"{where}: {', '.join(names)} is not a rule code; a rule name "
+                "matches no code, so the security check cannot see what it "
+                "suppresses and a Ruff release renames it silently"
             )
         if not suppression.has_reason:
             found.append(f"{where}: has no rationale after a second `#`")
