@@ -90,7 +90,7 @@ def test_a_mismatched_tag_fails_before_anything_is_published(
     assert completed.returncode != 0, "a mismatched tag must fail the release"
     assert "::error file=pyproject.toml,title=Tag/pyproject.toml mismatch::" in (
         completed.stdout
-    )
+    ), "a mismatch must be annotated against the manifest"
     assert not written, "a failed check must not report a prerelease status"
 
 
@@ -99,9 +99,15 @@ def test_the_distribution_is_the_name_the_release_publishes() -> None:
     pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text("utf-8"))
     workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text("utf-8")
 
-    assert pyproject["project"]["name"] == "hecate-enforce"
-    assert "https://pypi.org/simple/hecate-enforce/" in workflow
-    assert "https://pypi.org/project/hecate-enforce/" in workflow
+    assert pyproject["project"]["name"] == "hecate-enforce", (
+        "the distribution must be published as hecate-enforce"
+    )
+    assert "https://pypi.org/simple/hecate-enforce/" in workflow, (
+        "the index lookup must name the published distribution"
+    )
+    assert "https://pypi.org/project/hecate-enforce/" in workflow, (
+        "the release notes must link the published distribution"
+    )
 
 
 def test_collection_gathers_the_sdist_with_every_wheel(tmp_path: pth.Path) -> None:
@@ -129,7 +135,9 @@ def test_collection_fails_without_exactly_one_sdist(
     completed = run_bash(step_script(*_COLLECT_STEP), tmp_path)
 
     assert completed.returncode != 0, "the release needs exactly one sdist"
-    assert "Expected exactly one source distribution." in completed.stderr
+    assert "Expected exactly one source distribution." in completed.stderr, (
+        "the failure must name the missing or duplicated sdist"
+    )
 
 
 def test_collection_fails_without_a_wheel(tmp_path: pth.Path) -> None:
@@ -139,7 +147,9 @@ def test_collection_fails_without_a_wheel(tmp_path: pth.Path) -> None:
     completed = run_bash(step_script(*_COLLECT_STEP), tmp_path)
 
     assert completed.returncode != 0, "the release needs at least one wheel"
-    assert "Expected at least one wheel." in completed.stderr
+    assert "Expected at least one wheel." in completed.stderr, (
+        "the failure must name the missing wheel"
+    )
 
 
 def test_collection_refuses_an_unexpected_file(tmp_path: pth.Path) -> None:
@@ -150,7 +160,9 @@ def test_collection_refuses_an_unexpected_file(tmp_path: pth.Path) -> None:
     completed = run_bash(step_script(*_COLLECT_STEP), tmp_path)
 
     assert completed.returncode != 0, "an unexpected file must fail the release"
-    assert "Unexpected files in the release artefact:" in completed.stderr
+    assert "Unexpected files in the release artefact:" in completed.stderr, (
+        "the failure must name the unexpected file"
+    )
 
 
 def _fetch_and_skip(
@@ -194,8 +206,12 @@ def test_artefacts_already_on_pypi_are_skipped_by_name(
 
     assert completed.returncode == 0, completed.stderr
     assert _remaining(tmp_path) == remaining, "published names must be dropped"
-    assert f"::notice::Skipping {_ARTEFACTS[1]}: already on PyPI" in completed.stdout
-    assert written == {"attempts": "1", "status": "200", "remaining": has_remaining}
+    assert f"::notice::Skipping {_ARTEFACTS[1]}: already on PyPI" in completed.stdout, (
+        "a published name must be reported as skipped"
+    )
+    assert written == {"attempts": "1", "status": "200", "remaining": has_remaining}, (
+        "the step must report whether anything remains to upload"
+    )
 
 
 def test_a_project_absent_from_pypi_reads_as_an_empty_index(
@@ -210,7 +226,9 @@ def test_a_project_absent_from_pypi_reads_as_an_empty_index(
     assert _remaining(tmp_path) == list(_ARTEFACTS), (
         "a first release must upload every artefact"
     )
-    assert written == {"attempts": "1", "status": "404", "remaining": "true"}
+    assert written == {"attempts": "1", "status": "404", "remaining": "true"}, (
+        "a 404 must leave every artefact to upload"
+    )
 
 
 def test_a_transient_failure_is_retried_and_counted(tmp_path: pth.Path) -> None:
@@ -219,8 +237,8 @@ def test_a_transient_failure_is_retried_and_counted(tmp_path: pth.Path) -> None:
 
     assert completed.returncode == 0, completed.stderr
     assert written["attempts"] == "3", "the retry count must be reported"
-    assert written["status"] == "200"
-    assert len(fake.calls("curl")) == 3
+    assert written["status"] == "200", "the retry must end on the successful status"
+    assert len(fake.calls("curl")) == 3, "each attempt must make exactly one request"
 
 
 @pytest.mark.parametrize(
@@ -235,7 +253,11 @@ def test_a_failed_index_lookup_stops_the_upload(
     fake, completed, written = _fetch_and_skip(tmp_path, statuses)
 
     assert completed.returncode != 0, f"HTTP {statuses} must fail the lookup"
-    assert f"PyPI simple index returned HTTP {statuses}." in completed.stderr
-    assert written == {"attempts": attempts, "status": statuses}
+    assert f"PyPI simple index returned HTTP {statuses}." in completed.stderr, (
+        "the failure must name the status that stopped the lookup"
+    )
+    assert written == {"attempts": attempts, "status": statuses}, (
+        "the step must report the attempts and the final status"
+    )
     assert len(fake.calls("curl")) == int(attempts), "the loop must stay bounded"
     assert _remaining(tmp_path) == list(_ARTEFACTS), "nothing may be skipped"

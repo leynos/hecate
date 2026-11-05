@@ -59,7 +59,9 @@ def test_a_first_release_attests_the_bytes_it_ships(tmp_path: pth.Path) -> None:
     """Nothing is published yet, so this run's bytes are canonical everywhere."""
     publish = _built(tmp_path / "publish", "h-1.whl", "h-1.tar.gz")
 
-    assert release_assets.attests_canonical_bytes(_state(publish))
+    assert release_assets.attests_canonical_bytes(_state(publish)), (
+        "a first release must attest the bytes it ships"
+    )
 
 
 def test_a_rerun_whose_rebuild_differs_attests_nothing(tmp_path: pth.Path) -> None:
@@ -68,7 +70,9 @@ def test_a_rerun_whose_rebuild_differs_attests_nothing(tmp_path: pth.Path) -> No
     state = _state(publish, pypi={"h-1.whl": "canonical"})
     (publish / "h-1.whl").write_bytes(b"rebuilt differently")
 
-    assert not release_assets.attests_canonical_bytes(state)
+    assert not release_assets.attests_canonical_bytes(state), (
+        "a differing rebuild must not be attested"
+    )
 
 
 def test_a_rerun_whose_rebuild_matches_still_attests_it(tmp_path: pth.Path) -> None:
@@ -76,7 +80,9 @@ def test_a_rerun_whose_rebuild_matches_still_attests_it(tmp_path: pth.Path) -> N
     publish = _built(tmp_path / "publish", "h-1.whl")
     state = _state(publish, pypi={"h-1.whl": "canonical"})
 
-    assert release_assets.attests_canonical_bytes(state)
+    assert release_assets.attests_canonical_bytes(state), (
+        "a byte-identical rebuild must still be attested"
+    )
 
 
 def test_an_unreported_github_digest_attests_nothing(tmp_path: pth.Path) -> None:
@@ -84,7 +90,9 @@ def test_an_unreported_github_digest_attests_nothing(tmp_path: pth.Path) -> None
     publish = _built(tmp_path / "publish", "h-1.whl")
     state = _state(publish, github={"h-1.whl": None})
 
-    assert not release_assets.attests_canonical_bytes(state)
+    assert not release_assets.attests_canonical_bytes(state), (
+        "an asset without a digest must not be attested"
+    )
 
 
 def test_the_canonical_digest_comes_from_the_source_the_plan_chose(
@@ -101,15 +109,15 @@ def test_the_canonical_digest_comes_from_the_source_the_plan_chose(
     assert release_assets.canonical_digest(state, "a.whl") == (
         Source.PYPI,
         release_assets.sha256_of(publish / "a.whl"),
-    )
+    ), "a name PyPI holds must report PyPI's digest"
     assert release_assets.canonical_digest(state, "b.whl") == (
         Source.GITHUB,
         release_assets.sha256_of(publish / "b.whl"),
-    )
+    ), "a name only GitHub holds must report GitHub's digest"
     assert release_assets.canonical_digest(state, "c.whl") == (
         Source.LOCAL,
         release_assets.sha256_of(publish / "c.whl"),
-    )
+    ), "a name neither destination holds must report this run's digest"
 
 
 @pytest.mark.parametrize(
@@ -126,4 +134,6 @@ def test_the_missing_list_names_what_the_index_does_not_yet_show(
     expected_names: set[str], listed: set[str], missing: list[str]
 ) -> None:
     """The poll is over exactly the names this run must see appear."""
-    assert release_assets.missing_from_index(expected_names, listed) == missing
+    assert release_assets.missing_from_index(expected_names, listed) == missing, (
+        "the poll must list exactly the names the index still lacks"
+    )
