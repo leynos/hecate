@@ -38,9 +38,9 @@ instead of arriving as a surprise CI failure? The observable end state:
    preview codes this project has reviewed, so a new preview rule inside a
    selected prefix cannot be picked up without a visible `pyproject.toml`
    change.
-2. A committed inventory plus a contract test compares the *effective*
-   enabled-rule list Ruff reports for representative files with the committed
-   data, so dropping a rule matters as much as adding one.
+2. A committed inventory plus a contract test compares the rule set Ruff
+   reports as enabled for representative files with the committed data, so
+   dropping a rule matters as much as adding one.
 3. `make build` installs from the checked-in lockfile, and a contract test pins
    the locked Ruff version against the version the gate actually runs.
 4. The `D421` property docstrings are rewritten, and `noqa` suppressions
@@ -127,12 +127,19 @@ instead of arriving as a surprise CI failure? The observable end state:
      class of blocker plus `UP052`, and that `make build` re-resolves.
 - [x] Write this plan and commit it (`74af1a6`).
 - [x] Milestone 1: make preview adoption explicit on the pinned Ruff and pin
-     the effective rule inventory. `pyproject.toml` now sets
+     the enabled rule inventory. `pyproject.toml` now sets
      `explicit-preview-rules = true` and names 106 preview codes under
      `extend-select`; the resolved set is byte-identical to the 673-code
      baseline; `tests/ruff_policy_contract/` holds the inventory, its readers,
      a two-directional comparison, and a behaviour fixture; the developers'
      guide documents the policy.
+- [x] Milestone 1, review pass: `coderabbit review --agent` raised two
+     findings. The per-file-ignore wording claimed per-file ignores changed the
+     inventory set; they do not, and the four files that said so are corrected.
+     The inert half of the behaviour fixture relied on `PLW1514` under an
+     unselected prefix, which is silent for a second reason and would keep
+     passing if the switch stopped working; the fixture now compares three
+     variants of the repository's own configuration.
 - [ ] Milestone 2: pin Ruff provenance in `make build` and add the toolchain
      contract.
 - [ ] Milestone 3: resolve `D421` docstrings and migrate suppressions with a
@@ -155,9 +162,12 @@ instead of arriving as a surprise CI failure? The observable end state:
 - `explicit-preview-rules = true` is accepted by 0.15.13, 0.16.9, and 0.17.3.
   Settings dump confirms `linter.explicit_preview_rules = true`.
 - `linter.rules.enabled` in `--show-settings` is identical for every Python
-  file in the repository, because `per-file-ignores` are applied later. One
-  inventory row is therefore sufficient for the "enabled set"; per-file
-  differences belong in a separate assertion.
+  file in the repository. `per-file-ignores` is reported as its own
+  `linter.per_file_ignores` structure and does not enter that set: it is a
+  separate setting Ruff consults when it checks each file. One inventory row is
+  therefore sufficient for the selected set, and a code listed there may still
+  be ignored on a particular path. Per-file behaviour belongs in a separate
+  assertion; it is out of scope for this inventory.
 - The live grouped update #176 fails with 19 errors in `hecate tests`: 5
   `D421`, 12 `RUF105`, and 2 `UP052` (a rule that does not exist in 0.16.9).
   The 5 `D421` hits are all in `hecate/`; the remaining 11 `D421` hits and 16
@@ -182,9 +192,20 @@ instead of arriving as a surprise CI failure? The observable end state:
 - The behaviour fixture cannot use `D421` or `RUF105` to demonstrate explicit
   adoption: neither exists on the pinned 0.15.13 binary (`ruff rule D421`
   answers `invalid value 'D421'`). The fixture uses `D420`
-  (incorrect-section-order) as the adopted preview rule and `PLW1514` under the
-  unselected `PLW` prefix as the inert one, which works on the pinned version
-  and keeps the demonstration honest.
+  (incorrect-section-order) as the adopted preview rule, which works on the
+  pinned version and keeps the demonstration honest.
+- A first attempt showed inertness with `PLW1514`, a preview rule under the
+  `PLW` prefix the project does not select. That case is silent for two
+  independent reasons, so it cannot distinguish "explicit adoption works" from
+  "the rule was never in scope", and it would keep passing if
+  `explicit-preview-rules` stopped working. The fixture now compares three
+  versions of the repository's *own* copied configuration that differ in one
+  line: `D420` adopted (fires), adoption line removed with the `D` prefix still
+  selected (inert), and adoption removed *and* `explicit-preview-rules` off
+  (fires again). The third is the control that makes the second meaningful.
+  Running the suite with `explicit-preview-rules = false` in the working
+  `pyproject.toml` fails the inert case, which is the non-vacuity evidence for
+  this fixture.
 - The repository's numpy docstring convention is what makes `D420` fire, so
   the fixture's first attempt passed a Google-style docstring and produced only
   `D100`/`D406`/`D407` — it looked like the rule was off. A copied
@@ -256,11 +277,12 @@ Trace: `#140 AC1 -> M3 -> tests/test_d421... + migrated docstrings`;
 Obligations introduced or preserved by this change:
 
 1. *Preview policy is a reviewed artifact.* Invariant: for every tracked
-   Python file, the effective enabled-rule set equals the committed inventory.
-   Method: contract test that runs the locked binary with `--show-settings`,
-   extracts `linter.rules.enabled`, and compares. Non-vacuity: the test is
-   shown to fail against a hand-edited inventory row and against a planted
-   `pyproject.toml` selector change before it is accepted.
+   Python file, the set Ruff reports as enabled equals the committed inventory,
+   and per-file ignores do not enter that set. Method: contract test that runs
+   the locked binary with `--show-settings`, extracts `linter.rules.enabled`,
+   and compares. Non-vacuity: the test is shown to fail against a hand-edited
+   inventory row and against a planted `pyproject.toml` selector change before
+   it is accepted.
 2. *A new preview rule cannot be picked up unreviewed.* Invariant: with
    `explicit-preview-rules = true`, selecting a prefix whose new preview member
    is not named produces no diagnostic for that member. Method: fixture that
@@ -299,9 +321,9 @@ output format; Ruff's `ruff: ignore[...]` semantics as documented upstream;
 `uv sync --locked` refusing lockfile content drift while accepting the
 checked-in revision number; tokenizer behaviour for `#` comments in Python 3.14.
 
-Residual gaps: the inventory records the *enabled set*, not per-file
-suppression. Per-file policy is covered by requirement 4. Ruff's own behaviour
-is not re-verified beyond the fixtures named above.
+Residual gaps: the inventory records the selected set Ruff reports, not
+per-file suppression. Per-file policy is covered by requirement 4. Ruff's own
+behaviour is not re-verified beyond the fixtures named above.
 
 ## Milestones
 
@@ -309,10 +331,10 @@ is not re-verified beyond the fixtures named above.
 
 End state: `pyproject.toml` names every preview code this project has reviewed
 under `[tool.ruff.lint]`, with `explicit-preview-rules = true`. A committed
-inventory file holds the effective enabled-rule list for the pinned Ruff, and a
-contract test fails when it differs. Recovery path: revert the two files and
-the test; the repository is then exactly the baseline. Acceptance: the contract
-test passes on the reviewed inventory and fails on a one-code edit.
+inventory file holds the enabled-rule list Ruff reports for the pinned binary,
+and a contract test fails when it differs. Recovery path: revert the two files
+and the test; the repository is then exactly the baseline. Acceptance: the
+contract test passes on the reviewed inventory and fails on a one-code edit.
 
 Delivered. `explicit-preview-rules = true` sits in `[tool.ruff.lint]` above
 `select`, with a comment that says why; `extend-select` names 106 preview codes

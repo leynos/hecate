@@ -1,7 +1,9 @@
-# Effective Ruff rule set for the pinned binary, reviewed as policy.
+# Ruff rule selection for the pinned binary, reviewed as policy.
 #
-# Ruff resolves prefix selectors, explicit preview adoption and per-file
-# ignores into this set; nothing else in the repository lists it. The
+# Ruff resolves prefix selectors, explicit preview adoption and
+# extend-ignore into this set; nothing else in the repository lists it.
+# Per-file ignores are a separate setting applied when each file is
+# checked, so a code here may still be ignored on a particular path. The
 # contract in test_inventory.py fails when the live resolution differs,
 # in either direction: an added code is lint policy nobody reviewed, and
 # a removed code is house policy that quietly stopped running. When a
