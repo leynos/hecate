@@ -186,19 +186,19 @@ class TestReaderBoundaries:
         anchored to the comment start would call all four of these prose and
         clear the tree while Ruff keeps complaining.
         """
-        assert suppressions_in(f"{comment}\n") != ()
+        assert suppressions_in(f"{comment}\n")
 
     def test_a_hash_inside_a_string_is_not_a_suppression(self) -> None:
         """Otherwise a test's own fixture text would fail the repository scan."""
         source = 'DOC = "# noqa"\nOTHER = "# ruff: ignore[S603]"\n'
-        assert suppressions_in(source) == ()
+        assert not suppressions_in(source)
 
     def test_prose_comments_are_not_suppressions(self) -> None:
         """Most comments explain code, so they must not be reported as policy."""
         source = (
             "# The gate runs one pinned binary.\n# Suppressions are policy.\nx = 1\n"
         )
-        assert suppressions_in(source) == ()
+        assert not suppressions_in(source)
 
     def test_a_bracketless_directive_is_recorded_even_though_ruff_ignores_it(
         self,
