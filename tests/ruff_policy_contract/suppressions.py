@@ -59,8 +59,17 @@ _NOQA_RE = re.compile(
 #: optional rationale after a second ``#``. An own-line comment is the same
 #: token as a trailing one; what differs is where it sits relative to the
 #: statement, which is a placement question rather than a reading one.
+#:
+#: The name must end at a delimiter, because ``# ruff: ignores generated
+#: files`` is prose: measured on the pinned binary, it leaves the diagnostic
+#: below it reported, so Ruff never read it as an ``ignore``. Matching the
+#: prefix would report a comment nobody wrote as policy. The lookahead admits
+#: a bracket, a second ``#`` starting the rationale, whitespace, or the end of
+#: the token, and the trailing ``\s*`` is what lets a bracketless directive
+#: with no more than a rationale stay readable — it names no codes, which is
+#: the finding the contract wants to report.
 _RUFF_COMMENT_RE = re.compile(
-    r"#\s*ruff:\s*(?P<form>file-ignore|ignore|disable|enable)"
+    r"#\s*ruff:\s*(?P<form>file-ignore|ignore|disable|enable)(?![\w-])"
     r"(?:\[(?P<codes>[^\]]*)\])?\s*(?:#\s*(?P<reason>.*))?",
     flags=re.IGNORECASE,
 )
