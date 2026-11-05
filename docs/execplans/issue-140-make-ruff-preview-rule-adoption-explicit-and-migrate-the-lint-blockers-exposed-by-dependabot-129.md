@@ -331,6 +331,18 @@ instead of arriving as a surprise CI failure? The observable end state:
      tests respectively, so the new shape is not vacuous.
 - [x] Reapplied `mdtablefix --wrap` to this document and pushed as `7c15b42`;
      CI's `lint-test` went green on the new head.
+- [x] Final CodeRabbit pass over the branch, on head `e8e45af`. It raised two
+     findings, both in the contract suite and both verified against the code
+     before acting. `inventory_codes` carried its own `[A-Z]+\d+` pattern
+     beside `reading.is_rule_code`'s `[A-Z]{1,5}\d{3,4}`, so it accepted
+     `PLR0`, `PLR09` and `PLR09111` that the selector and suppression
+     contracts refuse; it now delegates. The existing negative cases (`"D"`,
+     `"F 401"`) are refused by both shapes, so a new parametrized test covers
+     the three entries only the strict one refuses, and restoring the loose
+     pattern fails all three. Separately, the fixture labelled "six-digits"
+     held `PLR09111`, which has five and duplicated the case above it; it now
+     uses `PLR091112`. Committed as `e43841b`, all seven gates green
+     (728 passed), and pushed with the tracking ref refreshed.
 
 ## Surprises & discoveries
 
@@ -489,6 +501,14 @@ instead of arriving as a surprise CI failure? The observable end state:
 
 ## Decision log
 
+- Decision: let the inventory reader delegate to `reading.is_rule_code` rather
+  than carry its own pattern. Rationale: the issue's premise is that one
+  reviewed definition should govern the tree, and a second pattern is the drift
+  the contract exists to prevent. The cost is that the inventory parser now
+  refuses shapes it previously accepted; every one of the 673 committed codes
+  satisfies the strict shape, so nothing recorded has to change. The delegation
+  is pinned by a test using entries only the strict shape refuses, because the
+  pre-existing negative cases pass under both.
 - Decision: adopt Ruff 0.17.3 alone and leave the grouped update's other seven
   packages to Dependabot. Rationale: recorded earlier and now executed. The
   upgrade changes no resolved rule and needs no source change, so the other
@@ -708,6 +728,12 @@ deliverable rather than incidental.
 - Spelling gates run over Markdown only, so a docstring using the -ise form
   survives `make lint` and surfaces only in review. Worth knowing before the
   next review round rather than after it.
+- A negative fixture can pass under the defect it was written to catch. The
+  inventory reader's own two refusal cases (`"D"`, `"F 401"`) were satisfied by
+  the loose pattern and the strict one alike, so they never showed which shape
+  ran; only entries that *separate* the two shapes do. The same holds for the
+  docstring-cased six-digits fixture: it asserted a refusal that the bound
+  gives for the wrong reason, and its name described a shape it never fed.
 - CodeScene's duplication detector matches text, not only structure. Four
   functions that each carry the same numpy `Parameters`/`Returns` block are a
   family even when their bodies differ, so a house style that documents every
