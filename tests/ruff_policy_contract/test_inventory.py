@@ -1,11 +1,12 @@
-"""Contract: the effective Ruff rule set is the reviewed inventory.
+"""Contract: the Ruff rule selection is the reviewed inventory.
 
 The configuration states its policy twice over: prefixes decide which stable
 rules are in scope, and ``extend-select`` names the preview rules adopted on
-top. Neither list is what the gate enforces. Ruff resolves them, plus
-``extend-ignore`` and the per-file ignores, into an effective set that exists
-only at run time, and that set is what a dependency bump can change without a
-line of this repository moving.
+top. Neither list is what Ruff selects. Ruff resolves them, plus
+``extend-ignore``, into a set that exists only at run time, and that set is
+what a dependency bump can change without a line of this repository moving.
+``per-file-ignores`` is applied when each file is checked and does not alter
+that set, so it is outside this inventory.
 
 These tests compare the resolved set against the committed inventory in both
 directions, pin that inventory to the binary that produced it, and check the
