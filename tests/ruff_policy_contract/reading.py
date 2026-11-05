@@ -1,10 +1,15 @@
-"""Read the Ruff configuration and the effective rule set it resolves to.
+"""Read the Ruff configuration and the rule set it selects.
 
 The policy this module serves has two halves that Ruff stores in one place and
 prints in neither: which codes ``pyproject.toml`` names as preview adoptions,
-and what the binary actually enables after prefixes, explicit selection and
-per-file ignores are applied. Both are read here so a contract test can
+and which rules the binary selects once prefixes, explicit preview selection
+and ``extend-ignore`` are resolved. Both are read here so a contract test can
 compare them against a committed inventory rather than trusting either alone.
+
+``linter.per_file_ignores`` is deliberately not read. Ruff reports it as its
+own structure and applies it when checking each file, so it does not change
+``linter.rules.enabled``; an inventory of that block therefore says nothing
+about whether a selected rule runs on a particular path.
 
 Everything that can be a pure function takes text or a path, so the readers
 can be exercised against a configuration this repository does not contain.
@@ -24,9 +29,9 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
 INVENTORY_PATH = Path(__file__).resolve().parent / "enabled_rules.txt"
 
-#: A representative source file for ``--show-settings``. The resolved settings
-#: are identical for every Python file in this repository, because
-#: ``per-file-ignores`` are applied after selection; one file is enough.
+#: A representative source file for ``--show-settings``. The rule selection is
+#: configuration-wide, so every Python file resolves the same enabled set and
+#: one file is enough to record it.
 SAMPLE_FILE = _REPO_ROOT / "hecate" / "checker.py"
 
 #: A rule code as Ruff prints it inside ``linter.rules.enabled``.
