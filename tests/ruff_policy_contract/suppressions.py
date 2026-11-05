@@ -116,23 +116,40 @@ class Suppression:
         return not _MEANINGLESS_REASON_RE.match(self.reason)
 
 
-def split_codes(raw: str | None) -> tuple[str, ...]:
-    """Split a code list on commas and whitespace, upper-casing each code.
+def split_codes(raw: str | None, *, whitespace_separates: bool) -> tuple[str, ...]:
+    """Split a code list, upper-casing each code.
+
+    The two spellings take different grammars, measured on the pinned binary.
+    ``# noqa: S603 S607`` is read as two codes — RUF100 names both as
+    non-enabled — while ``# ruff: ignore[S603 S607]`` suppresses *neither*:
+    both diagnostics are still reported. Ruff 0.17.3 also reports the latter
+    as RUF103, "missing comma between codes". Splitting the Ruff form on
+    whitespace would read the comment as the suppression its author intended
+    rather than the one that exists, and the shape check further down would
+    never see it.
 
     Parameters
     ----------
     raw : str | None
         The text between the brackets, or ``None`` when the brackets were
         absent.
+    whitespace_separates : bool
+        Whether whitespace separates codes as well as commas. True for the
+        ``noqa`` grammar, false for the ``ruff:`` directives.
 
     Returns
     -------
     tuple[str, ...]
         The codes, upper-cased, omitting any empty piece a stray comma left.
+        A space-joined pair in the Ruff form survives as one entry, which is
+        what lets the caller report the missing comma.
 
     """
+    separator = r"[,\s]+" if whitespace_separates else r","
     return tuple(
-        code.upper() for code in re.split(r"[,\s]+", raw or "") if code.strip()
+        stripped.upper()
+        for code in re.split(separator, raw or "")
+        if (stripped := code.strip())
     )
 
 
@@ -157,14 +174,14 @@ def classify(comment: str) -> Suppression | None:
         return Suppression(
             line=0,
             form=NOQA,
-            codes=split_codes(match.group("codes")),
+            codes=split_codes(match.group("codes"), whitespace_separates=True),
             reason="",
         )
     if match := _RUFF_COMMENT_RE.search(comment):
         return Suppression(
             line=0,
             form=match.group("form").lower(),
-            codes=split_codes(match.group("codes")),
+            codes=split_codes(match.group("codes"), whitespace_separates=False),
             reason=(match.group("reason") or "").strip(),
         )
     return None
