@@ -167,6 +167,13 @@ instead of arriving as a surprise CI failure? The observable end state:
      reads the lockfile and Makefile that pin the binary, and `reading.py`
      reads the configuration and the binary's resolved settings. The modules
      now run 109 to 311 lines each.
+- [x] Milestone 1, fourth review pass: two findings. The nested-configuration
+     scan listed only `*.py`, but Ruff checks `.pyi` stubs too, so a
+     stub-only directory could hold a config the scan never saw; the pathspec
+     now names both. The residual-gaps paragraph claimed requirement 4 covers
+     per-file policy, when requirement 4 is about comments written in source
+     files and `lint.per-file-ignores` was already documented as outside the
+     inventory; the paragraph now says so.
 - [ ] Milestone 2: pin Ruff provenance in `make build` and add the toolchain
      contract.
 - [ ] Milestone 3: resolve `D421` docstrings and migrate suppressions with a
@@ -368,8 +375,11 @@ output format; Ruff's `ruff: ignore[...]` semantics as documented upstream;
 checked-in revision number; tokenizer behaviour for `#` comments in Python 3.14.
 
 Residual gaps: the inventory records the selected set Ruff reports, not
-per-file suppression. Per-file policy is covered by requirement 4. Ruff's own
-behaviour is not re-verified beyond the fixtures named above.
+per-file suppression. Requirement 4 covers suppression comments written in
+source files only; `lint.per-file-ignores` and `lint.extend-per-file-ignores`
+are configuration, not comments, and stay outside the contract, as the package
+docstring and `test_inventory.py` both state. Ruff's own behaviour is not
+re-verified beyond the fixtures named above.
 
 ## Milestones
 

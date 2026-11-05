@@ -34,10 +34,15 @@ def checked_python_files() -> tuple[Path, ...]:
     is not part of the gate, and the gate's own targets are directories, so
     what it checks is exactly what Git tracks under them.
 
+    Stubs count. Ruff discovers ``.pyi`` files when it checks a directory and
+    applies a configuration to them, so a directory holding only a stub is
+    still governed by whatever configuration sits there.
+
     Returns
     -------
     tuple[Path, ...]
-        The tracked Python files, as absolute paths in Git's listing order.
+        The tracked ``.py`` and ``.pyi`` files, as absolute paths in Git's
+        listing order.
 
     Raises
     ------
@@ -48,8 +53,12 @@ def checked_python_files() -> tuple[Path, ...]:
 
     """
     try:
+        # A literal pathspec list, so S603 does not apply. Git comes from PATH
+        # in CI just as it does here, so the partial-path warning is intended.
+        # Stubs count too: Ruff checks .pyi files, so a directory holding only
+        # one is still governed by any configuration in it.
         completed = subprocess.run(
-            ["git", "ls-files", "-z", "--", "*.py"],  # ruff: ignore[S607]  # PATH, as in CI.
+            ["git", "ls-files", "-z", "--", "*.py", "*.pyi"],  # ruff: ignore[S607]
             capture_output=True,
             check=True,
             cwd=REPO_ROOT,
