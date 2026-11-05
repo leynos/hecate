@@ -55,13 +55,14 @@ SECURITY_CODES = frozenset({"S404", "S603", "S607"})
 #: the comment covers a region.
 BROAD_FORMS = frozenset({"file-ignore", "disable"})
 
-#: What one entry in a suppression's code list may look like. Ruff also
-#: accepts rule *names* in preview mode, which this project runs, and a name
-#: matches no code: ``file-ignore[subprocess-without-shell-equals-true]``
-#: silences S603 across the module (measured on the pinned binary, which then
-#: reports only S607). Comparing that string against :data:`SECURITY_CODES`
-#: would clear it, so a name is a violation in its own right rather than
-#: something to resolve against Ruff's rule registry.
+#: What one entry in a suppression's code list may look like. Two shapes are
+#: refused. Ruff accepts rule *names* in preview mode, which this project
+#: runs, and a name matches no code: ``file-ignore[subprocess-without-shell-
+#: equals-true]`` silences S603 across the module (measured on the pinned
+#: binary, which then reports only S607). And ``[S603 S607]``, a pair joined by
+#: a space where the Ruff grammar wants a comma, suppresses *neither* on the
+#: pinned binary and is RUF103 on 0.17.3; an entry that fails the shape below
+#: covers both, because a space-joined pair is one entry.
 _RULE_CODE_RE = re.compile(r"^[A-Z]{1,4}\d{3,4}$")
 
 
@@ -178,13 +179,14 @@ def violations(suppressions: tuple[Suppression, ...]) -> list[str]:
                 f"{where}: names no codes, so it hides every diagnostic the "
                 "line grows, including ones nobody has reviewed yet"
             )
-        if names := [
+        if malformed := [
             code for code in suppression.codes if not _RULE_CODE_RE.match(code)
         ]:
             found.append(
-                f"{where}: {', '.join(names)} is not a rule code; a rule name "
-                "matches no code, so the security check cannot see what it "
-                "suppresses and a Ruff release renames it silently"
+                f"{where}: {', '.join(map(repr, malformed))} is not a rule "
+                "code; a rule name matches no code, so the security check "
+                "cannot see what it suppresses and a Ruff release renames it "
+                "silently, and a space-joined pair is not a code at all"
             )
         if not suppression.has_reason:
             found.append(f"{where}: has no rationale after a second `#`")

@@ -55,8 +55,8 @@ class TestAcceptedCodeLists:
 
     @pytest.mark.parametrize(
         "codes",
-        ["PLW1514, RUF100", "S603", "s603", "E501 F401"],
-        ids=["two-codes", "one-code", "lower-case", "space-separated"],
+        ["PLW1514, RUF100", "S603", "s603", "E501,F401"],
+        ids=["two-codes", "one-code", "lower-case", "no-space-after-comma"],
     )
     def test_a_list_of_real_codes_is_not_reported(self, codes: str) -> None:
         """The shape rule must reject names, not spellings Ruff accepts."""
@@ -64,4 +64,36 @@ class TestAcceptedCodeLists:
         assert messages == [], (
             f"the code list {codes!r} is all real codes, and was reported as "
             f"malformed: {messages}"
+        )
+
+
+class TestSeparators:
+    """The comma is required, and its absence is not a style question.
+
+    Measured on the pinned 0.15.13 over a call that trips both codes: with
+    ``[S603 S607]`` *both* diagnostics are still reported, so the comment
+    suppresses nothing, and the comma form of the same call is silent. Ruff
+    0.17.3 reports the space form as RUF103 instead. A reader that split on
+    whitespace would accept a comment that never suppressed anything.
+    """
+
+    def test_a_space_joined_pair_in_the_ruff_form_is_reported(self) -> None:
+        """Ruff reads the pair as neither code, so the pair is malformed."""
+        messages = reported("x = 1  # ruff: ignore[S603 S607]  # Reviewed.\n")
+        assert any("not a rule code" in message for message in messages), (
+            "a space-joined pair was read as two codes and accepted, so a "
+            "comment that suppresses nothing in Ruff passes the contract"
+        )
+
+    @pytest.mark.parametrize(
+        "codes",
+        ["S603 S607", "S603, S607", "S603,S607"],
+        ids=["space", "comma-space", "comma"],
+    )
+    def test_the_noqa_form_accepts_both_separators(self, codes: str) -> None:
+        """``noqa`` splits on whitespace too; RUF100 names both codes."""
+        messages = reported(f"x = 1  # noqa: {codes}\n")
+        assert not any("not a rule code" in message for message in messages), (
+            f"the noqa grammar accepts {codes!r} and it was reported as "
+            "malformed, so the two spellings are held to the wrong grammar"
         )

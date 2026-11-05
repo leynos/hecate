@@ -45,7 +45,7 @@ class TestAcceptedForms:
         source = "x = 1  # ruff: ignore[S603, S607]  # Literal argv, no shell.\n"
         (suppression,) = suppressions_in(source)
         assert suppression.codes == ("S603", "S607"), (
-            "a comment naming two codes must have both read"
+            "a comment naming two comma-separated codes must have both read"
         )
 
 
