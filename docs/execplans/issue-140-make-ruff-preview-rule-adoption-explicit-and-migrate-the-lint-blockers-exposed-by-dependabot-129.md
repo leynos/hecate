@@ -195,7 +195,8 @@ instead of arriving as a surprise CI failure? The observable end state:
      `ruff: ignore[CODE]  # reason`, and two new contracts added.
      `tests/ruff_policy_contract/suppressions.py` reads comments by tokenizing
      rather than by regex over the file, so a `#` inside a string literal is
-     never policy. `convention.py` holds the judgement as a pure function;
+     never policy. `convention.py` holds the judgement as an ordered tuple of
+     pure predicates;
      `test_suppressions.py` applies it to every module Ruff reports for
      `hecate tests scripts`; `test_reading_suppressions.py` applies the same
      reader and judgement to literal text, which is what makes the
@@ -318,6 +319,18 @@ instead of arriving as a surprise CI failure? The observable end state:
      `+` refspec and the upstream set to `origin`. Draft PR:
      <https://github.com/leynos/hecate/pull/178>, titled with `(#140)`,
      stating `Closes #140`, with the Lody session under `## References`.
+- [x] Cleared the two hosted CodeScene findings on the new contract modules by
+     refactoring, not suppression. `reading.py` measured 9.38 for Code
+     Duplication across the four `[tool.ruff.lint]` readers and `convention.py`
+     9.69 for Complex Method on `violations` (cc 11). `reading.py` now
+     delegates to two private readers and the four public names keep their
+     signatures; `convention.py` holds the convention as an ordered tuple of
+     one-message predicates. Both measure 10.00. Neither is a behaviour change:
+     the suite stays at 132 passed, and a seeded fault in each (dropping one
+     rule from the tuple; pointing `extend-select` at `select`) fails 5 and 2
+     tests respectively, so the new shape is not vacuous.
+- [x] Reapplied `mdtablefix --wrap` to this document and pushed as `7c15b42`;
+     CI's `lint-test` went green on the new head.
 
 ## Surprises & discoveries
 
@@ -607,6 +620,17 @@ instead of arriving as a surprise CI failure? The observable end state:
   baseline: the local `main` ref is stale at 2026-07-28, making the diff 95
   commits and 144 files of unrelated Dependabot work. Only the fork point gives
   a figure that describes this change.
+- Decision: repair the two hosted CodeScene findings by refactoring rather than
+  suppressing them. Rationale: both files are introduced by this branch, so the
+  findings describe code written here, and the repository's precedent
+  (`docs/execplans/adopt-nose-code-deduplication.md`) is to refactor. The
+  measured repair for `reading.py` is delegation to two private readers rather
+  than four copies of the same numpy docstring block; that duplication was
+  documentation, not logic, which is why shortening the docstrings alone also
+  scored 10.00 — but the logic duplication underneath was real, so both were
+  removed. `violations` gained a rule tuple because the six rules were already
+  independent; the tuple makes their order and their one-message-per-rule
+  contract visible instead of implied by statement order.
 
 ## Outcomes & retrospective
 
@@ -622,9 +646,10 @@ prefixes happen to overlap upstream's preview set. Run
 `uv run pytest tests/ruff_policy_contract` and have the repository compare its
 committed 673-code inventory against what the installed binary actually
 resolves, in both directions, naming any code that appeared or disappeared. Read
-`convention.py` and find the whole suppression policy as one function with no
-file I/O. And answer "which Ruff is the gate running" from `uv.lock` plus the
-recipe assertion, rather than from whatever `ruff` is first on `PATH`.
+`convention.py` and find the whole suppression policy as an ordered tuple of
+rules with no file I/O. And answer "which Ruff is the gate running" from
+`uv.lock` plus the recipe assertion, rather than from whatever `ruff` is first
+on `PATH`.
 
 ### The measurement that mattered
 
@@ -683,6 +708,13 @@ deliverable rather than incidental.
 - Spelling gates run over Markdown only, so a docstring using the -ise form
   survives `make lint` and surfaces only in review. Worth knowing before the
   next review round rather than after it.
+- CodeScene's duplication detector matches text, not only structure. Four
+  functions that each carry the same numpy `Parameters`/`Returns` block are a
+  family even when their bodies differ, so a house style that documents every
+  parameter of every small reader prices itself into the quality gate. The fix
+  is not to stop documenting: it is to document the shared contract once, on
+  the helper that actually holds the logic, and let the thin callers say only
+  what makes them different.
 
 ### Delivered outside this repository
 
@@ -870,8 +902,10 @@ no gate enforces.
 
 Four modules carry the new contract. `suppressions.py` tokenizes and returns a
 `Suppression` record with its line, form, codes, and rationale; it is
-deliberately judgement-free. `convention.py` holds the judgement, as a pure
-function over those records that reads no files. `test_suppressions.py` holds
+deliberately judgement-free. `convention.py` holds the judgement, as an ordered
+tuple of predicates over those records that reads no files; one predicate per
+rule, so a message's wording, its trigger condition, and the order rules are
+reported in are each a separate reviewable thing. `test_suppressions.py` holds
 only the repository scan, asking Ruff for `--show-files hecate tests scripts`
 so an excluded module is not failed for a comment the gate never reads (95
 files, and `scripts/typos_rollout.py` is absent from that list).
