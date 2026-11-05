@@ -58,7 +58,8 @@ def checked_python_files() -> tuple[Path, ...]:
         # Stubs count too: Ruff checks .pyi files, so a directory holding only
         # one is still governed by any configuration in it.
         completed = subprocess.run(
-            ["git", "ls-files", "-z", "--", "*.py", "*.pyi"],  # ruff: ignore[S607]
+            # ruff: ignore[S607]  # Git comes from PATH in CI, as it does here.
+            ["git", "ls-files", "-z", "--", "*.py", "*.pyi"],
             capture_output=True,
             check=True,
             cwd=REPO_ROOT,

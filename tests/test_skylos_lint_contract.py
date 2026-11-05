@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shlex
 import shutil
-import subprocess  # noqa: S404 - contract tests invoke fixed local tools.
+import subprocess  # ruff: ignore[S404]  # contract tests invoke fixed local tools.
 import tomllib
 import typing as typ
 from pathlib import Path
@@ -109,7 +109,7 @@ def _executable_path(name: str) -> str:
 
 def _makefile_report() -> dict[str, object]:
     """Return Makeutil's complete, successfully parsed Makefile report."""
-    completed = subprocess.run(  # noqa: S603 - fixed parser command.
+    completed = subprocess.run(  # ruff: ignore[S603]  # fixed parser command.
         (_executable_path("makeutil"), "parse", "Makefile"),
         capture_output=True,
         check=True,
@@ -326,7 +326,7 @@ def test_skylos_configuration_models_only_verified_runtime_callers() -> None:
 
 def test_skylos_allow_lock_is_ignored() -> None:
     """The serialized allow-list lock must remain repository-local state."""
-    completed = subprocess.run(  # noqa: S603 - fixed Git check-ignore command.
+    completed = subprocess.run(  # ruff: ignore[S603]  # fixed Git check-ignore command.
         (
             _executable_path("git"),
             "check-ignore",

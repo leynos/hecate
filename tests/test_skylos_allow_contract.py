@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess  # noqa: S404 - contract tests invoke fixed local tools.
+import subprocess  # ruff: ignore[S404]  # contract tests invoke fixed local tools.
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -63,7 +63,7 @@ def _run_skylos_allow(
     if skylos_cli is not None:
         command.append(f"SKYLOS_CLI={skylos_cli}")
     command.append("skylos-allow")
-    return subprocess.run(  # noqa: S603 - fixed Make target and controlled test inputs.
+    return subprocess.run(  # ruff: ignore[S603]  # fixed Make target and controlled test inputs.
         command,
         capture_output=True,
         check=False,
