@@ -48,7 +48,9 @@ instead of arriving as a surprise CI failure? The observable end state:
    explicit codes, a written rationale, and no security-code broadening.
 5. Ruff behaviour fixtures prove the new suppression syntax still suppresses
    its security diagnostic, still surfaces adjacent diagnostics, and still
-   keeps another tool's pragma on a shared line.
+   keeps another tool's pragma on a shared line — the last to the extent it can
+   be shown without a coverage run, which is that the pragma survives verbatim
+   and the suppression beside it still works.
 
 ## Constraints
 
@@ -109,7 +111,11 @@ instead of arriving as a surprise CI failure? The observable end state:
   binary over fixtures where a migrated directive shares one comment with
   `# pragma: no cover`, in both orders, and asserts the directive still silences
   `S404` while `F401` on the same line stays reported. A pragma with no
-  directive is the negative control, and still draws `S404`.
+  directive is the negative control, and still draws `S404`. The coverage side
+  is measured out of band and recorded in "What remains open": both directive
+  orders and a pragma-only control report the line as excluded by coverage
+  7.17.2, and the no-comment control does not. It is not a suite assertion
+  because adding `coverage` would edit the two files issue 176 also edits.
 - Risk: the security codes `S404`/`S603`/`S607` are exactly the ones being
   migrated. Broadening one would hide a real subprocess risk. Severity: high,
   Likelihood: low. Mitigation: the contract rejects bare `noqa`, file-level
@@ -584,12 +590,18 @@ instead of arriving as a surprise CI failure? The observable end state:
   described upstream as opinionated; a written decision plus a local contract
   is the difference between a policy and an unexplained suppression.
 - Decision: enable `--preview` in the behaviour fixtures, and add a case
-  asserting that the migrated syntax is inert without it. Rationale: measured,
-  not assumed — with preview off, Ruff emits
-  `#ruff:ignore comment found but not active, enable preview mode` and still
-  reports the diagnostic. Every scope assertion in the fixture file would
-  otherwise have passed while proving nothing about the mode the project
-  actually runs.
+  recording what happens to the migrated syntax without it. Rationale:
+  measured, not assumed — on the then-pinned 0.15.13, with preview off, Ruff
+  emitted `#ruff:ignore comment found but not active, enable preview mode` and
+  still reported the diagnostic, so the case asserted inertness. Every scope
+  assertion in the fixture file would otherwise have passed while proving
+  nothing about the mode the project actually runs. **This decision was
+  overtaken during the 0.17.3 upgrade:** the syntax stabilized, the case was
+  renamed `test_the_syntax_suppresses_without_preview`, and it now asserts the
+  opposite — that the comment suppresses with no preview flag and Ruff prints
+  no warning. The inertness recorded here is historical, true of 0.15.13 and
+  false of the pinned binary. The case was kept rather than deleted precisely
+  so a future release that made the syntax preview-only again would fail it.
 - Decision: give each fixture the smallest argument vector that trips the code
   under test, rather than one vector that trips both. Rationale: measured —
   S603 fires only when the vector is not entirely literal strings, while an
@@ -676,25 +688,32 @@ instead of arriving as a surprise CI failure? The observable end state:
   excludes ExecPlan files, and the generated 691-line `enabled_rules.txt` is a
   measurement artefact rather than reviewable code, so the operative figure
   excludes both: **42 files, 3738 insertions, 78 deletions, 3660 net lines**.
-  Counting the ExecPlan but not the inventory gives 43 files and 4429
-  insertions; counting everything gives 44 files and 5494 insertions. Every
-  basis exceeds both bounds — 30 files and 1200 net lines — so the conclusion
-  does not depend on which one a reviewer prefers. These are measured at
-  `50eebeb`, the last commit before this one; a figure recorded in the same
-  commit that reports it can never include itself, so the commit named here is
-  the honest reference point rather than a number that changes each time it is
-  written down. The overrun is not incidental. The ticket's acceptance criteria
-  require a policy contract with positive and negative fixtures, and the
-  contract package alone is twenty-one modules; the suppression contract spans
-  five of them to stay under Pylint's 400-line cap, and a provenance contract
-  was added because a rule inventory is meaningless unless pinned to the binary
-  that produced it. Trimming the change to fit would mean dropping acceptance
-  criteria, so the escalation is the honest outcome. It is recorded here for
-  the reviewer to accept or reject; no further scope is added pending that
-  decision. Note that `git merge-base HEAD main` is *not* the correct baseline:
-  the local `main` ref is stale at 2026-07-28, making the diff 95 commits and
-  144 files of unrelated Dependabot work. Only the fork point gives a figure
-  that describes this change.
+  Counting the ExecPlan but not the inventory gives 43 files, 4803 insertions,
+  78 deletions, 4725 net lines. Counting the inventory but not the ExecPlan
+  gives 43 files, 4429 insertions, 78 deletions, 4351 net lines. Counting
+  everything gives 44 files, 5494 insertions, 78 deletions, 5416 net lines.
+  Each basis is stated with its measurement command because an earlier revision
+  of this entry attached the 43/4429 figures to the wrong basis; the two
+  43-file totals differ only by which artefact is admitted, and swapping them
+  is invisible to a reader who does not re-measure. Every basis exceeds both
+  bounds — 30 files and 1200 net lines — so the conclusion does not depend on
+  which one a reviewer prefers. These are measured at `50eebeb`, the last
+  commit before this one; a figure recorded in the same commit that reports it
+  can never include itself, so the commit named here is the honest reference
+  point rather than a number that changes each time it is written down. The
+  overrun is not incidental. The ticket's acceptance criteria require a policy
+  contract with positive and negative fixtures, and the contract package alone
+  is twenty-one files including its `__init__.py` (twenty modules of actual
+  code); the suppression contract spans five of them to stay under Pylint's
+  400-line cap, and a provenance contract was added because a rule inventory is
+  meaningless unless pinned to the binary that produced it. Trimming the change
+  to fit would mean dropping acceptance criteria, so the escalation is the
+  honest outcome. It is recorded here for the reviewer to accept or reject; no
+  further scope is added pending that decision. Note that
+  `git merge-base HEAD main` is *not* the correct baseline: the local `main`
+  ref is stale at 2026-07-28, making the diff 95 commits and 144 files of
+  unrelated Dependabot work. Only the fork point gives a figure that describes
+  this change.
 - Decision: repair the two hosted CodeScene findings by refactoring rather than
   suppressing them. Rationale: both files are introduced by this branch, so the
   findings describe code written here, and the repository's precedent
@@ -722,8 +741,12 @@ instead of arriving as a surprise CI failure? The observable end state:
 ## Outcomes & retrospective
 
 Delivered. The four milestones are complete, and the branch carries more than
-forty commits from the base of `74af1a6~1`. Every acceptance criterion is
-discharged by something a reader can run.
+forty commits from the base of `74af1a6~1`. Four of the five acceptance
+criteria are discharged by something a reader can run. AC4 is discharged only
+at the scope this branch can reach: it validates Ruff 0.17.3 on the repaired
+baseline, not the refreshed grouped update, which does not yet exist. That
+qualification is stated in Milestone 4 and is not a defect to be tidied away
+here — see "What remains open" below.
 
 ### What a contributor can now do that they could not before
 
@@ -779,8 +802,10 @@ configuration file describes intent and the binary describes behaviour.
 The change exceeds the plan's original 30-file / 1200-line tolerance. Counting
 non-ExecPlan files, and excluding the generated 691-line `enabled_rules.txt` as
 the Decision log does: 42 files, 3738 insertions, 78 deletions, 3660 net lines,
-measured at `50eebeb`. The overrun was escalated and recorded in the Decision
-log rather than trimmed to fit. Most of it is the 106-code adoption list, the
+measured at `50eebeb`. Admitting the ExecPlan raises that to 43 files and 4803
+insertions; the alternative 43-file basis, which admits the inventory instead,
+is 4429 insertions. The overrun was escalated and recorded in the Decision log
+rather than trimmed to fit. Most of it is the 106-code adoption list, the
 committed inventory, and the contract suite, all of which are the deliverable
 rather than incidental.
 
@@ -821,6 +846,50 @@ were posted to `leynos/shared-actions#588`, which tracks the campaign fixture
 for this failure class, rather than building a new runner here. That is Task
 4's instruction and the reason the campaign row already exists.
 
+### What remains open
+
+Two things are deliberately unfinished, and neither is a defect this branch can
+close.
+
+AC4 is discharged at Ruff scope only. It reads "the refreshed dependency update
+passes all existing required gates", and the refreshed update is Dependabot
+issue 176 at `b8bb4bdc8a89ac6d8033eb1875b3825f718aadef`, whose `lint-test`
+fails in run `42041912849` against a baseline this branch has not been merged
+into. This branch validates Ruff 0.17.3 on the repaired baseline; it cannot
+validate a grouped update that has not been rebased onto it. That update must
+be refreshed after this change lands before its own AC4 claim can be made.
+
+The coverage half of the pragma contract is measured out of band, not in the
+suite. `coverage` is not a dependency of this repository, and adding it would
+edit `pyproject.toml` and `uv.lock` — the two files the pending grouped update
+in issue 176 also edits — so the contract test would collide with the change
+whose validation depends on this branch. The suite therefore asserts the two
+facts it can assert without the tool: the pragma survives verbatim in the
+migrated comment, and Ruff still honours its own directive beside it.
+
+The coverage half was measured directly instead, with the real tool, against
+the same four fixtures the contract builds:
+
+```plaintext
+$ uv tool run --from coverage coverage --version
+Coverage.py, version 7.17.2 with C extension
+
+$ # analysis2 on line-2-unexecuted fixtures, after `coverage run drive.py`
+directive_then_pragma      excluded=[2]       missing=[]        line2_excluded=True
+pragma_then_directive      excluded=[2]       missing=[]        line2_excluded=True
+pragma_only                excluded=[2]       missing=[]        line2_excluded=True
+no_comment                 excluded=[]        missing=[]        line2_excluded=False
+```
+
+Both directive orders and the pragma-only control report line 2 as excluded
+from coverage's statement set; the no-comment control reports the same line as
+a statement that is not excluded. That is the coverage reader's own verdict,
+not an inference from the comment's text, and it is the four-way matrix the
+suite builds, checked against the tool that actually consumes the pragma. What
+remains outside the suite is automated regression cover: if a future change
+dropped the pragma, the textual assertion would catch it, but if coverage
+changed how it parses trailing comments, only a re-run of this probe would.
+
 ## Conformance basis
 
 - Issue #140, "Make Ruff preview-rule adoption explicit and migrate the lint
@@ -839,7 +908,8 @@ Trace: `#140 AC1 -> M3 -> the D421-clean run over hecate tests scripts`;
 `#140 AC2 -> M1 -> tests/ruff_policy_contract/test_preview_adoption.py`;
 `#140 AC3 -> M3 -> tests/ruff_policy_contract/test_suppressions.py`,
 `test_reading_suppressions.py`, `test_suppression_behaviour.py`;
-`#140 AC4 -> M4 -> gate transcripts`;
+`#140 AC4 -> M4 -> gate transcripts, Ruff scope only; the refreshed-group half
+of AC4 is pending #176 and is recorded in Milestone 4 and "What remains open"`;
 `#140 AC5 -> M4 -> issue comment on shared-actions#588`.
 
 ## Verification plan
@@ -927,8 +997,11 @@ after. `tests/ruff_policy_contract/` holds `reading.py` (the configuration and
 the binary's resolved settings), `inventory.py` (the committed artefact and the
 dump it is regenerated from), `provenance.py` (the lockfile and Makefile that
 pin the binary), `discovery.py` (which configuration governs which file),
-`enabled_rules.txt` (the reviewed inventory with a `# ruff-version: 0.15.13`
-header), `test_reading.py` (reader negative cases), `test_inventory.py` (the
+`enabled_rules.txt` (the reviewed inventory; it carried a
+`# ruff-version: 0.15.13` header when this milestone was written and carries
+`0.17.3` at the published head, which is the point of the header — it records
+which binary the set was reviewed against, so the file changes when the pin
+does), `test_reading.py` (reader negative cases), `test_inventory.py` (the
 two-directional comparison, the policy switches, and the single-row
 precondition), and `test_preview_adoption.py` (the behaviour fixture).
 Acceptance evidence:
@@ -993,20 +1066,25 @@ demonstrate suppression scope, restored diagnostics, and adjacent-diagnostic
 visibility.
 
 Delivered. The `D421` edits are docstring-only and touch no signature or
-statement. The migration rewrote 30 `noqa` comments across 12 files; the only
-ones left in the tree are two `S310` comments in `scripts/typos_rollout.py`,
-which `extend-exclude` keeps out of the gate, so rewriting them would be policy
-no gate enforces.
+statement. The base tree carried 30 `noqa` comments across 12 files; the
+migration rewrote the 28 of them that sit in the gate's targets, across 11
+files. The two it left are `S310` comments in `scripts/typos_rollout.py`, which
+`extend-exclude` keeps out of the gate, so rewriting them would be policy no
+gate enforces. An earlier revision of this paragraph said the migration rewrote
+30 across 12 and that two remained, which cannot both be true.
 
-Four modules carry the new contract. `suppressions.py` tokenizes and returns a
-`Suppression` record with its line, form, codes, and rationale; it is
-deliberately judgement-free. `convention.py` holds the judgement, as an ordered
-tuple of predicates over those records that reads no files; one predicate per
-rule, so a message's wording, its trigger condition, and the order rules are
-reported in are each a separate reviewable thing. `test_suppressions.py` holds
-only the repository scan, asking Ruff for `--show-files hecate tests scripts`
-so an excluded module is not failed for a comment the gate never reads (95
-files, and `scripts/typos_rollout.py` is absent from that list).
+Six modules carry the suppression contract, and a seventh holds the runner they
+share. `suppressions.py` tokenizes and returns a `Suppression` record with its
+line, form, codes, and rationale; it is deliberately judgement-free.
+`convention.py` holds the judgement, as an ordered tuple of predicates over
+those records that reads no files; one predicate per rule, so a message's
+wording, its trigger condition, and the order rules are reported in are each a
+separate reviewable thing. `test_suppressions.py` holds only the repository
+scan, asking Ruff for `--show-files hecate tests scripts` so an excluded module
+is not failed for a comment the gate never reads (111 files at the published
+head, and `scripts/typos_rollout.py` is absent from that list; the scan derives
+the count at run time rather than asserting a constant, because the repository
+gains modules faster than this paragraph is edited).
 `test_reading_suppressions.py` feeds literal text to the same reader and the
 same judgement, which is what makes a passing repository scan mean something.
 `test_suppression_behaviour.py` proves the syntax rather than the reading, and
@@ -1019,13 +1097,39 @@ repository scan's own non-vacuity test; removing the broad-form rule from
 `violations` failed the 3 broad-form cases. The restored tree is 70 passed, and
 `uv run ruff check hecate tests scripts` reports `All checks passed!`.
 
+The coverage half of the shared-line contract was measured out of band with
+coverage 7.17.2, against the same four fixtures the contract builds. It is not
+a suite assertion because `coverage` is not a dependency and adding it would
+edit the two files issue 176 also edits; see "What remains open".
+
+```plaintext
+$ uv tool run --from coverage coverage --version
+Coverage.py, version 7.17.2 with C extension
+
+$ # analysis2 over fixtures whose second line is never executed
+directive_then_pragma      excluded=[2]       missing=[]        line2_excluded=True
+pragma_then_directive      excluded=[2]       missing=[]        line2_excluded=True
+pragma_only                excluded=[2]       missing=[]        line2_excluded=True
+no_comment                 excluded=[]        missing=[]        line2_excluded=False
+```
+
+Both directive orders and the pragma-only control report the line as excluded
+from coverage's statement set; the no-comment control reports it as a
+statement that is not excluded. That is the reader consuming the pragma
+giving its own verdict, rather than an inference from the comment's text.
+
 The behaviour fixtures also changed two of the plan's assumptions. The plan
-said to run them through Ruff with `--isolated --preview`; the `--preview` half
-turned out to be load-bearing, not decoration, and now has its own case. And
-the plan implied one fixture could trip both security codes; in fact an
-all-literal vector trips S607 alone and only a vector with a variable element
-trips S603. Both facts are recorded in `Surprises & discoveries` because a
-future maintainer adding a fixture will otherwise repeat the mistake.
+said to run them through Ruff with `--isolated --preview`; on the then-pinned
+0.15.13 the `--preview` half turned out to be load-bearing, not decoration, and
+got its own case asserting inertness. That case inverted during the 0.17.3
+upgrade, when the syntax stabilized — it is now
+`test_the_syntax_suppresses_without_preview` and asserts the opposite, keeping
+the mode question recorded in both directions rather than only the version the
+plan was written against. The second assumption held: the plan implied one
+fixture could trip both security codes, but an all-literal vector trips S607
+alone and only a vector with a variable element trips S603. Both facts are
+recorded in `Surprises & discoveries` because a future maintainer adding a
+fixture will otherwise repeat the mistake.
 
 ### Milestone 4: adopt the refreshed update and record the evidence
 
@@ -1067,3 +1171,36 @@ and seven in the contention test. The count is re-derived from
 tree, which counts unrelated docstrings. Milestone 4 now records AC4 as
 Ruff-only validation with the refreshed grouped update pending at #176, so the
 acceptance mapping claims exactly what was measured.
+
+Revision 5: post-follow-up corrections. Six defects, all in recorded figures or
+scopes rather than in behaviour, found by re-measuring every quantitative claim
+against the tree instead of against the previous revision. First, the Decision
+log attached the 43-file / 4429-insertion figures to the wrong basis: that is
+the exclude-ExecPlan, include-inventory basis, while admitting the ExecPlan and
+excluding the inventory gives 43 / 4803. All four bases are now stated together
+with their measurements. Second, the retrospective claimed every acceptance
+criterion was discharged, contradicting the AC4 narrowing recorded in Milestone
+4; it now says four of five, and "What remains open" records both the AC4
+dependency and the coverage-pragma gap. Third, the Decision log and the
+Milestone 3 retrospective still described the preview-mode case as asserting
+inertness, which was true of 0.15.13 and is false of the pinned binary; both
+are now marked as historical with the inversion recorded. Fourth, the
+suppression-contract module count said four where the enumeration names six
+plus the shared runner. Fifth, the Milestone 1 inventory header was described as
+`0.15.13`, which was true when written; it now records both versions and why
+the header moves with the pin. Sixth, two further counts drifted: the `noqa`
+migration is 28 across 11 files, not 30 across 12 (30/12 is the whole base
+tree, including the two the migration deliberately left), and the behaviour
+scan now covers 111 files, not the 95 measured at the first commit.
+
+Revision 6: closing the coverage question rather than caveating it. The
+previous revision narrowed the pragma claim to literal retention after finding
+that `coverage` was not importable in the project environment. It is not a
+dependency, but it is runnable: `uv tool run --from coverage` supplies it
+without touching `pyproject.toml` or `uv.lock`. The four-fixture matrix was
+therefore measured with coverage 7.17.2 and `analysis2`, and both directive
+orders plus the pragma-only control report the line as excluded while the
+no-comment control does not. The measurement is recorded in Milestone 3 and in
+"What remains open"; the suite keeps the two assertions it can make without the
+tool, because adding the dependency would edit the same two files issue 176
+edits.
