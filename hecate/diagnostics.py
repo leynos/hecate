@@ -306,7 +306,7 @@ class UnclassifiedModuleDiagnostic:
 
     @property
     def rule_id(self) -> str:
-        """Return the fixed module-coverage rule identifier."""
+        """The fixed module-coverage rule identifier."""
         return UNCLASSIFIED_MODULE_RULE_ID
 
     def identity(self) -> tuple[str, str]:
