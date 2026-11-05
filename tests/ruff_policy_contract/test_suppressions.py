@@ -55,6 +55,12 @@ SECURITY_CODES = frozenset({"S404", "S603", "S607"})
 #: the comment covers a region.
 BROAD_FORMS = frozenset({"file-ignore", "disable"})
 
+#: The form that ends a covered region rather than opening one. It carries no
+#: rationale of its own: a ``disable``/``enable`` pair is one reviewed
+#: decision, and the reason written on the ``disable`` is the reason for both.
+#: Demanding a second copy would only invite the two to drift apart.
+CLOSING_FORMS = frozenset({"enable"})
+
 #: What one entry in a suppression's code list may look like. Two shapes are
 #: refused. Ruff accepts rule *names* in preview mode, which this project
 #: runs, and a name matches no code: ``file-ignore[subprocess-without-shell-
@@ -63,7 +69,12 @@ BROAD_FORMS = frozenset({"file-ignore", "disable"})
 #: a space where the Ruff grammar wants a comma, suppresses *neither* on the
 #: pinned binary and is RUF103 on 0.17.3; an entry that fails the shape below
 #: covers both, because a space-joined pair is one entry.
-_RULE_CODE_RE = re.compile(r"^[A-Z]{1,4}\d{3,4}$")
+#:
+#: Up to five letters: ``ASYNC`` is the longest prefix Ruff ships (the rule set
+#: on 0.17.3 was measured — 970 codes, all matching ``^[A-Z]+\d+$``, prefixes
+#: one to five letters, three or four digits). A narrower bound rejected
+#: ``ASYNC100`` as malformed, which is a false report about a real code.
+_RULE_CODE_RE = re.compile(r"^[A-Z]{1,5}\d{3,4}$")
 
 
 def read_module(path: str) -> str:
@@ -188,8 +199,16 @@ def violations(suppressions: tuple[Suppression, ...]) -> list[str]:
                 "cannot see what it suppresses and a Ruff release renames it "
                 "silently, and a space-joined pair is not a code at all"
             )
-        if not suppression.has_reason:
+        if suppression.form not in CLOSING_FORMS and not suppression.has_reason:
             found.append(f"{where}: has no rationale after a second `#`")
+        if not suppression.records_canonical_case:
+            found.append(
+                f"{where}: is written as {suppression.form}"
+                f"[{', '.join(suppression.written_codes)}], which Ruff does "
+                "not read; the prefix, the directive name and the codes are "
+                "all case-sensitive, and a wrongly-cased comment suppresses "
+                "nothing while looking like policy"
+            )
         if suppression.form in BROAD_FORMS and (
             broad := sorted(SECURITY_CODES.intersection(suppression.codes))
         ):
