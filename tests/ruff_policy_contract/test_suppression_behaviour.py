@@ -19,16 +19,21 @@ pass with or without the flag. ``test_the_syntax_suppresses_without_preview``
 pins the new premise, and would fail if a future release made the syntax
 preview-only again. What did *not* change is that rule *names* are preview-only,
 which is why the contract rejects them regardless.
+
+A second question is what a migrated suppression does to the *other* tools that
+read the same comment, and to the codes it does not name. Those cases live in
+``test_suppression_shared_line``: they are a separate module because the two
+together exceed the module-length cap, and each imports the runner from
+``ruff_run`` rather than from the other test module.
 """
 
 from __future__ import annotations
 
 import json
-import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
-import sys
 from pathlib import Path
 
-from .reading import RuffPolicyError
+from .ruff_run import diagnostics as _diagnostics
+from .ruff_run import run_ruff as _run_ruff
 
 #: The codes the repository suppresses around subprocess calls, which is what
 #: the migration rewrote and therefore what these fixtures exercise.
@@ -40,90 +45,6 @@ SECURITY = ("S603", "S607")
 _VECTOR = "name = 'make'\nsubprocess.run(['make', name], check=True)"
 
 _SUPPRESS_S603 = "# ruff: ignore[S603]  # Fixed two-word vector."
-
-
-def _run_ruff(
-    tmp_path: Path,
-    source: str,
-    codes: tuple[str, ...],
-    *,
-    preview: bool = True,
-) -> subprocess.CompletedProcess[str]:
-    """Check ``source`` in ``tmp_path`` and return Ruff's completed run.
-
-    The module is checked in isolation so the repository's own configuration
-    cannot change the outcome: what is under test is the suppression syntax,
-    and a fixture inheriting the project's selectors would be measuring those
-    as well. Preview mode is enabled explicitly for the same reason in the
-    other direction — it is what the project's configuration sets, and without
-    it the syntax under test is inert.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Where to write the fixture module.
-    source : str
-        The module to check.
-    codes : tuple[str, ...]
-        The rule codes to select. Anything outside this set is ignored, so an
-        unrelated diagnostic cannot be mistaken for the one under test.
-    preview : bool
-        Whether to run Ruff with preview mode. Callers turn it off only to
-        show that the syntax depends on it.
-
-    Returns
-    -------
-    subprocess.CompletedProcess[str]
-        The finished run, with Ruff's JSON report on standard output.
-
-    Raises
-    ------
-    RuffPolicyError
-        If Ruff could not check the fixture. A fixture error must not read as
-        an absent diagnostic, which is what every assertion here concludes on.
-
-    """
-    (tmp_path / "fixture.py").write_text(source, encoding="utf-8")
-    arguments = [sys.executable, "-m", "ruff", "check", "--isolated"]
-    if preview:
-        arguments.append("--preview")
-    arguments += [f"--select={code}" for code in codes]
-    arguments += ["--output-format", "json", "fixture.py"]
-    # The interpreter is named explicitly so the fixture uses the same Ruff
-    # the gate runs, rather than whatever is first on PATH.
-    completed = subprocess.run(  # ruff: ignore[S603]  # Literal argv, no shell.
-        arguments,
-        capture_output=True,
-        check=False,
-        cwd=tmp_path,
-        text=True,
-    )
-    if completed.returncode not in {0, 1}:
-        message = f"ruff failed on the fixture: {completed.stderr}"
-        raise RuffPolicyError(message)
-    return completed
-
-
-def _diagnostics(tmp_path: Path, source: str, codes: tuple[str, ...]) -> list[str]:
-    """Return the codes Ruff reports for ``source``, restricted to ``codes``.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Where to write the fixture module.
-    source : str
-        The module to check.
-    codes : tuple[str, ...]
-        The rule codes to select.
-
-    Returns
-    -------
-    list[str]
-        One entry per diagnostic, in Ruff's report order.
-
-    """
-    completed = _run_ruff(tmp_path, source, codes)
-    return [diagnostic["code"] for diagnostic in json.loads(completed.stdout)]
 
 
 class TestSuppressionScope:
