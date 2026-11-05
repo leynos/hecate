@@ -15,14 +15,18 @@ keeps a passing repository scan from being vacuous.
 
 from __future__ import annotations
 
-import re
 import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
 import sys
 from pathlib import Path
 
 import pytest
 
-from .reading import REPO_ROOT, RuffPolicyError, repository_files_present
+from .reading import (
+    REPO_ROOT,
+    RuffPolicyError,
+    is_rule_code,
+    repository_files_present,
+)
 from .suppressions import NOQA, Suppression, scan
 
 pytestmark = pytest.mark.skipif(
@@ -61,20 +65,16 @@ BROAD_FORMS = frozenset({"file-ignore", "disable"})
 #: Demanding a second copy would only invite the two to drift apart.
 CLOSING_FORMS = frozenset({"enable"})
 
-#: What one entry in a suppression's code list may look like. Two shapes are
-#: refused. Ruff accepts rule *names* in preview mode, which this project
-#: runs, and a name matches no code: ``file-ignore[subprocess-without-shell-
-#: equals-true]`` silences S603 across the module (measured on the pinned
-#: binary, which then reports only S607). And ``[S603 S607]``, a pair joined by
-#: a space where the Ruff grammar wants a comma, suppresses *neither* on the
-#: pinned binary and is RUF103 on 0.17.3; an entry that fails the shape below
-#: covers both, because a space-joined pair is one entry.
-#:
-#: Up to five letters: ``ASYNC`` is the longest prefix Ruff ships (the rule set
-#: on 0.17.3 was measured — 970 codes, all matching ``^[A-Z]+\d+$``, prefixes
-#: one to five letters, three or four digits). A narrower bound rejected
-#: ``ASYNC100`` as malformed, which is a false report about a real code.
-_RULE_CODE_RE = re.compile(r"^[A-Z]{1,5}\d{3,4}$")
+#: What one entry in a suppression's code list may look like is
+#: ``reading.is_rule_code``, shared with the selector contract so the two
+#: cannot drift apart on what a code is. Two shapes it refuses matter here.
+#: Ruff accepts rule *names* in preview mode, which this project runs, and a
+#: name matches no code: ``file-ignore[subprocess-without-shell-equals-true]``
+#: silences S603 across the module (measured on the pinned binary, which then
+#: reports only S607). And ``[S603 S607]``, a pair joined by a space where the
+#: Ruff grammar wants a comma, suppresses *neither* on the pinned binary and
+#: is RUF103 on 0.17.3; that check covers both, because a space-joined pair is
+#: one entry.
 
 
 def read_module(path: str) -> str:
@@ -190,9 +190,7 @@ def violations(suppressions: tuple[Suppression, ...]) -> list[str]:
                 f"{where}: names no codes, so it hides every diagnostic the "
                 "line grows, including ones nobody has reviewed yet"
             )
-        if malformed := [
-            code for code in suppression.codes if not _RULE_CODE_RE.match(code)
-        ]:
+        if malformed := [code for code in suppression.codes if not is_rule_code(code)]:
             found.append(
                 f"{where}: {', '.join(map(repr, malformed))} is not a rule "
                 "code; a rule name matches no code, so the security check "
