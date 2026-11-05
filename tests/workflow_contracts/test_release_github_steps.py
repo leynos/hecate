@@ -128,7 +128,9 @@ def test_the_draft_check_reports_a_draft_release(tmp_path: pth.Path) -> None:
     assert "is-draft=true" in (tmp_path / "output").read_text(encoding="utf-8"), (
         "a draft release must be recorded as uploadable"
     )
-    assert calls == [["release", "view", _TAG, "--json", "isDraft", "--jq", ".isDraft"]]
+    assert calls == [
+        ["release", "view", _TAG, "--json", "isDraft", "--jq", ".isDraft"]
+    ], "the step must read only the draft flag"
 
 
 def test_the_draft_check_reports_a_published_release(tmp_path: pth.Path) -> None:
@@ -144,8 +146,12 @@ def test_the_draft_check_reports_a_published_release(tmp_path: pth.Path) -> None
 
     assert status == 0, stderr
     output = (tmp_path / "output").read_text(encoding="utf-8")
-    assert "is-draft=false" in output
-    assert "nothing will be uploaded" in stderr
+    assert "is-draft=false" in output, (
+        "a published release must not be recorded as uploadable"
+    )
+    assert "nothing will be uploaded" in stderr, (
+        "the step must say that a published release receives nothing"
+    )
 
 
 def test_the_upload_declines_a_published_release(tmp_path: pth.Path) -> None:
@@ -214,4 +220,4 @@ def test_the_release_is_published_with_its_prerelease_status(
     assert status == 0, stderr
     assert calls == [
         ["release", "edit", _TAG, "--draft=false", f"--prerelease={is_prerelease}"]
-    ]
+    ], "the run must un-draft the release with the version check's flag"

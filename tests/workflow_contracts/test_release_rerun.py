@@ -44,9 +44,15 @@ def test_a_rerun_after_success_uploads_nothing(fake: FakeRelease) -> None:
         "publish-release", "Upload the assets the release lacks", cwd, env
     )
 
-    assert (scene.holdings(fake.pypi), scene.holdings(fake.github)) == before
-    assert outputs(fake.root / "publish-pypi" / "output")["remaining"] == "false"
-    assert outputs(cwd / "output")["pending"] == "false"
+    assert (scene.holdings(fake.pypi), scene.holdings(fake.github)) == before, (
+        "a complete re-run must leave both destinations unchanged"
+    )
+    assert outputs(fake.root / "publish-pypi" / "output")["remaining"] == "false", (
+        "PyPI must have nothing left to upload"
+    )
+    assert outputs(cwd / "output")["pending"] == "false", (
+        "the release must have nothing left to upload"
+    )
     uploads = [call for call in fake.calls("gh") if call[:2] == ["release", "upload"]]
     assert uploads == [], "a complete re-run uploads nothing, bundle included"
 
@@ -63,10 +69,12 @@ def test_a_pypi_only_name_uploads_when_the_bundle_is_already_attached(
 
     cwd = scene.publish_release(fake)
 
-    assert outputs(cwd / "output")["pending"] == "true"
+    assert outputs(cwd / "output")["pending"] == "true", (
+        "the release must still lack the PyPI-only name"
+    )
     assert (fake.github / scene.PYPI_ONLY).read_bytes() == (
         f"published {scene.PYPI_ONLY}".encode()
-    )
+    ), "the release must receive PyPI's bytes for the missing name"
 
 
 def test_a_complete_rerun_uploads_nothing_even_though_it_staged_the_bundle(
@@ -128,6 +136,8 @@ def test_the_upload_step_refuses_a_staged_bundle_for_a_published_release(
         "publish-release", "Upload the assets the release lacks", cwd, env
     )
 
-    assert scene.holdings(fake.github) == before
+    assert scene.holdings(fake.github) == before, (
+        "a staged bundle must not change a published release"
+    )
     uploads = [call for call in fake.calls("gh") if call[:2] == ["release", "upload"]]
     assert uploads == [], uploads

@@ -58,8 +58,12 @@ def test_each_destination_is_sent_only_what_it_lacks(fake: FakeRelease) -> None:
     uploads = [call for call in fake.calls("gh") if call[:2] == ["release", "upload"]]
     assert len(uploads) == 1, uploads
     sent = sorted(path.rsplit("/", 1)[-1] for path in uploads[0][3:])
-    assert sent == sorted((scene.PYPI_ONLY, scene.NEITHER))
-    assert not any("--clobber" in call for call in fake.calls("gh"))
+    assert sent == sorted((scene.PYPI_ONLY, scene.NEITHER)), (
+        "GitHub must receive exactly the names it lacks"
+    )
+    assert not any("--clobber" in call for call in fake.calls("gh")), (
+        "no asset may be overwritten"
+    )
 
 
 def test_the_bundle_is_attached_when_every_artefact_is_this_runs_build(
@@ -101,7 +105,9 @@ def test_the_bundle_is_withheld_when_the_published_bytes_are_not_this_build(
     scene.run_required(
         "publish-release", "Upload the assets the release lacks", cwd, env
     )
-    assert scene.BUNDLE not in scene.holdings(fake.github)
+    assert scene.BUNDLE not in scene.holdings(fake.github), (
+        "a bundle that contradicts the release must not be attached"
+    )
 
 
 def test_the_check_fails_when_the_destinations_disagree(fake: FakeRelease) -> None:
@@ -117,10 +123,12 @@ def test_the_check_fails_when_the_destinations_disagree(fake: FakeRelease) -> No
     )
 
     assert completed.returncode != 0, "a digest mismatch must fail the release"
-    assert f"{scene.BOTH} differs" in completed.stderr
+    assert f"{scene.BOTH} differs" in completed.stderr, (
+        "the failure must name the conflicting asset"
+    )
     assert (fake.github / scene.BOTH).read_bytes() == (
         b"clobbered by an earlier workflow"
-    )
+    ), "a failed check must not alter the release's bytes"
 
 
 def test_bytes_that_do_not_match_the_index_are_never_uploaded(
@@ -139,8 +147,12 @@ def test_bytes_that_do_not_match_the_index_are_never_uploaded(
     )
 
     assert completed.returncode != 0, "a download must match PyPI's digest"
-    assert scene.PYPI_ONLY in completed.stderr
-    assert scene.PYPI_ONLY not in scene.holdings(fake.github)
+    assert scene.PYPI_ONLY in completed.stderr, (
+        "the failure must name the artefact whose digest differed"
+    )
+    assert scene.PYPI_ONLY not in scene.holdings(fake.github), (
+        "a mismatched download must never reach the release"
+    )
 
 
 def test_the_re_fetch_polls_past_a_cached_index(fake: FakeRelease) -> None:
@@ -210,7 +222,9 @@ def test_the_re_fetch_stays_bounded_when_the_index_never_catches_up(
     completed = scene.run_step("publish-release", "Re-fetch the PyPI index", cwd, env)
 
     assert completed.returncode != 0, "a permanently stale index must fail"
-    assert "still does not list" in completed.stderr
+    assert "still does not list" in completed.stderr, (
+        "the failure must say the index never showed the upload"
+    )
     assert "::error" in completed.stderr, (
         "the final gate must annotate, unlike the retried attempts"
     )
