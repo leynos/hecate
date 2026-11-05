@@ -196,15 +196,14 @@ instead of arriving as a surprise CI failure? The observable end state:
      `tests/ruff_policy_contract/suppressions.py` reads comments by tokenizing
      rather than by regex over the file, so a `#` inside a string literal is
      never policy. `test_suppressions.py` applies the house convention to every
-     module Ruff reports for `hecate tests scripts`; `test_reading_suppressions.py`
-     applies the same two functions to literal text, which is what makes the
+     module Ruff reports for `hecate tests scripts`;
+     `test_reading_suppressions.py` applies the same two functions to literal
+     text, which is what makes the
      repository scan non-vacuous; `test_suppression_behaviour.py` runs the
      pinned binary over fixtures in `tmp_path` to prove the migrated spelling
      actually suppresses, and only where Ruff reports the code. Three seeded
      mutations of the reader and of the broad-form rule each failed the suite
      (21, 6, and 3 failures respectively), and the restored tree is 70 passed.
-- [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
-     run every gate, and record results.
 - [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
      run every gate, and record results.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
@@ -380,6 +379,28 @@ instead of arriving as a surprise CI failure? The observable end state:
   while the other is false. A `--locked` build of a lock that no longer matches
   `pyproject.toml` fails loudly, but one that matches yet pins a different Ruff
   than the virtualenv imports would still pass a recipe-only check.
+- Decision: keep rule codes in the suppression comments, and do **not** add
+  `RUF106` to `extend-ignore`. Rationale: `RUF106`
+  (`rule-codes-in-suppression-comments`) is a preview rule that asks for
+  human-readable rule names. It is not selected, and not reported. Measured on
+  0.17.3 with the repository's own configuration, over `hecate tests scripts`:
+  `All checks passed!` with exit 0. `--select=RUF106` alongside the project
+  config reports 37 findings, so the rule does fire when named and the green
+  result is the `explicit-preview-rules = true` setting doing its job — a bare
+  `RUF` prefix acquires stable rules only. `--isolated` agrees:
+  `--select=RUF --preview` reports `F401` and no `RUF106`, while
+  `--select=RUF106 --preview` reports it. Two consequences follow. The 37
+  findings are latent rather than absent, and they become live the day `RUF106`
+  is named in `extend-select` or `explicit-preview-rules` is dropped, so this
+  decision must be revisited with the rule, not discovered by a future
+  dependency bump. And the codes are what the contract reads:
+  `tests/ruff_policy_contract/test_suppressions.py` matches upper-cased codes,
+  and rule names are themselves preview-only in selectors and suppression
+  comments, so a name-based spelling would make the gate depend on preview
+  semantics twice over. Ignoring `RUF106` explicitly was rejected:
+  `extend-ignore` is not a prefix, so the entry would be inert until the rule
+  is selected, and a dormant entry that reads as a decision is worse than a
+  recorded one that is not yet needed.
 - Decision: hold the grouped update's other seven packages until the Ruff
   migration is green, then let Dependabot recreate the branch. Rationale: a
   passing Ruff migration does not certify the other packages; the separation
