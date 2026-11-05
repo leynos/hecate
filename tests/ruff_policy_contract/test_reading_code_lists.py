@@ -51,19 +51,39 @@ class TestNonCodeEntries:
 
 
 class TestAcceptedCodeLists:
-    """Shapes that are codes, including the ones the reader normalizes."""
+    """Shapes that are codes, including the longest prefix Ruff ships."""
 
     @pytest.mark.parametrize(
         "codes",
-        ["PLW1514, RUF100", "S603", "s603", "E501,F401"],
-        ids=["two-codes", "one-code", "lower-case", "no-space-after-comma"],
+        ["PLW1514, RUF100", "S603", "ASYNC100", "E501,F401"],
+        ids=["two-codes", "one-code", "five-letter-prefix", "no-space-after-comma"],
     )
     def test_a_list_of_real_codes_is_not_reported(self, codes: str) -> None:
-        """The shape rule must reject names, not spellings Ruff accepts."""
+        """The shape rule must reject names, not real codes.
+
+        ``ASYNC100`` is the witness for the prefix bound: Ruff 0.17.3 ships
+        ``ASYNC`` as its longest prefix (measured over all 970 codes), and a
+        narrower bound reported a real code as malformed.
+        """
         messages = reported(f"x = 1  # ruff: ignore[{codes}]  # Reviewed.\n")
         assert messages == [], (
             f"the code list {codes!r} is all real codes, and was reported as "
             f"malformed: {messages}"
+        )
+
+    def test_a_lower_case_code_is_reported_as_a_case_problem(self) -> None:
+        """A lower-case code is a real code Ruff will not match.
+
+        It is therefore reported for its case, not for its shape: the shape
+        rule would say the code is not a code at all, which is false and sends
+        the author looking for a different rule.
+        """
+        messages = reported("x = 1  # ruff: ignore[s603]  # Reviewed.\n")
+        assert any("case" in message for message in messages), (
+            "a lower-case code passed the contract"
+        )
+        assert not any("not a rule code" in message for message in messages), (
+            "a real code was reported as malformed rather than as wrongly-cased"
         )
 
 

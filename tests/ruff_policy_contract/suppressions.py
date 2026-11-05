@@ -69,12 +69,25 @@ _NOQA_RE = re.compile(
 #: a bracketless directive with no more than a rationale stay readable — it
 #: names no codes, which is the finding the contract wants to report.
 #:
+#: Matched case-insensitively so that a wrongly-cased directive is **read**, not
+#: skipped. That is deliberate and is the whole point of the case rule: Ruff
+#: matches case-sensitively, measured on the pinned 0.15.13 over a call that
+#: trips S607 — the canonical ``ruff: ignore[S607]`` suppresses it, while a
+#: wrongly-cased prefix, a wrongly-cased directive name, or a lower-case code each
+#: leaves it reported. Ruff reports only the wrongly-cased *name*, as RUF103; a
+#: wrong-case prefix and a wrong-case code draw no diagnostic at all. A reader
+#: that ignored them as prose would clear a comment that looks like policy and
+#: suppresses nothing. So the pattern reads every casing and records the
+#: literal spelling; :meth:`Suppression.records_canonical_case` is what says
+#: whether Ruff would honour it, and the contract reports the ones it would not.
+#:
 #: This comment deliberately does not spell a directive with its own ``#``.
 #: Ruff 0.17.3 reads a directive after any ``#`` in a comment, including one
 #: inside backticks, and reports RUF103 on this very text — measured, at this
 #: column — so an example here would be a lint failure on the next upgrade.
 _RUFF_COMMENT_RE = re.compile(
-    r"#\s*ruff:\s*(?P<form>file-ignore|ignore|disable|enable)(?![\w-])"
+    r"#\s*(?P<prefix>ruff):\s*"
+    r"(?P<form>file-ignore|ignore|disable|enable)(?![\w-])"
     r"(?:\[(?P<codes>[^\]]*)\])?\s*(?:#\s*(?P<reason>.*))?",
     flags=re.IGNORECASE,
 )
@@ -104,6 +117,15 @@ class Suppression:
     codes : tuple[str, ...]
         The codes the comment names, upper-cased, in written order. Empty when
         it names none, which for ``noqa`` is a bare suppression.
+    written_codes : tuple[str, ...]
+        The same codes exactly as written, before upper-casing. They are kept
+        because Ruff matches codes case-sensitively: a lower-case code
+        suppresses nothing, so the report must be able to say so rather than
+        only show the normalized spelling.
+    written : str
+        The directive as it appeared, spelling and all — the ``ruff:`` prefix
+        and the directive name. Ruff matches both case-sensitively, so the
+        literal text is what decides whether the comment does anything.
     reason : str
         The rationale text after a second ``#``, stripped. Empty when the
         comment carries none.
@@ -113,6 +135,8 @@ class Suppression:
     line: int
     form: str
     codes: tuple[str, ...]
+    written_codes: tuple[str, ...]
+    written: str
     reason: str
 
     @property
@@ -120,9 +144,24 @@ class Suppression:
         """Report whether a rationale a reviewer could act on is attached."""
         return not _MEANINGLESS_REASON_RE.match(self.reason)
 
+    @property
+    def records_canonical_case(self) -> bool:
+        """Report whether the spelling is one Ruff would actually honour.
 
-def split_codes(raw: str | None, *, whitespace_separates: bool) -> tuple[str, ...]:
-    """Split a code list, upper-casing each code.
+        Measured on the pinned 0.15.13: the prefix, the directive name and the
+        codes are each matched case-sensitively, in both spellings. ``noqa``
+        itself is read in any casing, but its code list is not: ``# noqa:
+        s607`` leaves S607 reported. A comment written in another case is
+        therefore not a suppression at all, and a reader that normalized it
+        silently would clear a comment that suppresses nothing.
+        """
+        return self.written == self.written.lower() and self.codes == self.written_codes
+
+
+def split_codes(
+    raw: str | None, *, whitespace_separates: bool
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split a code list into its written and upper-cased forms.
 
     The two spellings take different grammars, measured on the pinned binary.
     ``# noqa: S603 S607`` is read as two codes — RUF100 names both as
@@ -144,18 +183,20 @@ def split_codes(raw: str | None, *, whitespace_separates: bool) -> tuple[str, ..
 
     Returns
     -------
-    tuple[str, ...]
-        The codes, upper-cased, omitting any empty piece a stray comma left.
-        A space-joined pair in the Ruff form survives as one entry, which is
-        what lets the caller report the missing comma.
+    tuple[tuple[str, ...], tuple[str, ...]]
+        The codes as written and upper-cased, in written order, paired entry
+        for entry, omitting any empty piece a stray comma left. A space-joined
+        pair in the Ruff form survives as one entry, which is what lets the
+        caller report the missing comma.
 
     """
     separator = r"[,\s]+" if whitespace_separates else r","
-    return tuple(
-        stripped.upper()
+    written = tuple(
+        stripped
         for code in re.split(separator, raw or "")
         if (stripped := code.strip())
     )
+    return written, tuple(code.upper() for code in written)
 
 
 def classify(comment: str) -> Suppression | None:
@@ -176,17 +217,30 @@ def classify(comment: str) -> Suppression | None:
 
     """
     if match := _NOQA_RE.search(comment):
+        written_codes, codes = split_codes(
+            match.group("codes"), whitespace_separates=True
+        )
         return Suppression(
             line=0,
             form=NOQA,
-            codes=split_codes(match.group("codes"), whitespace_separates=True),
+            codes=codes,
+            written_codes=written_codes,
+            # Ruff reads ``noqa``, and any prefix in front of it, in any
+            # casing; only the code list beside it is case-sensitive. Writing
+            # the canonical spelling here keeps the case rule to the codes.
+            written=NOQA,
             reason="",
         )
     if match := _RUFF_COMMENT_RE.search(comment):
+        written_codes, codes = split_codes(
+            match.group("codes"), whitespace_separates=False
+        )
         return Suppression(
             line=0,
             form=match.group("form").lower(),
-            codes=split_codes(match.group("codes"), whitespace_separates=False),
+            codes=codes,
+            written_codes=written_codes,
+            written=comment[match.start("prefix") : match.end("form")],
             reason=(match.group("reason") or "").strip(),
         )
     return None

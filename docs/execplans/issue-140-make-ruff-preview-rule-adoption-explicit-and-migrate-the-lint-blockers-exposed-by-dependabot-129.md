@@ -222,6 +222,29 @@ instead of arriving as a surprise CI failure? The observable end state:
      it is set at `pyproject.toml:52` and 0.17.3 reports `All checks passed!`.
      The suppression-placement bullet conflated line placement with the codes
      a comment names; it now separates them and carries the measurement.
+- [x] Milestone 3, fourteenth review pass: three findings, all taken, and one
+     of them widened by measurement. The code-shape bound accepted at most four
+     prefix letters, but `ASYNC` is the longest prefix Ruff ships (measured over
+     all 970 codes on 0.17.3: every code matches `^[A-Z]+\d+$`, prefixes one to
+     five letters, three or four digits), so `ASYNC100` was reported as
+     malformed; the bound is now `{1,5}`. `ruff: enable` no longer needs its own
+     rationale — a `disable`/`enable` pair is one reviewed decision and the
+     reason lives on the opening comment. The third finding asked for
+     `re.IGNORECASE` to be dropped from the directive pattern; that would have
+     made the reader *skip* wrongly-cased directives as prose, which is worse, and
+     measurement showed the real problem is wider than reported: Ruff matches
+     the prefix, the name **and the codes** case-sensitively, reports nothing
+     at all for a wrong-case prefix or code, and would therefore leave a
+     wrongly-cased comment clearing nothing while reading as policy. The pattern
+     still matches case-insensitively so those comments are *read*, the record
+     now keeps the literal spelling, `records_canonical_case` decides whether
+     Ruff would honour it, and the contract reports the ones it would not.
+     `noqa` is read in any casing but its code list is not. Two existing
+     fixtures encoded the falsified assumption (a `RUFF: IGNORE[s603]`
+     normalization test and an accepted lower-case `s603`) and were replaced.
+     The casing fixtures moved to `test_reading_casing.py`, which is a
+     separate question from placement, after the additions took
+     `test_reading_suppressions.py` to 426 lines against Pylint's 400 cap.
 - [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
      run every gate, and record results.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
@@ -342,6 +365,21 @@ instead of arriving as a surprise CI failure? The observable end state:
   pass in do not conform. The readers now take `collections.abc.Mapping` and
   narrow at one helper, which is also the honest type for "read-only parsed
   TOML".
+- Ruff's suppression spelling is case-sensitive at every position, in both
+  spellings — a fact that measurement alone established. Over a call tripping
+  S607 on the pinned 0.15.13: the canonical `ruff: ignore[S607]` suppresses it;
+  `RUFF: ignore[S607]`, `Ruff: Ignore[S607]`, `ruff: IGNORE[S607]` and
+  `ruff: ignore[s607]` all leave it reported; and `# noqa: s607` leaves it
+  reported too, while `# NOQA: S607` suppresses it. Ruff reports only the
+  wrongly-cased directive *name* (`RUF103`, "unknown ruff directive"), and
+  draws no diagnostic at all for a wrong-case prefix or a wrong-case code. This
+  is the single most dangerous failure mode the reader has to cover: the
+  comment looks reviewed, changes nothing, and the linter stays silent. The
+  contract is therefore the only guard, and it reads every casing deliberately.
+- The 970 rule codes Ruff 0.17.3 ships all match `^[A-Z]+\d+$`, with prefixes
+  one to five letters (`ASYNC` is the longest) and three or four digits. That
+  measured shape is what the contract's code-shape rule is built on; it
+  supplanted a guessed four-letter bound that rejected `ASYNC100`.
 
 ## Decision log
 
