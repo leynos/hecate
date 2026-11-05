@@ -35,6 +35,17 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 #: configuration re-roots the resolution between the root and this file.
 SAMPLE_FILE = REPO_ROOT / "hecate" / "checker.py"
 
+#: The shape of one rule code, measured rather than assumed. On 0.17.3 the
+#: rule set held 970 codes, every one matching ``^[A-Z]+\d+$``, with prefixes of
+#: one to five letters (``ASYNC`` is the longest) and three or four digits.
+#:
+#: The stricter bound is what lets a contract reject a selector or suppression
+#: that only looks like a code. ``PLR09`` is upper-case and ends in a digit but
+#: names nothing, and a space-joined pair is two codes written with the wrong
+#: separator. Both suppress nothing. The two contracts share this one
+#: definition so a future Ruff prefix cannot make them disagree.
+_RULE_CODE_RE = re.compile(r"[A-Z]{1,5}\d{3,4}")
+
 
 class RuffPolicyError(Exception):
     """Raised when the configuration or Ruff's output cannot be read.
@@ -44,6 +55,28 @@ class RuffPolicyError(Exception):
     disagree about where the policy lives, which is exactly the drift the
     inventory exists to catch.
     """
+
+
+def is_rule_code(entry: str) -> bool:
+    """Report whether ``entry`` is exactly one rule code.
+
+    The whole entry must match. ``re.match`` on an unanchored pattern would
+    accept ``PLR09X`` for the same reason it accepts ``PLR09``: both begin with
+    something code-shaped, and a selector that continues past the code is not
+    a code.
+
+    Parameters
+    ----------
+    entry : str
+        A selector or a suppression code as it was written.
+
+    Returns
+    -------
+    bool
+        ``True`` only when the entire string matches the measured shape.
+
+    """
+    return _RULE_CODE_RE.fullmatch(entry) is not None
 
 
 def repository_files_present(*required_paths: Path) -> bool:

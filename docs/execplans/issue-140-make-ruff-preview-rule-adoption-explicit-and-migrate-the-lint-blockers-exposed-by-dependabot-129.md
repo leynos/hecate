@@ -260,6 +260,23 @@ instead of arriving as a surprise CI failure? The observable end state:
      `uv.lock` now skips the four provenance cases and restores cleanly; the
      unguarded `lock_text()` raises `FileNotFoundError` on the same tree, which
      is the failure the guard prevents.
+- [x] Milestone 3, sixteenth review pass: three findings, all taken. The
+     selector check asked only that an `extend-select` entry be upper-case and
+     end in a digit, which `PLR09` satisfies while naming nothing; the shape is
+     now a shared predicate, `reading.is_rule_code`, full-matched against the
+     measured `[A-Z]{1,5}\d{3,4}`. It has one definition and two contract
+     modules import it, so the selector check and the suppression check cannot
+     drift. The negative control is `test_reading_rule_codes.py`, which also
+     separates a five-letter bound from a six-letter one (a lone `ASYNC100`
+     witness accepts both, so it proves nothing about the bound). Two candidate
+     fixtures were discarded during the pass — `PLR091` and `XPLR0911` follow
+     the measured grammar and are merely not real rules, which no textual shape
+     can decide; the inventory comparison is what rejects them. The
+     Git-dependent walk in `test_inventory.py` now carries a test-level
+     `skipif` on `.git` rather than relying on the module-wide guard, which
+     does not cover the `git ls-files` call inside `checked_python_files`.
+     The scope tolerance overrun is recorded in the decision log with measured
+     counts and escalated; see that entry.
 - [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
      run every gate, and record results.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
@@ -495,6 +512,26 @@ instead of arriving as a surprise CI failure? The observable end state:
   migration is green, then let Dependabot recreate the branch. Rationale: a
   passing Ruff migration does not certify the other packages; the separation
   keeps a failure attributable.
+- Decision: record the measured size against the scope tolerance and escalate,
+  rather than claiming the tolerance was met. Rationale: the plan requires it
+  to be recorded, and a reviewer flagged its absence. Measured at commit
+  `74af1a6`'s parent, this branch's true fork point, with
+  `git diff --numstat 74af1a6~1..HEAD`: 38 files, 4616 insertions, 55
+  deletions, 4561 net lines. Excluding the ExecPlan and the generated
+  `enabled_rules.txt`, as the tolerance directs: **36 files, 3206 insertions,
+  55 deletions, 3151 net lines**. Both bounds are exceeded — 30 files and 1200
+  net lines. The overrun is not incidental. The ticket's acceptance criteria
+  require a policy contract with positive and negative fixtures, and the
+  fixture suite alone is fourteen modules; the suppression contract was split
+  into four modules to stay under Pylint's 400-line cap, and a provenance
+  contract was added because a rule inventory is meaningless unless pinned to
+  the binary that produced it. Trimming the change to fit would mean dropping
+  acceptance criteria, so the escalation is the honest outcome. It is recorded
+  here for the reviewer to accept or reject; no further scope is added pending
+  that decision. Note that `git merge-base HEAD main` is *not* the correct
+  baseline: the local `main` ref is stale at 2026-07-28, making the diff 95
+  commits and 144 files of unrelated Dependabot work. Only the fork point gives
+  a figure that describes this change.
 
 ## Outcomes & retrospective
 
@@ -717,3 +754,11 @@ rule-set deltas for 0.15.13, 0.16.9, and 0.17.3, the discovery that
 `explicit-preview-rules` is supported by the pinned binary while the new rule
 codes are not, and the CI evidence that the live grouped update fails on the
 same class of blocker plus `UP052`.
+
+Revision 2: sixteenth review pass, during milestone 3. Adds the measured scope
+against the tolerance and records that both bounds are exceeded, with the fork
+point the measurement must use. The code change is a shared rule-code shape in
+`reading.is_rule_code`, replacing the duplicate definitions in the selector and
+suppression contracts, and a test-level skip for the Git-dependent walk. The
+escalation affects remaining work only in that milestone 4 must not add scope
+until the overrun is accepted; milestone 3's acceptance evidence is unchanged.
