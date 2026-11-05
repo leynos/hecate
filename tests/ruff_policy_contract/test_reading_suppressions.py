@@ -37,18 +37,24 @@ class TestAcceptedForms:
     def test_a_trailing_ignore_with_a_reason_is_accepted(self) -> None:
         """The common case: the comment sits after the code it covers."""
         source = "x = 1  # ruff: ignore[E501]  # The fixture pins this width.\n"
-        assert reported(source) == []
+        assert reported(source) == [], (
+            "a trailing ignore carrying a reason must draw no message"
+        )
 
     def test_an_own_line_ignore_with_a_reason_is_accepted(self) -> None:
         """The form the config scan uses, because S607 needs its own line."""
         source = "# ruff: ignore[S607]  # git comes from PATH in CI.\nx = 1\n"
-        assert reported(source) == []
+        assert reported(source) == [], (
+            "an own-line ignore carrying a reason must draw no message"
+        )
 
     def test_several_codes_in_one_comment_are_each_read(self) -> None:
         """One comment may cover a call that trips more than one rule."""
         source = "x = 1  # ruff: ignore[S603, S607]  # Literal argv, no shell.\n"
         (suppression,) = suppressions_in(source)
-        assert suppression.codes == ("S603", "S607")
+        assert suppression.codes == ("S603", "S607"), (
+            "a comment naming two codes must have both read"
+        )
 
 
 class TestMissingRationale:
@@ -146,12 +152,16 @@ class TestBareSuppressions:
             f"{comment!r} was read as {suppression.form!r}, so a suppression "
             "checking every following line is invisible to the contract"
         )
-        assert any("writes `noqa`" in message for message in violations((suppression,)))
+        assert any(
+            "writes `noqa`" in message for message in violations((suppression,))
+        ), f"{comment!r} was not reported as the old spelling"
 
     def test_a_trailing_upper_case_noqa_is_a_line_suppression(self) -> None:
         """Case does not change placement; ``# NOQA: S607`` still counts."""
         (suppression,) = suppressions_in("x = 1  # NOQA: S607\n")
-        assert (suppression.form, suppression.codes) == (NOQA, ("S607",))
+        assert (suppression.form, suppression.codes) == (NOQA, ("S607",)), (
+            "a trailing upper-case noqa must be read as a line suppression"
+        )
 
     def test_a_code_list_in_noqa_form_satisfies_the_no_codes_rule(self) -> None:
         """Naming a code is a separate question from the spelling used.
@@ -160,13 +170,19 @@ class TestBareSuppressions:
         rules would be one rule and a report would repeat itself.
         """
         messages = reported("x = 1  # noqa: E501\n")
-        assert not any("names no codes" in message for message in messages)
+        assert not any("names no codes" in message for message in messages), (
+            "naming a code satisfied the breadth rule; the two rules have merged"
+        )
 
     def test_a_bare_noqa_is_reported_as_the_old_spelling_too(self) -> None:
         """Breadth and spelling are separate rules, and are both broken."""
         messages = reported("x = 1  # noqa\n")
-        assert any("writes `noqa`" in message for message in messages)
-        assert any("names no codes" in message for message in messages)
+        assert any("writes `noqa`" in message for message in messages), (
+            "a bare noqa was not reported for its generic spelling"
+        )
+        assert any("names no codes" in message for message in messages), (
+            "a bare noqa was not reported for its breadth"
+        )
 
     def test_a_code_list_in_noqa_form_still_draws_the_spelling_message(self) -> None:
         """Codes and a reason cannot rescue the generic spelling on its own."""
@@ -203,7 +219,9 @@ class TestBroadForms:
     def test_a_broad_form_of_a_style_code_is_accepted(self) -> None:
         """Only the security codes are treated as call-site policy."""
         messages = reported("# ruff: file-ignore[E501]  # Generated table below.\n")
-        assert messages == []
+        assert messages == [], (
+            "a file-level suppression of a style code is not call-site policy"
+        )
 
 
 class TestReaderBoundaries:
@@ -227,19 +245,25 @@ class TestReaderBoundaries:
         anchored to the comment start would call all four of these prose and
         clear the tree while Ruff keeps complaining.
         """
-        assert suppressions_in(f"{comment}\n")
+        assert suppressions_in(f"{comment}\n"), (
+            f"{comment!r} was read as prose, but Ruff parses it as a directive"
+        )
 
     def test_a_hash_inside_a_string_is_not_a_suppression(self) -> None:
         """Otherwise a test's own fixture text would fail the repository scan."""
         source = 'DOC = "# noqa"\nOTHER = "# ruff: ignore[S603]"\n'
-        assert not suppressions_in(source)
+        assert not suppressions_in(source), (
+            "comment text inside a string literal was read as policy"
+        )
 
     def test_prose_comments_are_not_suppressions(self) -> None:
         """Most comments explain code, so they must not be reported as policy."""
         source = (
             "# The gate runs one pinned binary.\n# Suppressions are policy.\nx = 1\n"
         )
-        assert not suppressions_in(source)
+        assert not suppressions_in(source), (
+            "prose that explains the code was reported as a suppression"
+        )
 
     def test_a_bracketless_directive_is_recorded_even_though_ruff_ignores_it(
         self,
@@ -253,15 +277,19 @@ class TestReaderBoundaries:
         missing code list is reported.
         """
         (suppression,) = suppressions_in("x = 1  # ruff: ignore\n")
-        assert suppression.codes == ()
+        assert not suppression.codes, (
+            "a bracket-less directive names no codes, and the record must say so"
+        )
         assert any(
             "names no codes" in message for message in violations((suppression,))
-        )
+        ), "the missing code list was not reported"
 
     def test_the_form_is_recorded_in_lower_case_and_codes_upper_case(self) -> None:
         """Ruff accepts either case; the record normalizes so reports match."""
         (suppression,) = suppressions_in("x = 1  # RUFF: IGNORE[s603]  # lowered.\n")
-        assert (suppression.form, suppression.codes) == ("ignore", ("S603",))
+        assert (suppression.form, suppression.codes) == ("ignore", ("S603",)), (
+            "the form must be lower-cased and the code upper-cased"
+        )
 
     def test_an_enable_directive_is_read_but_never_treated_as_broad(self) -> None:
         """``ruff: enable`` restores coverage, so it cannot hide a security code.
@@ -270,16 +298,22 @@ class TestReaderBoundaries:
         the broad-form rule must not, because ``enable`` is the comment that
         ends a region rather than one that opens it.
         """
-        assert classify("# ruff: enable[S603]") is not None
+        assert classify("# ruff: enable[S603]") is not None, (
+            "an enable directive must be read so the gate can see it"
+        )
         messages = violations(suppressions_in("# ruff: enable[S603]  # Re-armed.\n"))
-        assert not any("more than one line" in message for message in messages)
+        assert not any("more than one line" in message for message in messages), (
+            "enable restores coverage and must never count as a broad form"
+        )
 
     def test_an_unknown_directive_spelling_is_prose(self) -> None:
         """``ruff: ban`` is not a Ruff directive, and must not be invented."""
-        assert classify("# ruff: ban[E501]") is None
+        assert classify("# ruff: ban[E501]") is None, (
+            "an unknown directive name was invented as a suppression"
+        )
 
     def test_a_suppression_record_keeps_its_line(self) -> None:
         """The line is what makes a report actionable, so it is asserted."""
         (only,) = suppressions_in("x = 1\ny = 2  # ruff: ignore[E501]  # width\n")
-        assert isinstance(only, Suppression)
-        assert only.line == 2
+        assert isinstance(only, Suppression), "the reader returned another record type"
+        assert only.line == 2, "the record lost the physical line the report must name"

@@ -67,7 +67,10 @@ class TestGoalReader:
         The interpreter is spelled ``$(UV)`` in the recipe, so the fragment
         asserted is the flag sequence rather than the whole command line.
         """
-        assert "sync --locked --group dev" in goal_body("build")
+        assert "sync --locked --group dev" in goal_body("build"), (
+            "the reader lost a flag from the recipe; only the goal name was "
+            "checked, so the interpreter would still be spelled `$(UV)`"
+        )
 
     def test_rejects_a_goal_that_has_no_recipe(self) -> None:
         """A renamed target must fail, not compare an empty recipe as clean."""
