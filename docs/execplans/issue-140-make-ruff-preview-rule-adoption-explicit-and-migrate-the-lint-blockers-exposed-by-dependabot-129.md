@@ -303,9 +303,9 @@ instead of arriving as a surprise CI failure? The observable end state:
   comment's start. A comment documenting the syntax, such as one naming a code
   inside double backticks, is therefore a live directive: 0.17.3 reports it as
   an unused suppression, or warns that it is invalid. 0.16.9 does not, so this
-  class of mistake is invisible on the pinned binary and appears on upgrade.
-  The reader now searches rather than anchors to match, and the repository
-  contract immediately flagged the two explanatory comments in
+  class of mistake is invisible on the pinned 0.15.13 binary and appears on
+  upgrade. The reader now searches rather than anchors to match, and the
+  repository contract immediately flagged the two explanatory comments in
   `suppressions.py` itself, which is the strongest evidence that the rule has
   teeth. Documentation of this syntax must be written without a literal
   directive.
@@ -379,6 +379,19 @@ instead of arriving as a surprise CI failure? The observable end state:
   while the other is false. A `--locked` build of a lock that no longer matches
   `pyproject.toml` fails loudly, but one that matches yet pins a different Ruff
   than the virtualenv imports would still pass a recipe-only check.
+- Decision: write the spaced form, and do not migrate it to the compact
+  spelling. Rationale: a review claimed the pinned 0.15.13 cannot read the
+  spaced form, that the spacing arrived in 0.16.0, and that the compact
+  spelling is the one each version understands. Measured on 0.15.13 with
+  `--isolated --preview --select=S607`, all four combinations behave
+  identically: the spaced form with a matching code passes, with a non-matching
+  code reports the diagnostic, and the compact form does the same in both
+  cases. Without `--preview` both forms are inert and print the same
+  `#ruff:ignore comment found but not active` warning. So the compact spelling
+  is equivalent, not required, and the gate that produced the green result
+  already ran the spaced form over `scripts/`. Switching would churn 30
+  comments for no behavioural gain and would diverge from the documentation and
+  from Ruff's own examples.
 - Decision: keep rule codes in the suppression comments, and do **not** add
   `RUF106` to `extend-ignore`. Rationale: `RUF106`
   (`rule-codes-in-suppression-comments`) is a preview rule that asks for
