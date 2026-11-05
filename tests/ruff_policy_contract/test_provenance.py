@@ -68,8 +68,9 @@ class TestGoalReader:
         asserted is the flag sequence rather than the whole command line.
         """
         assert "sync --locked --group dev" in goal_body("build"), (
-            "the reader lost a flag from the recipe; only the goal name was "
-            "checked, so the interpreter would still be spelled `$(UV)`"
+            "the `build` recipe does not contain `sync --locked --group dev`; "
+            "either `goal_body` dropped a flag while joining continuations, "
+            "or the `build` recipe changed its `uv sync` flags"
         )
 
     def test_rejects_a_goal_that_has_no_recipe(self) -> None:
