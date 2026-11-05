@@ -33,11 +33,13 @@ from .inventory import (
     inventory_text,
 )
 from .reading import (
+    REPO_ROOT,
     SAMPLE_FILE,
     extend_select_entries,
     installed_ruff_version,
     is_explicit_preview,
     is_preview,
+    is_rule_code,
     pyproject_document,
     repository_files_present,
     settings_dump,
@@ -77,6 +79,13 @@ class TestEnabledRuleInventory:
             f"review the removal and update the inventory: {removed}"
         )
 
+    @pytest.mark.skipif(
+        not (REPO_ROOT / ".git").exists(),
+        reason=(
+            "the nested-configuration walk lists tracked files with Git, which "
+            "a mutation-testing sandbox need not carry"
+        ),
+    )
     def test_one_sample_represents_every_tracked_python_file(self) -> None:
         """No nearer Ruff configuration may re-root a tracked file.
 
@@ -135,20 +144,46 @@ class TestPreviewAdoptionPolicy:
         )
 
     def test_every_adopted_preview_code_is_named_individually(self) -> None:
-        """The adoption list must be codes, not prefixes or globs."""
+        """The adoption list must be codes, not prefixes, globs or truncations.
+
+        A partial prefix such as ``PLR09`` is upper-case and ends in a digit,
+        so the two cheap checks this test used to make both passed on an entry
+        that is not a code at all. The whole entry is matched instead, against
+        the same shape the suppression contract uses.
+        """
         adopted = extend_select_entries(pyproject_document())
         assert adopted, "no preview rules are adopted explicitly"
         for entry in adopted:
-            assert entry.isupper(), (
+            assert is_rule_code(entry), (
                 "every [tool.ruff.lint].extend-select entry must be an exact "
                 "rule code under explicit-preview-rules, so adoption is a "
-                f"reviewable line; got {entry!r}"
+                "reviewable line; a prefix, a glob or a truncated code is not "
+                f"one code, got {entry!r}"
             )
-            assert entry[-1].isdigit(), (
-                "a selector ending outside the digits is a prefix or a glob, "
-                "not one code; explicit preview adoption names individual "
-                f"codes, got {entry!r}"
-            )
+
+    @pytest.mark.parametrize(
+        "selector",
+        ["PLR09", "PLR09112", "plr0911", "PLR0911X"],
+        ids=["truncated-prefix", "five-digits", "lower-case", "trailing-letter"],
+    )
+    def test_a_selector_that_is_not_a_whole_code_is_refused(
+        self, selector: str
+    ) -> None:
+        """The shape check must reject what the two cheap checks accepted.
+
+        ``PLR09`` is upper-case and ends in a digit, so both of the original
+        assertions passed on it while it names nothing.
+
+        The cases are shapes only. ``PLR091`` follows the measured grammar and
+        is still not a rule; nothing in the text of a selector can settle
+        that, and the inventory comparison is what catches it. Claiming
+        otherwise here would be a test that passes for the wrong reason.
+        """
+        assert not is_rule_code(selector), (
+            f"{selector!r} is not one rule code, and the shape rule accepted "
+            "it; a selector that names no rule would be recorded as reviewed "
+            "preview policy"
+        )
 
     def test_the_security_codes_the_gate_relies_on_stay_enabled(self) -> None:
         """The subprocess suppressions are only meaningful if these codes run.
