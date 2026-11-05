@@ -255,7 +255,7 @@ def installed_ruff_version() -> str:
     Raises
     ------
     RuffPolicyError
-        If Ruff is not importable or its version output is unrecognised.
+        If Ruff is not importable or its version output is unrecognized.
 
     """
     try:
@@ -270,7 +270,7 @@ def installed_ruff_version() -> str:
         raise RuffPolicyError(message) from error
     match = re.fullmatch(r"ruff (\S+)\s*", completed.stdout)
     if match is None:
-        message = f"unrecognised ruff --version output: {completed.stdout!r}"
+        message = f"unrecognized ruff --version output: {completed.stdout!r}"
         raise RuffPolicyError(message)
     return match.group(1)
 

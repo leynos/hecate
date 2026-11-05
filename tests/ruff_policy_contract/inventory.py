@@ -62,7 +62,7 @@ def enabled_rule_lines(settings_text: str) -> tuple[str, ...]:
             continue
         entry = _ENABLED_ENTRY_RE.match(line)
         if entry is None:
-            message = f"unrecognised enabled-rule entry: {line!r}"
+            message = f"unrecognized enabled-rule entry: {line!r}"
             raise RuffPolicyError(message)
         codes.append(entry.group("code"))
     return tuple(codes)
@@ -93,7 +93,7 @@ def inventory_codes(text: str) -> tuple[str, ...]:
         if not stripped or stripped.startswith("#"):
             continue
         if not re.fullmatch(r"[A-Z]+\d+", stripped):
-            message = f"unrecognised inventory entry: {line!r}"
+            message = f"unrecognized inventory entry: {line!r}"
             raise RuffPolicyError(message)
         codes.append(stripped)
     return tuple(codes)

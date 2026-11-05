@@ -12,7 +12,7 @@ reader returns a small record rather than a string; a test can then name which
 part of a comment it rejected instead of reporting only that the line was
 wrong.
 
-A directive is recognised wherever a ``#`` introduces one, not only at the
+A directive is recognized wherever a ``#`` introduces one, not only at the
 start of the comment. That is not a shortcut: Ruff 0.17 parses a directive
 written inside prose or inside backticks and reports it as unused, so a reader
 anchored to the comment start would miss real directives. The pattern follows

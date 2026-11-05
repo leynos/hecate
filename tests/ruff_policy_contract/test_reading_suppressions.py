@@ -259,7 +259,7 @@ class TestReaderBoundaries:
         )
 
     def test_the_form_is_recorded_in_lower_case_and_codes_upper_case(self) -> None:
-        """Ruff accepts either case; the record normalises so reports match."""
+        """Ruff accepts either case; the record normalizes so reports match."""
         (suppression,) = suppressions_in("x = 1  # RUFF: IGNORE[s603]  # lowered.\n")
         assert (suppression.form, suppression.codes) == ("ignore", ("S603",))
 
