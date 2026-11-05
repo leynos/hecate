@@ -203,13 +203,17 @@ def _selector_list(value: object, name: str) -> tuple[str, ...]:
     return tuple(entries)
 
 
-def select_entries(document: cabc.Mapping[str, object]) -> tuple[str, ...]:
-    """Return ``[tool.ruff.lint].select`` as written, in order.
+def _selector_entries(
+    document: cabc.Mapping[str, object], *keys: str
+) -> tuple[str, ...]:
+    """Return the selector list at ``[tool.ruff]`` plus ``keys``, in order.
 
     Parameters
     ----------
     document : cabc.Mapping[str, object]
         The parsed configuration to read.
+    *keys : str
+        The path below ``[tool.ruff]``, one key per level.
 
     Returns
     -------
@@ -222,44 +226,19 @@ def select_entries(document: cabc.Mapping[str, object]) -> tuple[str, ...]:
         If the setting is absent or is not a list of strings.
 
     """
-    return _selector_list(
-        ruff_section(document, "lint", "select"), "[tool.ruff.lint].select"
-    )
+    name = f"[tool.ruff.{'.'.join(keys)}]"
+    return _selector_list(ruff_section(document, *keys), name)
 
 
-def extend_select_entries(document: cabc.Mapping[str, object]) -> tuple[str, ...]:
-    """Return ``[tool.ruff.lint].extend-select`` as written, in order.
-
-    Parameters
-    ----------
-    document : cabc.Mapping[str, object]
-        The parsed configuration to read.
-
-    Returns
-    -------
-    tuple[str, ...]
-        The adopted selectors, which this project's policy restricts to exact
-        preview codes.
-
-    Raises
-    ------
-    RuffPolicyError
-        If the setting is absent or is not a list of strings.
-
-    """
-    return _selector_list(
-        ruff_section(document, "lint", "extend-select"),
-        "[tool.ruff.lint].extend-select",
-    )
-
-
-def is_explicit_preview(document: cabc.Mapping[str, object]) -> bool:
-    """Report whether ``explicit-preview-rules`` is enabled.
+def _is_true_setting(document: cabc.Mapping[str, object], *keys: str) -> bool:
+    """Report whether the setting at ``[tool.ruff]`` plus ``keys`` is true.
 
     Parameters
     ----------
     document : cabc.Mapping[str, object]
         The parsed configuration to read.
+    *keys : str
+        The path below ``[tool.ruff]``, one key per level.
 
     Returns
     -------
@@ -268,24 +247,42 @@ def is_explicit_preview(document: cabc.Mapping[str, object]) -> bool:
         truthy cannot switch the policy on.
 
     """
-    return ruff_section(document, "lint", "explicit-preview-rules") is True
+    return ruff_section(document, *keys) is True
+
+
+def select_entries(document: cabc.Mapping[str, object]) -> tuple[str, ...]:
+    """Return ``[tool.ruff.lint].select`` as written, in order.
+
+    Entries may be prefixes, globs, or exact codes; what Ruff resolves from
+    them is the inventory contract's question, not this reader's.
+    """
+    return _selector_entries(document, "lint", "select")
+
+
+def extend_select_entries(document: cabc.Mapping[str, object]) -> tuple[str, ...]:
+    """Return ``[tool.ruff.lint].extend-select`` as written, in order.
+
+    This project's policy restricts these entries to exact preview codes, so a
+    prefix here would adopt rules nobody named.
+    """
+    return _selector_entries(document, "lint", "extend-select")
+
+
+def is_explicit_preview(document: cabc.Mapping[str, object]) -> bool:
+    """Report whether ``explicit-preview-rules`` is enabled.
+
+    Only a literal TOML boolean counts: the switch is what stops a prefix
+    adopting preview rules implicitly.
+    """
+    return _is_true_setting(document, "lint", "explicit-preview-rules")
 
 
 def is_preview(document: cabc.Mapping[str, object]) -> bool:
     """Report whether ``preview`` is enabled.
 
-    Parameters
-    ----------
-    document : cabc.Mapping[str, object]
-        The parsed configuration to read.
-
-    Returns
-    -------
-    bool
-        ``True`` only for a literal TOML boolean.
-
+    Only a literal TOML boolean counts.
     """
-    return ruff_section(document, "preview") is True
+    return _is_true_setting(document, "preview")
 
 
 def installed_ruff_version() -> str:

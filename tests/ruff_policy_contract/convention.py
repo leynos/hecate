@@ -15,6 +15,8 @@ requirements for no reason.
 
 from __future__ import annotations
 
+import collections.abc as cabc
+
 from .reading import is_rule_code
 from .suppressions import NOQA, Suppression
 
@@ -47,6 +49,95 @@ CLOSING_FORMS = frozenset({"enable"})
 #: one entry.
 
 
+#: What one convention rule is: a function that returns the message for a
+#: suppression breaking it, or ``None`` when it is satisfied.
+_Rule = cabc.Callable[[Suppression], str | None]
+
+
+def _where(suppression: Suppression) -> str:
+    """Return the location a report should name for ``suppression``."""
+    return f"line {suppression.line} ({suppression.form})"
+
+
+def _noqa_message(suppression: Suppression) -> str | None:
+    """Report the older spelling, which every tool reads as a suppression."""
+    if suppression.form != NOQA:
+        return None
+    return (
+        f"{_where(suppression)}: writes `noqa`, which every tool reads; use "
+        "`ruff: ignore[...]` so the suppression is this project's decision "
+        "rather than a generic one"
+    )
+
+
+def _breadth_message(suppression: Suppression) -> str | None:
+    """Report a suppression that names no code and so hides everything."""
+    if suppression.codes:
+        return None
+    return (
+        f"{_where(suppression)}: names no codes, so it hides every diagnostic "
+        "the line grows, including ones nobody has reviewed yet"
+    )
+
+
+def _malformed_message(suppression: Suppression) -> str | None:
+    """Report entries that only look like codes and so suppress nothing."""
+    malformed = [code for code in suppression.codes if not is_rule_code(code)]
+    if not malformed:
+        return None
+    return (
+        f"{_where(suppression)}: {', '.join(map(repr, malformed))} is not a "
+        "rule code; a rule name matches no code, so the security check cannot "
+        "see what it suppresses and a Ruff release renames it silently, and a "
+        "space-joined pair is not a code at all"
+    )
+
+
+def _rationale_message(suppression: Suppression) -> str | None:
+    """Report a suppression hiding something with no stated reason."""
+    if suppression.form in CLOSING_FORMS or suppression.has_reason:
+        return None
+    return f"{_where(suppression)}: has no rationale after a second `#`"
+
+
+def _case_message(suppression: Suppression) -> str | None:
+    """Report a spelling Ruff matches case-sensitively and so ignores."""
+    if suppression.records_canonical_case:
+        return None
+    return (
+        f"{_where(suppression)}: is written as {suppression.form}"
+        f"[{', '.join(suppression.written_codes)}], which Ruff does not read; "
+        "the prefix, the directive name and the codes are all case-sensitive, "
+        "and a wrongly-cased comment suppresses nothing while looking like "
+        "policy"
+    )
+
+
+def _broad_message(suppression: Suppression) -> str | None:
+    """Report a security code hidden for more than the reviewed call site."""
+    if suppression.form not in BROAD_FORMS:
+        return None
+    broad = sorted(SECURITY_CODES.intersection(suppression.codes))
+    if not broad:
+        return None
+    return (
+        f"{_where(suppression)}: suppresses {', '.join(broad)} for more than "
+        "one line; put `ruff: ignore[...]` on each reviewed call site"
+    )
+
+
+#: The convention, in the order a report reads it. The rules are independent,
+#: so one comment can break several and the author sees them all in one run.
+_RULES: tuple[_Rule, ...] = (
+    _noqa_message,
+    _breadth_message,
+    _malformed_message,
+    _rationale_message,
+    _case_message,
+    _broad_message,
+)
+
+
 def violations(suppressions: tuple[Suppression, ...]) -> list[str]:
     """Return one message per suppression that breaks the convention.
 
@@ -64,42 +155,9 @@ def violations(suppressions: tuple[Suppression, ...]) -> list[str]:
         author to discover the rest on the next run.
 
     """
-    found: list[str] = []
-    for suppression in suppressions:
-        where = f"line {suppression.line} ({suppression.form})"
-        if suppression.form == NOQA:
-            found.append(
-                f"{where}: writes `noqa`, which every tool reads; use "
-                "`ruff: ignore[...]` so the suppression is this project's "
-                "decision rather than a generic one"
-            )
-        if not suppression.codes:
-            found.append(
-                f"{where}: names no codes, so it hides every diagnostic the "
-                "line grows, including ones nobody has reviewed yet"
-            )
-        if malformed := [code for code in suppression.codes if not is_rule_code(code)]:
-            found.append(
-                f"{where}: {', '.join(map(repr, malformed))} is not a rule "
-                "code; a rule name matches no code, so the security check "
-                "cannot see what it suppresses and a Ruff release renames it "
-                "silently, and a space-joined pair is not a code at all"
-            )
-        if suppression.form not in CLOSING_FORMS and not suppression.has_reason:
-            found.append(f"{where}: has no rationale after a second `#`")
-        if not suppression.records_canonical_case:
-            found.append(
-                f"{where}: is written as {suppression.form}"
-                f"[{', '.join(suppression.written_codes)}], which Ruff does "
-                "not read; the prefix, the directive name and the codes are "
-                "all case-sensitive, and a wrongly-cased comment suppresses "
-                "nothing while looking like policy"
-            )
-        if suppression.form in BROAD_FORMS and (
-            broad := sorted(SECURITY_CODES.intersection(suppression.codes))
-        ):
-            found.append(
-                f"{where}: suppresses {', '.join(broad)} for more than one "
-                "line; put `ruff: ignore[...]` on each reviewed call site"
-            )
-    return found
+    return [
+        message
+        for suppression in suppressions
+        for rule in _RULES
+        if (message := rule(suppression)) is not None
+    ]
