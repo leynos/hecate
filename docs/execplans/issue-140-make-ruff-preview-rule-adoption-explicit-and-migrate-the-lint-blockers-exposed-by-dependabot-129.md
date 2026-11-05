@@ -16,8 +16,8 @@ whole prefixes such as `D`, `RUF`, `S`, `E`, `FURB`, and `PLR`. With preview
 enabled, a prefix is not a fixed set of rules: it is "every rule in that
 prefix, including the ones upstream is still prototyping". Ruff 0.15.13 was the
 reviewed version and enabled 673 rules. Ruff 0.16.9 enables 682, adding `D421`
-and nine others without any edit to `pyproject.toml`. Ruff 0.17.3 adds `UP052`
-again. The dependency update is therefore not a neutral tooling bump: it
+and eight others without any edit to `pyproject.toml`. Ruff 0.17.3 adds `UP052`
+for a tenth. The dependency update is therefore not a neutral tooling bump: it
 silently acquires lint policy that no commit in this repository reviewed.
 
 Dependabot pull requests #129 (closed) and #176 (open) demonstrate the
@@ -112,10 +112,11 @@ instead of arriving as a surprise CI failure? The observable end state:
   `# pragma: no cover`, in both orders, and asserts the directive still silences
   `S404` while `F401` on the same line stays reported. A pragma with no
   directive is the negative control, and still draws `S404`. The coverage side
-  is measured out of band and recorded in "What remains open": both directive
-  orders and a pragma-only control report the line as excluded by coverage
-  7.17.2, and the no-comment control does not. It is not a suite assertion
-  because adding `coverage` would edit the two files issue 176 also edits.
+  is measured out of band and recorded in "What remains open": on a line that
+  never executes, both directive orders and a pragma-only control report it as
+  excluded by coverage 7.17.2, while the no-comment control reports it missing.
+  It is not a suite assertion because adding `coverage` would edit the two
+  files issue 176 also edits.
 - Risk: the security codes `S404`/`S603`/`S607` are exactly the ones being
   migrated. Broadening one would hide a real subprocess risk. Severity: high,
   Likelihood: low. Mitigation: the contract rejects bare `noqa`, file-level
@@ -877,13 +878,34 @@ empty directory; it writes nothing into the repository.
 COV=(uv tool run --from coverage==7.17.2 coverage)
 D=$(mktemp -d); cd "$D"
 
-# Line 2 of each fixture is never executed. The question is whether a coverage
-# reader excludes it, across both directive orders plus the two controls.
-printf 'x = 1\nimport subprocess  # ruff: ignore[S404]  # Runs it.  # pragma: no cover\n' > directive_then_pragma.py
-printf 'x = 1\nimport subprocess  # pragma: no cover  # ruff: ignore[S404]  # Runs it.\n' > pragma_then_directive.py
-printf 'x = 1\nimport subprocess  # pragma: no cover\n' > pragma_only.py
-printf 'x = 1\nimport subprocess\n' > no_comment.py
-printf 'import directive_then_pragma, pragma_then_directive, pragma_only, no_comment\n' > drive.py
+# The commented statement sits inside a function that drive.py imports but
+# never calls, so line 3 genuinely does not execute. The no-comment control is
+# what proves it: it reports line 3 as *missing*, which can only happen if the
+# line was not run. Exclusion in the other three is therefore attributable to
+# the pragma rather than to the line having been executed.
+cat > directive_then_pragma.py <<'PY'
+x = 1
+def never():
+    import subprocess  # ruff: ignore[S404]  # Runs it.  # pragma: no cover
+PY
+cat > pragma_then_directive.py <<'PY'
+x = 1
+def never():
+    import subprocess  # pragma: no cover  # ruff: ignore[S404]  # Runs it.
+PY
+cat > pragma_only.py <<'PY'
+x = 1
+def never():
+    import subprocess  # pragma: no cover
+PY
+cat > no_comment.py <<'PY'
+x = 1
+def never():
+    import subprocess
+PY
+cat > drive.py <<'PY'
+import directive_then_pragma, pragma_then_directive, pragma_only, no_comment
+PY
 
 "${COV[@]}" run --source=. drive.py
 
@@ -896,7 +918,7 @@ for name in ("directive_then_pragma", "pragma_then_directive",
              "pragma_only", "no_comment"):
     _, statements, excluded, missing, _ = probe.analysis2(f"{name}.py")
     print(f"{name:26s} excluded={excluded!s:9s} missing={missing!s:9s} "
-          f"line2_excluded={2 in excluded}")
+          f"line3_excluded={3 in excluded} line3_missing={3 in missing}")
 PY
 "${COV[@]}" run analyse.py
 "${COV[@]}" --version
@@ -905,16 +927,22 @@ PY
 Expected output:
 
 ```plaintext
-directive_then_pragma      excluded=[2]       missing=[]        line2_excluded=True
-pragma_then_directive      excluded=[2]       missing=[]        line2_excluded=True
-pragma_only                excluded=[2]       missing=[]        line2_excluded=True
-no_comment                 excluded=[]        missing=[]        line2_excluded=False
+directive_then_pragma      excluded=[3]       missing=[]        line3_excluded=True line3_missing=False
+pragma_then_directive      excluded=[3]       missing=[]        line3_excluded=True line3_missing=False
+pragma_only                excluded=[3]       missing=[]        line3_excluded=True line3_missing=False
+no_comment                 excluded=[]        missing=[3]       line3_excluded=False line3_missing=True
 Coverage.py, version 7.17.2 with C extension
+Full documentation is at https://coverage.readthedocs.io/en/7.17.2
 ```
 
-Both directive orders and the pragma-only control report line 2 as excluded
-from coverage's statement set; the no-comment control reports the same line as
-a statement that is not excluded. That is the coverage reader's own verdict,
+Both directive orders and the pragma-only control report line 3 as excluded
+from coverage's statement set, with `missing` empty; the no-comment control
+reports the same line as **missing** and not excluded. That last row is what
+makes the matrix non-vacuous rather than merely consistent: `missing=[3]` can
+only arise for a line that did not execute, so the control demonstrates the
+line genuinely never ran. Exclusion in the other three is therefore
+attributable to the pragma, not to the line having been executed and so never
+reported missing in the first place. That is the coverage reader's own verdict,
 not an inference from the comment's text, and it is the four-way matrix the
 suite builds, checked against the tool that actually consumes the pragma. What
 remains outside the suite is automated regression cover: if a future change
@@ -1142,16 +1170,18 @@ reproduction, including fixture construction and the `analysis2` call, is in
 "What remains open" above.
 
 ```plaintext
-directive_then_pragma      excluded=[2]       missing=[]        line2_excluded=True
-pragma_then_directive      excluded=[2]       missing=[]        line2_excluded=True
-pragma_only                excluded=[2]       missing=[]        line2_excluded=True
-no_comment                 excluded=[]        missing=[]        line2_excluded=False
+directive_then_pragma      excluded=[3]       missing=[]        line3_excluded=True line3_missing=False
+pragma_then_directive      excluded=[3]       missing=[]        line3_excluded=True line3_missing=False
+pragma_only                excluded=[3]       missing=[]        line3_excluded=True line3_missing=False
+no_comment                 excluded=[]        missing=[3]       line3_excluded=False line3_missing=True
 ```
 
 Both directive orders and the pragma-only control report the line as excluded
-from coverage's statement set; the no-comment control reports it as a statement
-that is not excluded. That is the reader consuming the pragma giving its own
-verdict, rather than an inference from the comment's text.
+from coverage's statement set; the no-comment control reports it as missing and
+not excluded, which demonstrates the line really did not execute and so makes
+the other three rows attributable to the pragma rather than vacuous. That is
+the reader consuming the pragma giving its own verdict, rather than an
+inference from the comment's text.
 
 The behaviour fixtures also changed two of the plan's assumptions. The plan
 said to run them through Ruff with `--isolated --preview`; on the then-pinned
@@ -1261,3 +1291,20 @@ four files Ruff omits are exactly the four `extend-exclude` entries. Sizes for
 the `noqa` population were re-measured against `55ce29f` and confirm 30 across
 12 files in the base tree, 28 across 11 once `scripts/typos_rollout.py` is
 excluded.
+
+Revision 8: two corrections from the review of revision 7, the first of which
+made the evidence stronger rather than only its wording. The coverage driver
+claimed line 2 was never executed, but its `drive.py` imports all four
+fixtures, and an import executes the module body: line 2 ran in every fixture,
+so `missing=[]` was trivially true and proved nothing. The statement now sits
+inside a function the driver imports but never calls, and the no-comment
+control reports it as `missing=[3]` — which can only happen for a line that did
+not execute. That turns the other three rows from merely consistent into
+demonstrably attributable to the pragma, and the matrix is now four-way
+non-vacuous instead of three-way plus a control. The driver copied verbatim
+from this plan was run end to end and reproduces the recorded output exactly.
+Separately, the opening said 0.16.9 added `D421` "and nine others" against a
+stated delta of nine; measurement confirms 0.16.9 adds nine rules (`D421`,
+`RUF074`, `RUF075`, `RUF077`, `RUF105`, `RUF106`, `RUF201`, `UP048`, `UP051`)
+and 0.17.3 adds a tenth, `UP052`, so the phrase is now "and eight others" with
+`UP052` named as the tenth rather than left implicit in "again".
