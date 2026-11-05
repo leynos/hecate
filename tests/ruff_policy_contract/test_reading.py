@@ -57,7 +57,7 @@ class TestEnabledRuleReader:
         text = _SAMPLE_SETTINGS.replace(
             "\tunused-import (F401),", "\tunused-import - F401"
         )
-        with pytest.raises(RuffPolicyError, match="unrecognised enabled-rule entry"):
+        with pytest.raises(RuffPolicyError, match="unrecognized enabled-rule entry"):
             enabled_rule_lines(text)
 
     def test_stops_at_the_block_end(self) -> None:
@@ -76,12 +76,12 @@ class TestInventoryReader:
 
     def test_rejects_an_entry_that_is_not_a_code(self) -> None:
         """A pasted selector must not be accepted as a reviewed code."""
-        with pytest.raises(RuffPolicyError, match="unrecognised inventory entry"):
+        with pytest.raises(RuffPolicyError, match="unrecognized inventory entry"):
             inventory_codes("F401\nD\n")
 
     def test_rejects_a_lowercase_or_spaced_code(self) -> None:
         """Whitespace inside an entry would otherwise disappear silently."""
-        with pytest.raises(RuffPolicyError, match="unrecognised inventory entry"):
+        with pytest.raises(RuffPolicyError, match="unrecognized inventory entry"):
             inventory_codes("F 401\n")
 
 
