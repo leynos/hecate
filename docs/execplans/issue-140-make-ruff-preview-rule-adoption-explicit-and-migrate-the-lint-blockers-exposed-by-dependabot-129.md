@@ -312,8 +312,12 @@ instead of arriving as a surprise CI failure? The observable end state:
      19-error CI failure at head `b8bb4bd`, the suppression-behaviour pair,
      the suggested fixture shape, and an explicit statement of what is not
      claimed.
-- [ ] Push, open a draft pull request, and hand the migration evidence to
-     `leynos/shared-actions#588`.
+- [x] Push, open a draft pull request, and hand the migration evidence to
+     `leynos/shared-actions#588`. Pushed over SSH; remote head `8fcfdf7`
+     matches local `HEAD`, and the tracking ref was refreshed with a leading
+     `+` refspec and the upstream set to `origin`. Draft PR:
+     <https://github.com/leynos/hecate/pull/178>, titled with `(#140)`,
+     stating `Closes #140`, with the Lody session under `## References`.
 
 ## Surprises & discoveries
 
