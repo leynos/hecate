@@ -20,15 +20,22 @@ import pytest
 
 from .provenance import goal_body, lock_text, locked_ruff_version
 from .reading import (
+    REPO_ROOT,
     RuffPolicyError,
     installed_ruff_version,
     repository_files_present,
 )
 
+#: The files this module reads beyond the ones every contract needs. The
+#: shared predicate only covers the configuration and the sampled module, so
+#: naming these here is what makes a partial checkout skip instead of raising
+#: ``FileNotFoundError`` out of ``lock_text`` or ``goal_body``.
+REQUIRED_FILES = (REPO_ROOT / "uv.lock", REPO_ROOT / "Makefile")
+
 pytestmark = pytest.mark.skipif(
-    not repository_files_present(),
+    not repository_files_present(*REQUIRED_FILES),
     reason=(
-        "pyproject.toml or the sample module is not present in this working "
+        "a file the provenance contract reads is not present in this working "
         "copy (for example inside a mutation-testing sandbox)"
     ),
 )
