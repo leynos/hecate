@@ -23,6 +23,7 @@ import typing as typ
 from .reading import REPO_ROOT, RuffPolicyError
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
     from pathlib import Path
 
 
@@ -33,11 +34,17 @@ def checked_python_files() -> tuple[Path, ...]:
     is not part of the gate, and the gate's own targets are directories, so
     what it checks is exactly what Git tracks under them.
 
+    Returns
+    -------
+    tuple[Path, ...]
+        The tracked Python files, as absolute paths in Git's listing order.
+
     Raises
     ------
     RuffPolicyError
-        If Git cannot list the files, since a reader that returned ``()``
-        would let every per-file assertion below pass vacuously.
+        If Git cannot list the files. A reader that returned ``()`` instead
+        would leave the caller with no directories to inspect, so the
+        nested-configuration contract would pass without having looked.
 
     """
     try:
@@ -56,6 +63,20 @@ def checked_python_files() -> tuple[Path, ...]:
 
 def declares_ruff_settings(project_file: Path) -> bool:
     """Report whether a ``pyproject.toml`` carries any ``[tool.ruff]`` table.
+
+    Parameters
+    ----------
+    project_file : Path
+        The ``pyproject.toml`` to inspect. It is assumed to exist already; a
+        missing file is reported as unreadable rather than as declaring
+        nothing.
+
+    Returns
+    -------
+    bool
+        ``True`` when the file has a ``tool.ruff`` table, whatever its
+        contents. A table that sets nothing still re-roots Ruff's resolution
+        and so still counts.
 
     Raises
     ------
@@ -84,6 +105,12 @@ def ruff_configuration_candidates(directory: Path) -> tuple[Path, ...]:
     everything beneath it. The search is non-recursive by design: the caller
     names the directories it cares about.
 
+    Parameters
+    ----------
+    directory : Path
+        The directory to inspect. Neither its ancestors nor its descendants
+        are searched, so a caller wanting every level has to pass each one.
+
     Returns
     -------
     tuple[Path, ...]
@@ -99,3 +126,34 @@ def ruff_configuration_candidates(directory: Path) -> tuple[Path, ...]:
     project = directory / "pyproject.toml"
     nested = (project,) if project.is_file() and declares_ruff_settings(project) else ()
     return standalone + nested
+
+
+def directories_between(root: Path, files: cabc.Iterable[Path]) -> tuple[Path, ...]:
+    """Return every directory strictly inside ``root`` that contains a file.
+
+    Ruff resolves a file's settings by walking *upwards* from the file, not by
+    looking at the file's own directory alone. A ``ruff.toml`` two levels above
+    a module re-roots that module just as surely as one beside it, so the
+    intermediate directories have to be named. Taking the ancestors of the
+    files themselves finds them without walking the tree, and a directory that
+    holds no file is left out because it governs nothing.
+
+    Parameters
+    ----------
+    root : Path
+        The directory whose own configuration is not in question. It and
+        anything outside it are excluded.
+    files : cabc.Iterable[Path]
+        Paths to the files whose governing directories are wanted.
+
+    Returns
+    -------
+    tuple[Path, ...]
+        The distinct directories, sorted. ``root`` itself is never included:
+        its configuration is the one the inventory records.
+
+    """
+    directories = {
+        parent for file in files for parent in file.parents if root in parent.parents
+    }
+    return tuple(sorted(directories))
