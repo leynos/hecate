@@ -157,7 +157,13 @@ type StrDict = dict[str, str]
 This replaces `StrDict = TypeAlias = ...` and is preferred in modern Python.
 
 When compatibility with Python < 3.12 is required, keep the older
-`typing.TypeAlias` syntax and add `# noqa: UP040` so `ruff` does not flag it.
+`typing.TypeAlias` syntax and suppress `UP040` on that line. The project's
+suppression convention applies, so name the code and say why:
+
+```python
+StrDict: TypeAlias = dict[str, str]  # ruff: ignore[UP040]  # Supports Python 3.11.
+```
+
 Place alias definitions after the import block and group shared aliases in
 `bournemouth.types` to avoid duplication.
 
