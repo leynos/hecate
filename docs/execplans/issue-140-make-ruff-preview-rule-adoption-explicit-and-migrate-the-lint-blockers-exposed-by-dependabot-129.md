@@ -675,23 +675,26 @@ instead of arriving as a surprise CI failure? The observable end state:
   `git diff --numstat 74af1a6~1..HEAD`. The tolerance's own exception clause
   excludes ExecPlan files, and the generated 691-line `enabled_rules.txt` is a
   measurement artefact rather than reviewable code, so the operative figure
-  excludes both: **40 files, 3526 insertions, 78 deletions, 3448 net lines**.
-  Counting the ExecPlan but not the inventory gives 41 files and 4217
-  insertions; counting everything gives 42 files and 5212 insertions. Every
+  excludes both: **42 files, 3738 insertions, 78 deletions, 3660 net lines**.
+  Counting the ExecPlan but not the inventory gives 43 files and 4429
+  insertions; counting everything gives 44 files and 5494 insertions. Every
   basis exceeds both bounds — 30 files and 1200 net lines — so the conclusion
-  does not depend on which one a reviewer prefers. The overrun is not
-  incidental. The ticket's acceptance criteria require a policy contract with
-  positive and negative fixtures, and the contract package alone is twenty-one
-  modules; the suppression contract spans five of them to stay under Pylint's
-  400-line cap, and a provenance contract was added because a rule inventory is
-  meaningless unless pinned to the binary that produced it. Trimming the change
-  to fit would mean dropping acceptance criteria, so the escalation is the
-  honest outcome. It is recorded here for the reviewer to accept or reject; no
-  further scope is added pending that decision. Note that
-  `git merge-base HEAD main` is *not* the correct baseline: the local `main`
-  ref is stale at 2026-07-28, making the diff 95 commits and 144 files of
-  unrelated Dependabot work. Only the fork point gives a figure that describes
-  this change.
+  does not depend on which one a reviewer prefers. These are measured at
+  `50eebeb`, the last commit before this one; a figure recorded in the same
+  commit that reports it can never include itself, so the commit named here is
+  the honest reference point rather than a number that changes each time it is
+  written down. The overrun is not incidental. The ticket's acceptance criteria
+  require a policy contract with positive and negative fixtures, and the
+  contract package alone is twenty-one modules; the suppression contract spans
+  five of them to stay under Pylint's 400-line cap, and a provenance contract
+  was added because a rule inventory is meaningless unless pinned to the binary
+  that produced it. Trimming the change to fit would mean dropping acceptance
+  criteria, so the escalation is the honest outcome. It is recorded here for
+  the reviewer to accept or reject; no further scope is added pending that
+  decision. Note that `git merge-base HEAD main` is *not* the correct baseline:
+  the local `main` ref is stale at 2026-07-28, making the diff 95 commits and
+  144 files of unrelated Dependabot work. Only the fork point gives a figure
+  that describes this change.
 - Decision: repair the two hosted CodeScene findings by refactoring rather than
   suppressing them. Rationale: both files are introduced by this branch, so the
   findings describe code written here, and the repository's precedent
@@ -718,9 +721,9 @@ instead of arriving as a surprise CI failure? The observable end state:
 
 ## Outcomes & retrospective
 
-Delivered. The four milestones are complete, and the branch carries 40 commits
-from the base of `74af1a6~1`. Every acceptance criterion is discharged by
-something a reader can run.
+Delivered. The four milestones are complete, and the branch carries more than
+forty commits from the base of `74af1a6~1`. Every acceptance criterion is
+discharged by something a reader can run.
 
 ### What a contributor can now do that they could not before
 
@@ -775,10 +778,11 @@ configuration file describes intent and the binary describes behaviour.
 
 The change exceeds the plan's original 30-file / 1200-line tolerance. Counting
 non-ExecPlan files, and excluding the generated 691-line `enabled_rules.txt` as
-the Decision log does: 40 files, 3526 insertions, 78 deletions, 3448 net lines.
-The overrun was escalated and recorded in the Decision log rather than trimmed
-to fit. Most of it is the 106-code adoption list, the committed inventory, and
-the contract suite, all of which are the deliverable rather than incidental.
+the Decision log does: 42 files, 3738 insertions, 78 deletions, 3660 net lines,
+measured at `50eebeb`. The overrun was escalated and recorded in the Decision
+log rather than trimmed to fit. Most of it is the 106-code adoption list, the
+committed inventory, and the contract suite, all of which are the deliverable
+rather than incidental.
 
 ### Lessons
 
