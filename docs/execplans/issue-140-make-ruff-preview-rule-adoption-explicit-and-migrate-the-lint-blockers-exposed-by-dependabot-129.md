@@ -104,7 +104,12 @@ instead of arriving as a surprise CI failure? The observable end state:
   records the reviewed delta so a reviewer can compare.
 - Risk: `ruff: ignore[...]` is Ruff-specific. Another tool sharing the line
   could lose its suppression. Severity: medium, Likelihood: low. Mitigation:
-  behaviour fixtures include a shared line with `# pragma: no cover`.
+  `TestTwoToolsOneLine` in
+  `tests/ruff_policy_contract/test_suppression_shared_line.py` runs the pinned
+  binary over fixtures where a migrated directive shares one comment with
+  `# pragma: no cover`, in both orders, and asserts the directive still silences
+  `S404` while `F401` on the same line stays reported. A pragma with no
+  directive is the negative control, and still draws `S404`.
 - Risk: the security codes `S404`/`S603`/`S607` are exactly the ones being
   migrated. Broadening one would hide a real subprocess risk. Severity: high,
   Likelihood: low. Mitigation: the contract rejects bare `noqa`, file-level
@@ -184,13 +189,14 @@ instead of arriving as a surprise CI failure? The observable end state:
      with a deliberately drifted lock exits 1 under `--locked` and installs
      the new package without it, and `make build` here leaves `uv.lock`
      byte-identical. The developers' guide explains why the flag is there.
-- [x] Milestone 3, part one: `D421` fixed by docstring-only edits. Six
-     summary lines in `hecate/` and `scripts/nose_schema.py` began with
-     `Return`/`Returns`, and eleven properties in
-     `scripts/tests/test_duplication_gate_contention.py` followed the same
-     shape. Each now opens with the noun phrase the attribute names, so no
-     behaviour, signature, or code changed. Verified clean on both 0.16.9 and
-     0.17.3 across `hecate tests scripts`.
+- [x] Milestone 3, part one: `D421` fixed by docstring-only edits. Sixteen
+     summary lines began with `Return`/`Returns` and were rewritten to open
+     with the noun phrase the attribute names: five in `hecate/checker.py`,
+     `hecate/diagnostics.py` and `hecate/namespaces.py`, four in
+     `scripts/nose_schema.py`, and seven properties in
+     `scripts/tests/test_duplication_gate_contention.py`. No behaviour,
+     signature, or code changed. Verified clean on both 0.16.9 and 0.17.3
+     across `hecate tests scripts`.
 - [x] Milestone 3, part two: all 30 `noqa` comments migrated to
      `ruff: ignore[CODE]  # reason`, and two new contracts added.
      `tests/ruff_policy_contract/suppressions.py` reads comments by tokenizing
@@ -202,7 +208,10 @@ instead of arriving as a surprise CI failure? The observable end state:
      reader and judgement to literal text, which is what makes the
      repository scan non-vacuous; `test_suppression_behaviour.py` runs the
      pinned binary over fixtures in `tmp_path` to prove the migrated spelling
-     actually suppresses, and only where Ruff reports the code. Three seeded
+     actually suppresses, and only where Ruff reports the code;
+     `test_suppression_shared_line.py` proves the same spelling still
+     suppresses when the comment shares its line with another diagnostic or
+     with a coverage pragma. Three seeded
      mutations of the reader and of the broad-form rule each failed the suite
      (21, 6, and 3 failures respectively), and the restored tree is 70 passed.
 - [x] Milestone 3, fifth review pass: two findings, both taken. A regex hole
@@ -290,7 +299,19 @@ instead of arriving as a surprise CI failure? The observable end state:
      syntax, recorded in `Surprises & discoveries`. `enabled_rules.txt`
      changes by its version header alone, and every gate passes: fmt,
      check-fmt, lint (Ruff 0.17.3, Pylint 10.00, Skylos, duplication),
-     typecheck, 725 tests, markdownlint, nixie.
+     typecheck, 734 tests, markdownlint, nixie.
+- [x] Milestone 4, acceptance scope: **Ruff-only validation complete;
+     refreshed-group validation pending.** AC4 reads "the refreshed dependency
+     update passes all existing required gates", and the refreshed grouped
+     update is Dependabot #176, which is still open at
+     `b8bb4bdc8a89ac6d8033eb1875b3825f718aadef` with `lint-test` failing
+     (run `42041912849`). This branch validates Ruff 0.17.3 on the repaired
+     baseline and every gate passes here; it does not, and cannot, validate a
+     grouped update that has not been rebased onto this baseline. That is a
+     pending dependency, not a defect in this change: #176 must be refreshed
+     onto this branch's merge base before its own AC4-style claim can be made.
+     The narrowing is recorded here so the acceptance mapping is not read as
+     claiming more than was measured.
 - [x] Milestone 4, review pass: three findings, all taken. Two were spelling
      (`artefact`, `stabilized`). The third was structural and correct:
      `reporting.py` is the non-test seam the fixtures import, and it was
@@ -355,6 +376,21 @@ instead of arriving as a surprise CI failure? The observable end state:
      deletions. Both drifted across the three commits pushed after the section
      was written, which is the ordinary cost of a living document whose
      numbers are measurements rather than restatements.
+- [x] Answered the completeness assessment's two substantive findings. The
+     missing `TestTwoToolsOneLine` fixtures now exist in
+     `tests/ruff_policy_contract/test_suppression_shared_line.py`, with six
+     cases covering the unsuppressed import, the co-located `F401`, the
+     neighbouring import, a pragma-only negative control, and a shared comment
+     in both orders. The runner they share moved to
+     `tests/ruff_policy_contract/ruff_run.py`, a non-test seam, because
+     putting the fixtures in the existing module took it to 431 lines against
+     Pylint's 400-line cap, and importing one test module from another would
+     inherit its `pytestmark` — the same defect this plan already fixed for
+     `reporting.py`. AC4 is now recorded as Ruff-only validation with the
+     refreshed grouped update pending at #176. All seven gates pass:
+     fmt, check-fmt, lint (Ruff clean, Pylint 10.00/10, Skylos clean,
+     duplication 5 reasoned exceptions), typecheck, **734 tests**,
+     markdownlint, nixie.
 
 ## Surprises & discoveries
 
@@ -636,22 +672,26 @@ instead of arriving as a surprise CI failure? The observable end state:
   rather than claiming the tolerance was met. Rationale: the plan requires it
   to be recorded, and a reviewer flagged its absence. Measured at commit
   `74af1a6`'s parent, this branch's true fork point, with
-  `git diff --numstat 74af1a6~1..HEAD`: 38 files, 4616 insertions, 55
-  deletions, 4561 net lines. Excluding the ExecPlan and the generated
-  `enabled_rules.txt`, as the tolerance directs: **36 files, 3206 insertions,
-  55 deletions, 3151 net lines**. Both bounds are exceeded — 30 files and 1200
-  net lines. The overrun is not incidental. The ticket's acceptance criteria
-  require a policy contract with positive and negative fixtures, and the
-  fixture suite alone is fourteen modules; the suppression contract was split
-  into four modules to stay under Pylint's 400-line cap, and a provenance
-  contract was added because a rule inventory is meaningless unless pinned to
-  the binary that produced it. Trimming the change to fit would mean dropping
-  acceptance criteria, so the escalation is the honest outcome. It is recorded
-  here for the reviewer to accept or reject; no further scope is added pending
-  that decision. Note that `git merge-base HEAD main` is *not* the correct
-  baseline: the local `main` ref is stale at 2026-07-28, making the diff 95
-  commits and 144 files of unrelated Dependabot work. Only the fork point gives
-  a figure that describes this change.
+  `git diff --numstat 74af1a6~1..HEAD`. The tolerance's own exception clause
+  excludes ExecPlan files, and the generated 691-line `enabled_rules.txt` is a
+  measurement artefact rather than reviewable code, so the operative figure
+  excludes both: **40 files, 3526 insertions, 78 deletions, 3448 net lines**.
+  Counting the ExecPlan but not the inventory gives 41 files and 4217
+  insertions; counting everything gives 42 files and 5212 insertions. Every
+  basis exceeds both bounds — 30 files and 1200 net lines — so the conclusion
+  does not depend on which one a reviewer prefers. The overrun is not
+  incidental. The ticket's acceptance criteria require a policy contract with
+  positive and negative fixtures, and the contract package alone is twenty-one
+  modules; the suppression contract spans five of them to stay under Pylint's
+  400-line cap, and a provenance contract was added because a rule inventory is
+  meaningless unless pinned to the binary that produced it. Trimming the change
+  to fit would mean dropping acceptance criteria, so the escalation is the
+  honest outcome. It is recorded here for the reviewer to accept or reject; no
+  further scope is added pending that decision. Note that
+  `git merge-base HEAD main` is *not* the correct baseline: the local `main`
+  ref is stale at 2026-07-28, making the diff 95 commits and 144 files of
+  unrelated Dependabot work. Only the fork point gives a figure that describes
+  this change.
 - Decision: repair the two hosted CodeScene findings by refactoring rather than
   suppressing them. Rationale: both files are introduced by this branch, so the
   findings describe code written here, and the repository's precedent
@@ -663,6 +703,18 @@ instead of arriving as a surprise CI failure? The observable end state:
   removed. `violations` gained a rule tuple because the six rules were already
   independent; the tuple makes their order and their one-message-per-rule
   contract visible instead of implied by statement order.
+- Decision: put the shared Ruff runner in `ruff_run.py` and the shared-line
+  fixtures in `test_suppression_shared_line.py`, rather than suppressing
+  Pylint's `C0302` or importing one test module from another. Rationale: the
+  fixtures took `test_suppression_behaviour.py` to 431 lines against a 400-line
+  cap, and the cap is deliberate — `too-many-lines` is explicitly enabled, and
+  no `C0302` suppression exists anywhere in the repository. A suppression here
+  would hide the very drift the cap exists to catch, in the change that tripped
+  it. A test module importing a sibling would also drag the imported module's
+  `pytestmark` along with the function, which is exactly the defect this plan
+  already fixed once when `reporting.py` imported `test_suppressions`.
+  Splitting instead keeps both modules well under the cap (182 and 152 lines)
+  and gives the runner one home for the next contract that needs it.
 
 ## Outcomes & retrospective
 
@@ -722,11 +774,11 @@ configuration file describes intent and the binary describes behaviour.
 ### Cost
 
 The change exceeds the plan's original 30-file / 1200-line tolerance. Counting
-only non-ExecPlan files, as the plan's own exception clause requires: 41 files,
-4217 insertions and 78 deletions. The overrun was escalated and recorded in the
-Decision log rather than trimmed to fit. Most of it is the 106-code adoption
-list, the committed inventory, and the contract suite, all of which are the
-deliverable rather than incidental.
+non-ExecPlan files, and excluding the generated 691-line `enabled_rules.txt` as
+the Decision log does: 40 files, 3526 insertions, 78 deletions, 3448 net lines.
+The overrun was escalated and recorded in the Decision log rather than trimmed
+to fit. Most of it is the 106-code adoption list, the committed inventory, and
+the contract suite, all of which are the deliverable rather than incidental.
 
 ### Lessons
 
@@ -736,7 +788,11 @@ deliverable rather than incidental.
   matrix is the minimum that attributes a delta to a cause.
 - Extracting the judgement from a test module is what lets the fixtures and the
   repository scan share one implementation; the first placement chose
-  convenience over structure and the review caught it.
+  convenience over structure and the review caught it. The same lesson recurred
+  in the other direction: when shared fixtures outgrew a test module, importing
+  the sibling would have carried its `pytestmark` along, so the runner moved to
+  a non-test seam instead. Two cases, one rule — a shared test helper belongs
+  in a module no test owns.
 - Spelling gates run over Markdown only, so a docstring using the -ise form
   survives `make lint` and surfaces only in review. Worth knowing before the
   next review round rather than after it.
@@ -949,7 +1005,9 @@ so an excluded module is not failed for a comment the gate never reads (95
 files, and `scripts/typos_rollout.py` is absent from that list).
 `test_reading_suppressions.py` feeds literal text to the same reader and the
 same judgement, which is what makes a passing repository scan mean something.
-`test_suppression_behaviour.py` proves the syntax rather than the reading.
+`test_suppression_behaviour.py` proves the syntax rather than the reading, and
+`test_suppression_shared_line.py` proves it survives a comment shared with
+another tool.
 
 Non-vacuity was demonstrated by seeding faults. Making `has_reason` always true
 failed 6 cases; making the reader return nothing failed 21, including the
@@ -993,3 +1051,15 @@ until the overrun is accepted; milestone 3's acceptance evidence is unchanged.
 Revision 3: pre-assessment bookkeeping at head `9284bb0`. Records the
 `typos.toml` refresh and the corrected commit-count and cost figures. No
 acceptance evidence, decision or verification obligation changed.
+
+Revision 4: post-assessment corrections. Two defects the completeness
+assessment found are fixed. First, the `TestTwoToolsOneLine` fixtures the
+`Risks` section promised did not exist; they now do, and the `Risks` entry
+names them rather than restating the promise. Second, milestone 3, part one
+miscounted the `D421` edits as "six summary lines … and eleven properties" when
+the diff rewrote sixteen: five in `hecate/`, four in `scripts/nose_schema.py`,
+and seven in the contention test. The count is re-derived from
+`git diff 55ce29f..HEAD --unified=0` rather than from grepping the current
+tree, which counts unrelated docstrings. Milestone 4 now records AC4 as
+Ruff-only validation with the refreshed grouped update pending at #176, so the
+acceptance mapping claims exactly what was measured.
