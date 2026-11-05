@@ -125,9 +125,14 @@ instead of arriving as a surprise CI failure? The observable end state:
      measure what it removes.
 - [x] Confirm the CI failure of the live grouped update (#176) is the same
      class of blocker plus `UP052`, and that `make build` re-resolves.
-- [ ] Write this plan and commit it.
-- [ ] Milestone 1: make preview adoption explicit on the pinned Ruff and pin
-     the effective rule inventory.
+- [x] Write this plan and commit it (`74af1a6`).
+- [x] Milestone 1: make preview adoption explicit on the pinned Ruff and pin
+     the effective rule inventory. `pyproject.toml` now sets
+     `explicit-preview-rules = true` and names 106 preview codes under
+     `extend-select`; the resolved set is byte-identical to the 673-code
+     baseline; `tests/ruff_policy_contract/` holds the inventory, its readers,
+     a two-directional comparison, and a behaviour fixture; the developers'
+     guide documents the policy.
 - [ ] Milestone 2: pin Ruff provenance in `make build` and add the toolchain
      contract.
 - [ ] Milestone 3: resolve `D421` docstrings and migrate suppressions with a
@@ -165,9 +170,31 @@ instead of arriving as a surprise CI failure? The observable end state:
 - `make spelling` regenerates the tracked `typos.toml` from the upstream
   shared dictionary on every run, so a plain `make markdownlint` leaves a
   modified tracked file in the working tree. The gate still exits 0; the
-  rewrite reflects upstream dictionary drift, not this change. The plan
-  reverts it rather than smuggling an unrelated regeneration into a Ruff
-  commit, and the final commit leaves `typos.toml` untouched.
+  rewrite reflects upstream dictionary drift, not this change. The plan reverts
+  it rather than smuggling an unrelated regeneration into a Ruff commit, and
+  the final commit leaves `typos.toml` untouched.
+- Twelve preview codes were already named individually in `select` before this
+  change (`PLE4703`, `PLR0202`, `PLR0203`, `PLR0914`, `PLR0916`, `PLR1702`,
+  `PLR6104`, `PLR6201`, `PLR6301`, `RUF036`, `RUF055`, `RUF066`), so the
+  reviewed preview set is 118 codes, not the 106 that moved to `extend-select`.
+  `PLW0108`, `RUF053`, and `RUF064` sit in the same block but are stable on
+  0.15.13 and stay in `select` untouched.
+- The behaviour fixture cannot use `D421` or `RUF105` to demonstrate explicit
+  adoption: neither exists on the pinned 0.15.13 binary (`ruff rule D421`
+  answers `invalid value 'D421'`). The fixture uses `D420`
+  (incorrect-section-order) as the adopted preview rule and `PLW1514` under the
+  unselected `PLW` prefix as the inert one, which works on the pinned version
+  and keeps the demonstration honest.
+- The repository's numpy docstring convention is what makes `D420` fire, so
+  the fixture's first attempt passed a Google-style docstring and produced only
+  `D100`/`D406`/`D407` — it looked like the rule was off. A copied
+  configuration needs a violation that matches the configured convention, not
+  just a violation in the abstract.
+- `ty` rejected the readers' `dict[str, object]` parameters: `dict` is
+  invariant in its value type, so the literal nested tables the negative cases
+  pass in do not conform. The readers now take `collections.abc.Mapping` and
+  narrow at one helper, which is also the honest type for "read-only parsed
+  TOML".
 
 ## Decision log
 
@@ -286,6 +313,33 @@ inventory file holds the effective enabled-rule list for the pinned Ruff, and a
 contract test fails when it differs. Recovery path: revert the two files and
 the test; the repository is then exactly the baseline. Acceptance: the contract
 test passes on the reviewed inventory and fails on a one-code edit.
+
+Delivered. `explicit-preview-rules = true` sits in `[tool.ruff.lint]` above
+`select`, with a comment that says why; `extend-select` names 106 preview codes
+grouped by linter. The resolved set is byte-identical to the pre-change 673,
+measured by diffing `linter.rules.enabled` from `--show-settings` before and
+after. `tests/ruff_policy_contract/` holds `reading.py` (pure readers over
+configuration, lockfile, Makefile, and Ruff's own output), `enabled_rules.txt`
+(the reviewed inventory with a `# ruff-version: 0.15.13` header),
+`test_reading.py` (reader negative cases), `test_inventory.py` (the
+two-directional comparison and the policy switches), and
+`test_preview_adoption.py` (the behaviour fixture). Acceptance evidence:
+
+```plaintext
+$ uv run pytest tests/ruff_policy_contract -q
+22 passed
+
+# inventory with F401 deleted
+AssertionError: Ruff now enables rules the inventory does not list ... ['F401']
+# inventory with XYZ999 appended
+AssertionError: Ruff no longer enables rules the inventory lists ... ['XYZ999']
+```
+
+`docs/developers-guide.md` gained a "Ruff preview policy" section covering the
+switch, where to add an adoption, the regeneration command, and the fact that
+the inventory is reviewed data rather than a snapshot. `make check-fmt`,
+`make lint`, `make typecheck`, `make test`, `make markdownlint`, and
+`make nixie` all pass.
 
 ### Milestone 2: reproducible Ruff provenance
 

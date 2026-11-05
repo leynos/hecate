@@ -1249,12 +1249,12 @@ _Table 5: Commit gates, local commands, and whether CI runs them._
 
 - **`make check-fmt`** verifies Python formatting with `ruff format --check`
   and Markdown formatting with `mdtablefix --check`.
-- **`make lint`** runs `make lint-python` and `make skylos`. `lint-python`
-  runs `ruff check` and then Pylint 4.0.9 on managed PyPy 3.12. `skylos` runs
-  the pinned Skylos release under Python 3.14 against `hecate`, excluding
-  `tests`, in strict dead-code gate mode with uploads and provenance disabled.
-  CI runs the same `make lint` target, so an unexplained Skylos finding blocks
-  both local commits and pull requests.
+- **`make lint`** runs `make lint-python`, `make skylos`, and the duplication
+  gate. `lint-python` runs `ruff check` and then Pylint 4.0.9 on managed PyPy
+  3.12. `skylos` runs the pinned Skylos release under Python 3.14 against
+  `hecate`, excluding `tests`, in strict dead-code gate mode with uploads and
+  provenance disabled. CI runs the same `make lint` target, so an unexplained
+  Skylos finding blocks both local commits and pull requests.
 - **`make typecheck`** runs `ty check hecate tests`, and that is the
   typechecking gate. `pyright` is installed in the `dev` group but is **not**
   the gate and is not run by any target or workflow.
@@ -1343,6 +1343,42 @@ make test
 ```
 
 _Code block 5: Bootstrapping the pinned Makefile parser._
+
+### Ruff preview policy
+
+`preview = true` stays on in `[tool.ruff]`, but preview rules are adopted one
+code at a time instead of through the prefix selectors.
+`[tool.ruff.lint].explicit-preview-rules = true` makes Ruff ignore every
+preview rule whose exact code is not named in `select` or `extend-select`.
+Without it a selector such as `D` or `RUF` acquires whatever preview rules a
+future Ruff release adds to that prefix, so a dependency bump could change what
+the gate enforces without a line of this repository moving. Issue #140 records
+the failure that motivated the switch.
+
+Each reviewed preview code is named in `extend-select` beside the linter it
+belongs to. Adopting a rule means adding one line with its rationale; dropping
+one is a deliberate policy edit. Do not put a prefix in that list and do not
+widen a selector to pick up a new preview rule.
+
+The set Ruff actually resolves is recorded in
+`tests/ruff_policy_contract/enabled_rules.txt`, and
+`tests/ruff_policy_contract/test_inventory.py` compares the two in both
+directions, so an unlisted addition fails as loudly as a check that quietly
+stopped running. When a configuration edit or a Ruff upgrade is meant to move
+the set, print the new resolution and review every line that moved:
+
+```shell
+uv run python -m ruff check --show-settings hecate/checker.py
+```
+
+_Code block 6: Recording the resolved Ruff rule set._
+
+The inventory is generated data, but a reviewed artefact: copy the codes in the
+order that command prints them and keep its `# ruff-version:` header in step
+with the binary that produced it.
+`tests/ruff_policy_contract/test_preview_adoption.py` rounds this out by
+running a throwaway project under this repository's configuration: a preview
+rule outside the list stays silent, and an adopted one flags.
 
 ### Markdown formatting and lint
 
