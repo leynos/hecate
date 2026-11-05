@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import pytest
 
+from .discovery import checked_python_files, ruff_configuration_candidates
 from .reading import (
     SAMPLE_FILE,
     enabled_rule_lines,
@@ -62,6 +63,35 @@ class TestEnabledRuleInventory:
             "Ruff no longer enables rules the inventory lists. That is house "
             "policy that stopped running; either restore the selector or "
             f"review the removal and update the inventory: {removed}"
+        )
+
+    def test_one_sample_represents_every_tracked_python_file(self) -> None:
+        """No nearer Ruff configuration may re-root the sample's own file.
+
+        The inventory is a single row, which is only honest while the sampled
+        module resolves against the same configuration as every other file.
+        Ruff stops at the nearest directory carrying a ``pyproject.toml`` with
+        ``[tool.ruff]`` or a ``ruff.toml``, so a nested project file would make
+        the sample describe a policy the rest of the tree does not use.
+        """
+        root = SAMPLE_FILE.parents[1]
+        # Only directories *below* the root are nested: the root's own
+        # configuration is the one the inventory records.
+        directories = sorted({
+            path.parent
+            for path in checked_python_files()
+            if root in path.parents and path.parent != root
+        })
+        nested = {
+            directory.relative_to(root).as_posix(): candidates
+            for directory in directories
+            if (candidates := ruff_configuration_candidates(directory))
+        }
+        assert not nested, (
+            "these directories declare their own Ruff configuration, so the "
+            "single inventory row no longer describes every tracked Python "
+            f"file: {nested}. Add a row per configuration, or remove the "
+            "nested file"
         )
 
     def test_inventory_has_no_duplicates(self) -> None:

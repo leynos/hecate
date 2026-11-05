@@ -15,8 +15,11 @@ inventory comparison vacuous.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
+from .discovery import declares_ruff_settings, ruff_configuration_candidates
 from .reading import (
     RuffPolicyError,
     enabled_rule_lines,
@@ -118,6 +121,54 @@ version = "0.17.3"
 """
         with pytest.raises(RuffPolicyError, match="exactly one ruff version"):
             locked_ruff_version(text)
+
+
+class TestConfigurationDiscovery:
+    """The readers that decide which configuration Ruff will find."""
+
+    def test_finds_the_ruff_toml_the_lockfile_names(self, tmp_path: Path) -> None:
+        """A standalone ``ruff.toml`` is a candidate wherever it sits."""
+        (tmp_path / "ruff.toml").write_text("line-length = 88\n", encoding="utf-8")
+        assert ruff_configuration_candidates(tmp_path) == ((tmp_path / "ruff.toml"),)
+
+    def test_ignores_a_pyproject_without_ruff_settings(self, tmp_path: Path) -> None:
+        """A ``pyproject.toml`` is only a Ruff config when it says so."""
+        (tmp_path / "pyproject.toml").write_text(
+            '[project]\nname = "x"\nversion = "0.1"\n', encoding="utf-8"
+        )
+        assert ruff_configuration_candidates(tmp_path) == ()
+
+    def test_finds_a_pyproject_that_declares_ruff_settings(
+        self, tmp_path: Path
+    ) -> None:
+        """``[tool.ruff]`` in a nearer project file re-roots the resolution."""
+        project = tmp_path / "pyproject.toml"
+        project.write_text(
+            '[project]\nname = "x"\n\n[tool.ruff.lint]\nselect = ["F"]\n',
+            encoding="utf-8",
+        )
+        assert ruff_configuration_candidates(tmp_path) == (project,)
+
+    def test_reports_both_files_when_both_exist(self, tmp_path: Path) -> None:
+        """Two candidates mean the repository cannot say which one Ruff uses."""
+        (tmp_path / "ruff.toml").write_text("line-length = 88\n", encoding="utf-8")
+        project = tmp_path / "pyproject.toml"
+        project.write_text("[tool.ruff]\nline-length = 88\n", encoding="utf-8")
+        found = ruff_configuration_candidates(tmp_path)
+        assert len(found) == 2
+        assert {path.name for path in found} == {"pyproject.toml", "ruff.toml"}
+
+    def test_unreadable_pyproject_is_not_silently_skipped(self, tmp_path: Path) -> None:
+        """A malformed file must not read as "this directory configures nothing".
+
+        Ruff would fail on such a file rather than fall back to a parent
+        configuration, so a reader that skipped it would clear a directory
+        Ruff actually rejects.
+
+        """
+        (tmp_path / "pyproject.toml").write_text("[tool.ruff\n", encoding="utf-8")
+        with pytest.raises(RuffPolicyError, match="cannot read"):
+            declares_ruff_settings(tmp_path / "pyproject.toml")
 
 
 class TestRuffSectionReader:
