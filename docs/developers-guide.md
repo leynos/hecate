@@ -1161,9 +1161,17 @@ make build
 ```
 
 `build` depends on `.venv`, so it creates or recreates the virtual environment
-when `pyproject.toml` changes and then runs `uv sync --group dev`. No separate
-install step is needed before any other target: every gate that needs the
-environment depends on `build` itself.
+when `pyproject.toml` changes and then runs `uv sync --locked --group dev`. No
+separate install step is needed before any other target: every gate that needs
+the environment depends on `build` itself.
+
+`--locked` is deliberate. Without it `uv` re-resolves when `pyproject.toml` and
+`uv.lock` disagree and installs whatever it resolves, which is how a committed
+change can install a Ruff nobody reviewed. With it, that case exits non-zero
+and names `uv lock`; regenerating the lock is then an explicit commit whose
+diff can be read. `tests/ruff_policy_contract/test_provenance.py` holds both
+halves of that contract: the recipe must carry the flag, and the version the
+lock pins must be the version the virtualenv imports.
 
 ### Iterating
 
