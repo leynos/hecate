@@ -4,7 +4,7 @@
 passing repository scan is worth nothing unless the reader behind it can fail.
 These fixtures feed literal modules to the same two functions that scan uses —
 :func:`tests.ruff_policy_contract.suppressions.suppressions_in` and
-:func:`tests.ruff_policy_contract.test_suppressions.violations` — so each rule
+:func:`tests.ruff_policy_contract.convention.violations` — so each rule
 is shown to fire on the shape it forbids and to stay quiet on the shape the
 project writes.
 
@@ -18,9 +18,9 @@ from __future__ import annotations
 
 import pytest
 
+from .convention import violations
 from .reporting import reported
 from .suppressions import NOQA, Suppression, classify, suppressions_in
-from .test_suppressions import violations
 
 
 class TestAcceptedForms:

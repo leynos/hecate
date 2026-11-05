@@ -195,10 +195,10 @@ instead of arriving as a surprise CI failure? The observable end state:
      `ruff: ignore[CODE]  # reason`, and two new contracts added.
      `tests/ruff_policy_contract/suppressions.py` reads comments by tokenizing
      rather than by regex over the file, so a `#` inside a string literal is
-     never policy. `test_suppressions.py` applies the house convention to every
-     module Ruff reports for `hecate tests scripts`;
-     `test_reading_suppressions.py` applies the same two functions to literal
-     text, which is what makes the
+     never policy. `convention.py` holds the judgement as a pure function;
+     `test_suppressions.py` applies it to every module Ruff reports for
+     `hecate tests scripts`; `test_reading_suppressions.py` applies the same
+     reader and judgement to literal text, which is what makes the
      repository scan non-vacuous; `test_suppression_behaviour.py` runs the
      pinned binary over fixtures in `tmp_path` to prove the migrated spelling
      actually suppresses, and only where Ruff reports the code. Three seeded
@@ -498,10 +498,18 @@ instead of arriving as a surprise CI failure? The observable end state:
   believes suppresses something and which in fact suppresses nothing is exactly
   what the contract should catch, and only the reader can catch it.
 - Decision: keep the readers and the convention in separate modules
-  (`suppressions.py` reads; `test_suppressions.py` judges), so the literal-text
+  (`suppressions.py` reads; `convention.py` judges), so the literal-text
   fixtures import the same function the repository scan uses. Rationale: the
   plan's requirement 4 asks for fixtures fed to that checker; a second judging
   implementation in the test file would prove only that the copy works.
+- Decision: put the judgement in `convention.py` rather than leaving it in
+  `test_suppressions.py`, where it was first written. Rationale: `reporting.py`
+  is the non-test seam the fixtures import, and it was importing a *test*
+  module to reach `violations`. Importing `test_suppressions` also evaluates
+  its module-level `pytestmark`, which calls `repository_files_present()`, so
+  the seam inherited the repository-presence skip condition of a module it does
+  not scan. The judgement reads no files, which is what makes it a
+  fixture-shaped function rather than a repository one.
 - Decision: enforce the suppression convention with a tokenizer-based contract
   over tracked Python files rather than a regex grep. Rationale: comments
   inside string literals would otherwise be counted, and the contract needs to
@@ -605,7 +613,7 @@ Trace: `#140 AC1 -> M3 -> the D421-clean run over hecate tests scripts`;
 
 Obligations introduced or preserved by this change:
 
-1. *Preview policy is a reviewed artifact.* Invariant: for every tracked
+1. *Preview policy is a reviewed artefact.* Invariant: for every tracked
    Python file, the set Ruff reports as enabled equals the committed inventory,
    and per-file ignores do not enter that set. A single inventory row is only
    honest while one configuration governs the whole tree, so a companion
@@ -757,14 +765,15 @@ ones left in the tree are two `S310` comments in `scripts/typos_rollout.py`,
 which `extend-exclude` keeps out of the gate, so rewriting them would be policy
 no gate enforces.
 
-Three modules carry the new contract. `suppressions.py` tokenizes and returns a
+Four modules carry the new contract. `suppressions.py` tokenizes and returns a
 `Suppression` record with its line, form, codes, and rationale; it is
-deliberately judgement-free. `test_suppressions.py` holds the judgement and the
-repository scan, asking Ruff for `--show-files hecate tests scripts` so an
-excluded module is not failed for a comment the gate never reads (95 files, and
-`scripts/typos_rollout.py` is absent from that list).
-`test_reading_suppressions.py` feeds literal text to those same two functions,
-which is what makes a passing repository scan mean something.
+deliberately judgement-free. `convention.py` holds the judgement, as a pure
+function over those records that reads no files. `test_suppressions.py` holds
+only the repository scan, asking Ruff for `--show-files hecate tests scripts`
+so an excluded module is not failed for a comment the gate never reads (95
+files, and `scripts/typos_rollout.py` is absent from that list).
+`test_reading_suppressions.py` feeds literal text to the same reader and the
+same judgement, which is what makes a passing repository scan mean something.
 `test_suppression_behaviour.py` proves the syntax rather than the reading.
 
 Non-vacuity was demonstrated by seeding faults. Making `has_reason` always true

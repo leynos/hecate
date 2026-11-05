@@ -1,9 +1,9 @@
 """Apply the house suppression convention to literal source text.
 
-The convention itself lives in ``test_suppressions.violations``, and applying
-it to the repository lives in the same module. Both of those read files, which
-makes them awkward fixtures: a case that wants to exercise one rule has to
-plant a file or reach into a module that scans the tree.
+The convention itself lives in ``convention.violations``, and the repository
+scan that applies it lives in ``test_suppressions``. The scan reads files,
+which makes it an awkward fixture: a case that wants to exercise one rule has
+to plant a file or reach into a module that walks the tree.
 
 This module is the seam between the two. It takes text, runs it through the
 same reader and the same rule function the repository scan uses, and returns
@@ -13,8 +13,8 @@ so a fixture cannot agree with a copy of the policy.
 
 from __future__ import annotations
 
+from .convention import violations
 from .suppressions import suppressions_in
-from .test_suppressions import violations
 
 
 def reported(source: str) -> list[str]:

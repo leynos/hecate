@@ -213,7 +213,7 @@ class TestSuppressionScope:
 
         This was the negative control while the syntax was a preview feature:
         on 0.15.13 it asserted that ``--preview`` was load-bearing. Ruff
-        stabilised the syntax by 0.17.4, so the assertion inverted. Keeping it
+        stabilized the syntax by 0.17.4, so the assertion inverted. Keeping it
         inverted is what records the change; deleting it would let a future
         release make the syntax preview-only again with nobody noticing.
 
@@ -236,7 +236,7 @@ class TestSuppressionScope:
     def test_a_rule_name_in_the_brackets_is_still_preview_only(
         self, tmp_path: Path
     ) -> None:
-        """The codes-versus-names distinction is the part Ruff did not stabilise.
+        """The codes-versus-names distinction is the part Ruff did not stabilize.
 
         The contract rejects rule names in suppression comments. That is a
         policy choice, and this case records why it is also a necessary one:
