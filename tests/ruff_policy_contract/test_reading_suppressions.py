@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import pytest
 
-from .suppressions import Suppression, classify, suppressions_in
+from .suppressions import NOQA, Suppression, classify, suppressions_in
 from .test_suppressions import violations
 
 
@@ -111,6 +111,47 @@ class TestBareSuppressions:
             f"{comment!r} named no usable code and was accepted, so it hides "
             "every diagnostic the line grows"
         )
+
+    @pytest.mark.parametrize(
+        "comment",
+        [
+            "# ruff: noqa: S607",
+            "# flake8: noqa",
+            "#ruff:noqa",
+            "# ruff: noqa",
+            "# NOQA: E501",
+        ],
+        ids=[
+            "ruff-prefixed-with-codes",
+            "flake8-prefixed-bare",
+            "ruff-prefixed-no-space",
+            "ruff-prefixed-bare",
+            "upper-case-with-codes",
+        ],
+    )
+    def test_a_prefixed_or_upper_case_noqa_is_read_and_reported(
+        self, comment: str
+    ) -> None:
+        """These spellings suppress, so the reader must see them.
+
+        Measured on 0.17.3: ``# ruff: noqa: S607`` and ``# flake8: noqa`` on a
+        line of their own silence the whole module, and ``noqa`` is
+        case-insensitive both there and as a trailing comment. A reader that
+        matched only a lower-case bare ``noqa`` would call all five prose and
+        clear exactly the file-wide suppression the contract forbids.
+        """
+        source = f"{comment}\nimport subprocess\nsubprocess.run(['make'], check=True)\n"
+        (suppression,) = suppressions_in(source)
+        assert suppression.form == NOQA, (
+            f"{comment!r} was read as {suppression.form!r}, so a suppression "
+            "checking every following line is invisible to the contract"
+        )
+        assert any("writes `noqa`" in message for message in violations((suppression,)))
+
+    def test_a_trailing_upper_case_noqa_is_a_line_suppression(self) -> None:
+        """Case does not change placement; ``# NOQA: S607`` still counts."""
+        (suppression,) = suppressions_in("x = 1  # NOQA: S607\n")
+        assert (suppression.form, suppression.codes) == (NOQA, ("S607",))
 
     def test_a_code_list_in_noqa_form_satisfies_the_no_codes_rule(self) -> None:
         """Naming a code is a separate question from the spelling used.
