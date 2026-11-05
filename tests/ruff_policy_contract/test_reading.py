@@ -19,14 +19,14 @@ from pathlib import Path
 
 import pytest
 
-from .discovery import declares_ruff_settings, ruff_configuration_candidates
-from .reading import (
-    RuffPolicyError,
-    enabled_rule_lines,
-    inventory_codes,
-    locked_ruff_version,
-    ruff_section,
+from .discovery import (
+    declares_ruff_settings,
+    directories_between,
+    ruff_configuration_candidates,
 )
+from .inventory import enabled_rule_lines, inventory_codes
+from .provenance import locked_ruff_version
+from .reading import RuffPolicyError, ruff_section
 
 _SAMPLE_SETTINGS = """\
 # General Settings
@@ -169,6 +169,41 @@ class TestConfigurationDiscovery:
         (tmp_path / "pyproject.toml").write_text("[tool.ruff\n", encoding="utf-8")
         with pytest.raises(RuffPolicyError, match="cannot read"):
             declares_ruff_settings(tmp_path / "pyproject.toml")
+
+
+class TestDirectoryDiscovery:
+    """The walk that finds every directory a file's settings pass through."""
+
+    def test_reports_the_intermediate_directory_holding_no_module(
+        self, tmp_path: Path
+    ) -> None:
+        """Ruff walks through a directory that contains only directories.
+
+        A ``ruff.toml`` in ``package/`` governs ``package/inner/module.py``
+        even though no module sits directly in ``package/``, so a walk that
+        only visited each file's own directory would clear it.
+        """
+        inner = tmp_path / "package" / "inner"
+        inner.mkdir(parents=True)
+        module = inner / "module.py"
+        module.write_text("", encoding="utf-8")
+        assert directories_between(tmp_path, [module]) == (
+            tmp_path / "package",
+            inner,
+        )
+
+    def test_excludes_the_root_and_anything_above_it(self, tmp_path: Path) -> None:
+        """The root's own configuration is the one the inventory records."""
+        module = tmp_path / "module.py"
+        module.write_text("", encoding="utf-8")
+        assert not directories_between(tmp_path, [module])
+
+    def test_reports_each_directory_once(self, tmp_path: Path) -> None:
+        """Two files in one directory must not produce two rows for it."""
+        package = tmp_path / "package"
+        package.mkdir()
+        files = [package / "one.py", package / "two.py"]
+        assert directories_between(tmp_path, files) == (package,)
 
 
 class TestRuffSectionReader:
