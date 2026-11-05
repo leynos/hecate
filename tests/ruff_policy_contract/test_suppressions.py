@@ -72,35 +72,46 @@ def read_module(path: str) -> str:
     return (REPO_ROOT / path).read_text(encoding="utf-8")
 
 
-def checked_modules() -> tuple[str, ...]:
-    """Return the Python files the lint gate checks, as relative paths.
+def ruff_show_files(*targets: str) -> tuple[str, ...]:
+    """Return the modules Ruff lists for ``targets``, relative to the root.
 
     Ruff is asked for the files rather than a directory being walked: an
     excluded module is not linted, so a suppression in it is not policy the
-    gate enforces and not something this contract should fail on.
+    gate enforces and not something this contract should fail on. Paths are
+    returned relative to :data:`REPO_ROOT` so callers can compare them against
+    the paths they hand back to :func:`scan`.
+
+    Parameters
+    ----------
+    *targets : str
+        The paths to pass to Ruff. None means "no target", which leaves Ruff
+        to apply its own configuration's include and exclude rules; that is a
+        different question from "these directories", which is why the caller
+        chooses rather than this helper defaulting to
+        :data:`LINT_TARGETS`.
 
     Returns
     -------
     tuple[str, ...]
-        The checked modules, relative to the repository root, in Ruff's order.
+        The listed modules, relative to the repository root, in Ruff's order.
 
     Raises
     ------
     RuffPolicyError
         If Ruff cannot list them. A reader that returned ``()`` would leave
-        every test below comparing empty sets and passing.
+        every caller comparing empty sets and passing.
 
     """
     try:
         completed = subprocess.run(  # ruff: ignore[S603]  # Literal argv, no shell.
-            [sys.executable, "-m", "ruff", "check", "--show-files", *LINT_TARGETS],
+            [sys.executable, "-m", "ruff", "check", "--show-files", *targets],
             capture_output=True,
             check=True,
             cwd=REPO_ROOT,
             text=True,
         )
     except (OSError, subprocess.CalledProcessError) as error:
-        message = f"cannot list the files the gate checks: {error}"
+        message = f"cannot list the files Ruff checks: {error}"
         raise RuffPolicyError(message) from error
     root = f"{REPO_ROOT}/"
     return tuple(
@@ -108,6 +119,18 @@ def checked_modules() -> tuple[str, ...]:
         for line in completed.stdout.splitlines()
         if line.startswith(root)
     )
+
+
+def checked_modules() -> tuple[str, ...]:
+    """Return the Python files the lint gate checks, as relative paths.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The checked modules, relative to the repository root, in Ruff's order.
+
+    """
+    return ruff_show_files(*LINT_TARGETS)
 
 
 def violations(suppressions: tuple[Suppression, ...]) -> list[str]:
@@ -187,23 +210,9 @@ class TestRepositorySuppressions:
         ``pyproject.toml`` that configures it, which carries no suppression
         comments and which the gate never passes as a target.
         """
-        try:
-            without_targets = subprocess.run(
-                [sys.executable, "-m", "ruff", "check", "--show-files"],
-                capture_output=True,
-                check=True,
-                cwd=REPO_ROOT,
-                text=True,
-            )
-        except (OSError, subprocess.CalledProcessError) as error:
-            message = f"cannot list every module Ruff checks: {error}"
-            raise RuffPolicyError(message) from error
-        root = f"{REPO_ROOT}/"
         scanned = set(checked_modules())
         unreachable = {
-            line.removeprefix(root)
-            for line in without_targets.stdout.splitlines()
-            if line.startswith(root) and line.endswith(".py")
+            path for path in ruff_show_files() if path.endswith(".py")
         } - scanned
         assert not unreachable, (
             "Ruff checks these modules but the suppression contract never "
