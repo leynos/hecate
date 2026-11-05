@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 import shlex
 import shutil
-import subprocess  # noqa: S404  # The end-to-end test drives Make.
+import subprocess  # ruff: ignore[S404]  # The end-to-end test drives Make.
 import tomllib
 from pathlib import Path
 
@@ -114,7 +114,7 @@ def _run_configured_pylint(target: Path) -> subprocess.CompletedProcess[str]:
     """
     make = shutil.which("make")
     assert make is not None, "make must be on PATH"
-    return subprocess.run(  # noqa: S603  # Fixed argument list, no shell.
+    return subprocess.run(  # ruff: ignore[S603]  # Fixed argument list, no shell.
         [
             make,
             "--no-print-directory",
