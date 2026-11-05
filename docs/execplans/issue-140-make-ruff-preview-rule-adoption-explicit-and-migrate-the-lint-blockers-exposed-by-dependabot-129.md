@@ -288,11 +288,17 @@ instead of arriving as a surprise CI failure? The observable end state:
   the two security codes differ. S603 is reported on the `subprocess.run(` call
   line; S607 is reported on the line holding the argument vector. For a
   single-line call those are the same physical line and a trailing comment
-  covers both. For a multi-line call they are different lines, so an own-line
-  comment above the call covers S603 and the *entire logical line* below it,
-  while S607 still needs a comment on the vector's line. `discovery.py` relies
-  on exactly this: its own-line `# ruff: ignore[S607]` sits above the vector
-  inside a `subprocess.run(` whose call line is separate.
+  covers both. For a multi-line call they are different lines, and placement
+  and code list are separate questions. An own-line comment above the call
+  covers the *entire logical line*, so one comment naming both codes covers
+  both, while a comment naming only S603 leaves S607 visible because the code
+  does not match. A trailing comment, or an own-line comment inside the call,
+  covers one physical line only, so S607 then needs a comment on or directly
+  above the vector's line. Measured on the pinned binary: an own-line
+  `# ruff: ignore[S603, S607]` above a multi-line `subprocess.run(` clears both,
+  `[S603]` alone leaves S607, and `[S607]` inside the call leaves S603.
+  `discovery.py` uses the last form: its own-line `# ruff: ignore[S607]` sits
+  above the vector inside a `subprocess.run(` whose call line is separate.
 - A suppression on the call line of a multi-line call does not reach the
   argument line, and a suppression on the argument line does not reach the call
   line. That asymmetry is what makes "put it where Ruff reports it" both
