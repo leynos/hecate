@@ -277,8 +277,21 @@ instead of arriving as a surprise CI failure? The observable end state:
      does not cover the `git ls-files` call inside `checked_python_files`.
      The scope tolerance overrun is recorded in the decision log with measured
      counts and escalated; see that entry.
-- [ ] Milestone 4: refresh the grouped update, adopt the new rules explicitly,
-     run every gate, and record results.
+- [x] Milestone 4: adopt Ruff 0.17.3 and record the evidence. Locked with
+     `uv lock --upgrade-package 'ruff==0.17.3'`; the lock still holds the same
+     45 packages and only Ruff changes version, though uv also bumped the
+     lock's own `revision = 3` to `5`. Resolved rule set is **identical**: 673
+     codes before and after, none added, none removed, and 0.17.3 and 0.17.4
+     resolve identically under this configuration. That is the setting doing
+     its job: `explicit-preview-rules = true` keeps the three blockers (`D421`,
+     `RUF105`, `UP052`) inert, so no source change was needed for them. The one
+     behaviour that did move is the suppression syntax, recorded in
+     `Surprises & discoveries`. `enabled_rules.txt` changes by its version
+     header alone, and every gate passes: fmt, check-fmt, lint (Ruff 0.17.3,
+     Pylint 10.00, Skylos, duplication), typecheck, 725 tests, markdownlint,
+     nixie.
+- [ ] Feed the old/new fixture and rule-set delta to
+     `leynos/shared-actions#588`.
 - [ ] Push, open a draft pull request, and hand the migration evidence to
      `leynos/shared-actions#588`.
 
@@ -412,9 +425,39 @@ instead of arriving as a surprise CI failure? The observable end state:
   one to five letters (`ASYNC` is the longest) and three or four digits. That
   measured shape is what the contract's code-shape rule is built on; it
   supplanted a guessed four-letter bound that rejected `ASYNC100`.
+- Ruff stabilized `ruff: ignore` between 0.15.13 and 0.17.4, and it did so
+  without a rule-set delta. On 0.15.13 the syntax was preview-only: without
+  `--preview` a `ruff: ignore[S603]` comment on a call that trips S603 still
+  reported S603 and Ruff printed
+  `#ruff:ignore comment found but not active, enable preview mode`. On 0.17.3
+  and 0.17.4 the same comment suppresses S603 with `--isolated` and no
+  `--preview`, and the warning is gone. The behaviour fixture that recorded the
+  old premise (`test_the_syntax_is_inert_without_ preview`) therefore failed on
+  the upgrade, which is exactly what a negative control should do; it now
+  asserts the inverted fact and is renamed
+  `test_the_syntax_suppresses_without_preview`. What did **not** stabilize is
+  rule *names* in the brackets: outside preview mode
+  `ruff: ignore[subprocess-without-shell-equals-true]` still reports S603,
+  while inside preview mode it suppresses it. That asymmetry is the measured
+  reason the contract forbids names: a name-based suppression silently covers
+  nothing in any stable-mode run, and the repository would not notice. The
+  upgrade also showed why a rule-set inventory cannot be the only contract:
+  this behaviour change would have been invisible to it, and only a fixture
+  running the real binary caught it.
+- The grouped update proposes Ruff 0.17.3, but `uv lock --upgrade-package ruff`
+  resolves the newest 0.17.4. Both were measured against this configuration and
+  resolve the same 673 codes, so the choice is not behavioural; 0.17.3 was
+  pinned because it is the version the pull request under review proposes, and
+  a branch newer than its own dependency update surprises reviewers for no gain.
 
 ## Decision log
 
+- Decision: adopt Ruff 0.17.3 alone and leave the grouped update's other seven
+  packages to Dependabot. Rationale: recorded earlier and now executed. The
+  upgrade changes no resolved rule and needs no source change, so the other
+  packages would add failure surface without testing anything about the Ruff
+  policy. When this branch merges, Dependabot's rebase drops Ruff from its own
+  group and the remaining seven arrive as a reviewable diff.
 - Decision: keep `preview = true` and add `explicit-preview-rules = true`,
   rather than pinning an explicit code list with preview off. Rationale: issue
   #140 requires explicit preview adoption while retaining already adopted

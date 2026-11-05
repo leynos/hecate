@@ -13,7 +13,7 @@
 #
 # copying the codes in the order that command prints them.
 #
-# ruff-version: 0.15.13
+# ruff-version: 0.17.3
 # sample: hecate/checker.py
 
 ANN001
