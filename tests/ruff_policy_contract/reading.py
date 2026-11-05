@@ -46,21 +46,36 @@ class RuffPolicyError(Exception):
     """
 
 
-def repository_files_present() -> bool:
-    """Report whether this working copy carries the files the tests read.
+def repository_files_present(*required_paths: Path) -> bool:
+    """Report whether this working copy carries the files a caller reads.
 
     mutmut runs ``tests/`` against ``hecate/`` from a sandbox that need not
     carry the repository root or the lockfile. The rule tests skip on a false
     result so a mutation run reports mutation coverage rather than an
     unrelated I/O error.
 
+    Every contract reads the configuration and the sampled module, so those
+    are always checked. A contract that also reads something else — the
+    lockfile and the Makefile for provenance, the committed inventory for the
+    rule set — must name it here. Its readers raise rather than return
+    nothing, which is right for a complete checkout and is exactly the wrong
+    answer for a partial one: the module would report an I/O error instead of
+    skipping, and a skip reason would blame the shared files.
+
+    Parameters
+    ----------
+    *required_paths : Path
+        Files this caller reads beyond the two shared ones. Absent means the
+        caller reads only those two.
+
     Returns
     -------
     bool
-        ``True`` when both the configuration and the sampled module exist.
+        ``True`` when every shared file and every named file exists.
 
     """
-    return PYPROJECT_PATH.exists() and SAMPLE_FILE.exists()
+    shared = (PYPROJECT_PATH, SAMPLE_FILE)
+    return all(path.exists() for path in (*shared, *required_paths))
 
 
 def pyproject_text() -> str:
