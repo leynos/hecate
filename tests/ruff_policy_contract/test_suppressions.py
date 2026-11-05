@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -98,8 +99,9 @@ def ruff_show_files(*targets: str) -> tuple[str, ...]:
     Raises
     ------
     RuffPolicyError
-        If Ruff cannot list them. A reader that returned ``()`` would leave
-        every caller comparing empty sets and passing.
+        If Ruff cannot list them, or if it reports a path outside the
+        repository root. A reader that silently dropped either would leave
+        its callers comparing sets that quietly lost members, and passing.
 
     """
     try:
@@ -113,12 +115,14 @@ def ruff_show_files(*targets: str) -> tuple[str, ...]:
     except (OSError, subprocess.CalledProcessError) as error:
         message = f"cannot list the files Ruff checks: {error}"
         raise RuffPolicyError(message) from error
-    root = f"{REPO_ROOT}/"
-    return tuple(
-        line.removeprefix(root)
-        for line in completed.stdout.splitlines()
-        if line.startswith(root)
-    )
+    paths: list[str] = []
+    for line in completed.stdout.splitlines():
+        try:
+            paths.append(str(Path(line).relative_to(REPO_ROOT)))
+        except ValueError as error:
+            message = f"Ruff listed a path outside {REPO_ROOT}: {line}"
+            raise RuffPolicyError(message) from error
+    return tuple(paths)
 
 
 def checked_modules() -> tuple[str, ...]:
@@ -206,13 +210,15 @@ class TestRepositorySuppressions:
         this suite would still pass. Ruff's own file list is what the gate
         acts on, so it is the set the reader must cover.
 
-        Only ``.py`` files are compared. A bare ``ruff check`` also lists the
-        ``pyproject.toml`` that configures it, which carries no suppression
-        comments and which the gate never passes as a target.
+        Python modules and stubs are compared, because Ruff lints both and a
+        stub can carry a suppression comment as readily as a module. The
+        ``pyproject.toml`` that a bare ``ruff check`` also lists is excluded:
+        it carries no comments at all, and the gate never passes it as a
+        target.
         """
         scanned = set(checked_modules())
         unreachable = {
-            path for path in ruff_show_files() if path.endswith(".py")
+            path for path in ruff_show_files() if Path(path).suffix in {".py", ".pyi"}
         } - scanned
         assert not unreachable, (
             "Ruff checks these modules but the suppression contract never "
