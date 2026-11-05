@@ -11,10 +11,25 @@ neighbour visible.
 
 The second is another tool's directive. A line that a coverage run skips
 carries ``# pragma: no cover``, and the migration has to be able to share that
-comment without displacing it. Coverage is not a test dependency here, so the
-pragma is asserted through its two readers: the source text still contains it,
-and Ruff still honours the directive beside it. A pragma on its own is the
-negative control — it is not a suppression, and must not act as one.
+comment without displacing it. A pragma on its own is the negative control —
+it is not a suppression, and must not act as one.
+
+What the cases here assert is narrower than a coverage measurement, and the
+narrowing is deliberate rather than a gap left open. ``coverage`` is not a
+project dependency, and adding it would edit ``pyproject.toml`` and
+``uv.lock``, which the pending grouped Dependabot update also edits — the
+contract test would collide with the very change whose validation depends on
+this branch. So the suite asserts the two facts it can assert without the
+tool: the pragma survives verbatim in the migrated comment, and Ruff still
+honours its own directive beside it.
+
+The coverage half was measured out of band instead, with the real tool, and
+the result is recorded in the ExecPlan's Milestone 3 evidence: across both
+directive orders and a pragma-only control, ``analysis2`` reports line 2 as
+excluded in all three, while the no-comment control reports it as a statement
+that is not excluded. That is the same four-way matrix these cases build, run
+through coverage 7.17.2. Reproducing it needs only ``uv tool run --from
+coverage``; nothing in the repository changes.
 
 This module is separate from ``test_suppression_behaviour`` because the two
 together exceed the module-length cap. It imports the runner from
@@ -101,13 +116,19 @@ class TestTwoToolsOneLine:
     def test_a_migrated_suppression_shares_a_line_with_a_coverage_pragma(
         self, tmp_path: Path
     ) -> None:
-        """Both readers must still find their own directive in one comment.
+        """One comment must carry both directives without losing either.
 
         The order written here is the suppressed directive first, its
         rationale second, and the pragma last. That is the shape the migration
         produces when a previously ``noqa``-carrying line was also skipped by
         coverage: the policy comment stays first, and the pragma is appended
         rather than replacing anything.
+
+        The assertions below are the two this module can make without
+        ``coverage`` installed — the pragma survives textually, and Ruff still
+        honours its own directive beside it. The coverage half of this same
+        four-way matrix was measured out of band and is recorded in the
+        ExecPlan's Milestone 3 evidence; see the module docstring.
         """
         source = f"{_IMPORT}  # ruff: ignore[S404]  # Runs it.  {_PRAGMA}\n"
         text = source.split("#", 1)[1]
@@ -123,7 +144,7 @@ class TestTwoToolsOneLine:
         reported = diagnostics_with_lines(tmp_path, source, _IMPORT_CODES)
         assert ("S404", 1) not in reported, (
             "the directive stopped suppressing once a pragma shared its line, "
-            "so the two readers conflict in one comment"
+            "so the pragma displaced Ruff's own reader of the comment"
         )
         assert ("F401", 1) in reported, (
             "sharing the line with a pragma widened the suppression beyond "
@@ -135,17 +156,20 @@ class TestTwoToolsOneLine:
     ) -> None:
         """Writing the pragma before the directive is equally acceptable.
 
-        The coverage reader matches the pragma anywhere in the comment, so the
-        order is a style question rather than a correctness one. Recording
-        that here keeps the contract from silently requiring one order, which
-        would make a later reformat look like a behaviour change.
+        Both directives are matched as substrings of the comment, so the order
+        is a style question rather than a correctness one. Recording that here
+        keeps the contract from silently requiring one order, which would make
+        a later reformat look like a behaviour change.
+
+        As above, this records that Ruff still suppresses and that the pragma
+        text is still present; it does not measure coverage.
         """
         source = f"{_IMPORT}  {_PRAGMA}  # ruff: ignore[S404]  # Runs it.\n"
         reported = diagnostics_with_lines(tmp_path, source, _IMPORT_CODES)
         assert ("S404", 1) not in reported, (
             "the directive stopped suppressing when the pragma came first, "
-            "so the two readers conflict in one comment and only one order "
-            "works"
+            "so the position of the pragma inside the comment decides whether "
+            "Ruff still finds its own directive"
         )
         assert ("F401", 1) in reported, (
             f"the suppression widened past the code it names; it reported {reported}"
