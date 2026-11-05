@@ -203,7 +203,7 @@ instead of arriving as a surprise CI failure? The observable end state:
      `scripts/tests/test_duplication_gate_contention.py`. No behaviour,
      signature, or code changed. Verified clean on both 0.16.9 and 0.17.3
      across `hecate tests scripts`.
-- [x] Milestone 3, part two: all 30 `noqa` comments migrated to
+- [x] Milestone 3, part two: all 28 `noqa` comments across 11 files migrated to
      `ruff: ignore[CODE]  # reason`, and two new contracts added.
      `tests/ruff_policy_contract/suppressions.py` reads comments by tokenizing
      rather than by regex over the file, so a `#` inside a string literal is
@@ -233,7 +233,7 @@ instead of arriving as a surprise CI failure? The observable end state:
      falsified by measurement, one clarified. Ruff 0.15.13 reads the spaced
      `# ruff: ignore[...]` form exactly as it reads the compact spelling (all
      four suppression/non-suppression combinations identical, and both inert
-     without `--preview`), so the 30 migrated comments were not rewritten. The
+     without `--preview`), so the 28 migrated comments were not rewritten. The
      RUF106 claim that `explicit-preview-rules` is absent was measured false:
      it is set at `pyproject.toml:52` and 0.17.3 reports `All checks passed!`.
      The suppression-placement bullet conflated line placement with the codes
@@ -651,7 +651,7 @@ instead of arriving as a surprise CI failure? The observable end state:
   cases. Without `--preview` both forms are inert and print the same
   `#ruff:ignore comment found but not active` warning. So the compact spelling
   is equivalent, not required, and the gate that produced the green result
-  already ran the spaced form over `scripts/`. Switching would churn 30
+  already ran the spaced form over `scripts/`. Switching would churn 28
   comments for no behavioural gain and would diverge from the documentation and
   from Ruff's own examples.
 - Decision: keep rule codes in the suppression comments, and do **not** add
@@ -684,7 +684,7 @@ instead of arriving as a surprise CI failure? The observable end state:
   rather than claiming the tolerance was met. Rationale: the plan requires it
   to be recorded, and a reviewer flagged its absence. Measured at commit
   `74af1a6`'s parent, this branch's true fork point, with
-  `git diff --numstat 74af1a6~1..HEAD`. The tolerance's own exception clause
+  `git diff --numstat 74af1a6~1..50eebeb`. The tolerance's own exception clause
   excludes ExecPlan files, and the generated 691-line `enabled_rules.txt` is a
   measurement artefact rather than reviewable code, so the operative figure
   excludes both: **42 files, 3738 insertions, 78 deletions, 3660 net lines**.
@@ -704,7 +704,7 @@ instead of arriving as a surprise CI failure? The observable end state:
   overrun is not incidental. The ticket's acceptance criteria require a policy
   contract with positive and negative fixtures, and the contract package alone
   is twenty-one files including its `__init__.py` (twenty modules of actual
-  code); the suppression contract spans five of them to stay under Pylint's
+  code); the suppression contract spans six of them to stay under Pylint's
   400-line cap, and a provenance contract was added because a rule inventory is
   meaningless unless pinned to the binary that produced it. Trimming the change
   to fit would mean dropping acceptance criteria, so the escalation is the
@@ -735,7 +735,7 @@ instead of arriving as a surprise CI failure? The observable end state:
   it. A test module importing a sibling would also drag the imported module's
   `pytestmark` along with the function, which is exactly the defect this plan
   already fixed once when `reporting.py` imported `test_suppressions`.
-  Splitting instead keeps both modules well under the cap (182 and 152 lines)
+  Splitting instead keeps both modules well under the cap (182 and 176 lines)
   and gives the runner one home for the next contract that needs it.
 
 ## Outcomes & retrospective
@@ -867,18 +867,49 @@ whose validation depends on this branch. The suite therefore asserts the two
 facts it can assert without the tool: the pragma survives verbatim in the
 migrated comment, and Ruff still honours its own directive beside it.
 
-The coverage half was measured directly instead, with the real tool, against
-the same four fixtures the contract builds:
+The coverage half was measured directly instead, with the real tool pinned to
+an exact version, against the same four fixtures the contract builds. The
+driver below is complete: it constructs the fixtures, runs them, and reads
+`analysis2` rather than inferring exclusion from `report -m`. Run it from an
+empty directory; it writes nothing into the repository.
+
+```bash
+COV=(uv tool run --from coverage==7.17.2 coverage)
+D=$(mktemp -d); cd "$D"
+
+# Line 2 of each fixture is never executed. The question is whether a coverage
+# reader excludes it, across both directive orders plus the two controls.
+printf 'x = 1\nimport subprocess  # ruff: ignore[S404]  # Runs it.  # pragma: no cover\n' > directive_then_pragma.py
+printf 'x = 1\nimport subprocess  # pragma: no cover  # ruff: ignore[S404]  # Runs it.\n' > pragma_then_directive.py
+printf 'x = 1\nimport subprocess  # pragma: no cover\n' > pragma_only.py
+printf 'x = 1\nimport subprocess\n' > no_comment.py
+printf 'import directive_then_pragma, pragma_then_directive, pragma_only, no_comment\n' > drive.py
+
+"${COV[@]}" run --source=. drive.py
+
+cat > analyse.py <<'PY'
+import coverage
+
+probe = coverage.Coverage(source=["."])
+probe.load()
+for name in ("directive_then_pragma", "pragma_then_directive",
+             "pragma_only", "no_comment"):
+    _, statements, excluded, missing, _ = probe.analysis2(f"{name}.py")
+    print(f"{name:26s} excluded={excluded!s:9s} missing={missing!s:9s} "
+          f"line2_excluded={2 in excluded}")
+PY
+"${COV[@]}" run analyse.py
+"${COV[@]}" --version
+```
+
+Expected output:
 
 ```plaintext
-$ uv tool run --from coverage coverage --version
-Coverage.py, version 7.17.2 with C extension
-
-$ # analysis2 on line-2-unexecuted fixtures, after `coverage run drive.py`
 directive_then_pragma      excluded=[2]       missing=[]        line2_excluded=True
 pragma_then_directive      excluded=[2]       missing=[]        line2_excluded=True
 pragma_only                excluded=[2]       missing=[]        line2_excluded=True
 no_comment                 excluded=[]        missing=[]        line2_excluded=False
+Coverage.py, version 7.17.2 with C extension
 ```
 
 Both directive orders and the pragma-only control report line 2 as excluded
@@ -1081,10 +1112,16 @@ those records that reads no files; one predicate per rule, so a message's
 wording, its trigger condition, and the order rules are reported in are each a
 separate reviewable thing. `test_suppressions.py` holds only the repository
 scan, asking Ruff for `--show-files hecate tests scripts` so an excluded module
-is not failed for a comment the gate never reads (111 files at the published
-head, and `scripts/typos_rollout.py` is absent from that list; the scan derives
-the count at run time rather than asserting a constant, because the repository
-gains modules faster than this paragraph is edited).
+is not failed for a comment the gate never reads. At the published head that
+command returns **107 files** under the locked Ruff 0.17.3. The three roots
+hold 111 tracked Python files; the four the command omits are exactly the
+`extend-exclude` entries in `pyproject.toml` — `scripts/typos_rollout.py`,
+`scripts/typos_rollout_cache.py`, `scripts/generate_typos_config.py` and
+`scripts/tests/test_typos_rollout.py`. An earlier revision recorded 111 here,
+which was the tracked count rather than Ruff's, and contradicted itself by
+saying `scripts/typos_rollout.py` was absent from a list that included it. The
+scan derives the count at run time rather than asserting a constant, because
+the repository gains modules faster than this paragraph is edited.
 `test_reading_suppressions.py` feeds literal text to the same reader and the
 same judgement, which is what makes a passing repository scan mean something.
 `test_suppression_behaviour.py` proves the syntax rather than the reading, and
@@ -1100,13 +1137,11 @@ repository scan's own non-vacuity test; removing the broad-form rule from
 The coverage half of the shared-line contract was measured out of band with
 coverage 7.17.2, against the same four fixtures the contract builds. It is not
 a suite assertion because `coverage` is not a dependency and adding it would
-edit the two files issue 176 also edits; see "What remains open".
+edit the two files issue 176 also edits; see "What remains open". The complete
+reproduction, including fixture construction and the `analysis2` call, is in
+"What remains open" above.
 
 ```plaintext
-$ uv tool run --from coverage coverage --version
-Coverage.py, version 7.17.2 with C extension
-
-$ # analysis2 over fixtures whose second line is never executed
 directive_then_pragma      excluded=[2]       missing=[]        line2_excluded=True
 pragma_then_directive      excluded=[2]       missing=[]        line2_excluded=True
 pragma_only                excluded=[2]       missing=[]        line2_excluded=True
@@ -1191,7 +1226,9 @@ plus the shared runner. Fifth, the Milestone 1 inventory header was described as
 the header moves with the pin. Sixth, two further counts drifted: the `noqa`
 migration is 28 across 11 files, not 30 across 12 (30/12 is the whole base
 tree, including the two the migration deliberately left), and the behaviour
-scan now covers 111 files, not the 95 measured at the first commit.
+scan covers 107 files at the published head under the locked binary, not the 95
+measured at the first commit — nor the 111 that a later revision recorded,
+which was the tracked file count rather than Ruff's.
 
 Revision 6: closing the coverage question rather than caveating it. The
 previous revision narrowed the pragma claim to literal retention after finding
@@ -1204,3 +1241,23 @@ no-comment control does not. The measurement is recorded in Milestone 3 and in
 "What remains open"; the suite keeps the two assertions it can make without the
 tool, because adding the dependency would edit the same two files issue 176
 edits.
+
+Revision 7: the review of revision 6 accepted the out-of-band measurement as
+manual acceptance evidence and left five corrections. The pinned measurement
+command in the Decision log still read `..HEAD` while the figures beside it
+were pinned to `50eebeb`; it now names the same commit. The reproduction block
+printed the tool version but not the matrix, so it proved nothing a reader
+could check; it is now the complete driver, with fixture construction, the
+`analysis2` call, and the expected output, pinned with
+`--from coverage==7.17.2`. Three counts were still stated as 30 where the
+gate's targets hold 28: the Milestone 3 checkbox, the falsification note, and
+the decision not to switch comment spelling. The suppression contract was said
+to span five modules where its own enumeration names six. The two split modules
+were said to be 182 and 152 lines; the second is 176. The behaviour scan said
+111 files, which was the tracked count for the three roots rather than Ruff's
+`--show-files` output of 107 — the paragraph contradicted itself by saying
+`scripts/typos_rollout.py` was absent from a list that included it, and the
+four files Ruff omits are exactly the four `extend-exclude` entries. Sizes for
+the `noqa` population were re-measured against `55ce29f` and confirm 30 across
+12 files in the base tree, 28 across 11 once `scripts/typos_rollout.py` is
+excluded.
