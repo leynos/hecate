@@ -45,7 +45,9 @@ class TestEnabledRuleReader:
 
     def test_reads_codes_in_the_order_ruff_prints_them(self) -> None:
         """Order is preserved so a regenerated inventory diffs meaningfully."""
-        assert enabled_rule_lines(_SAMPLE_SETTINGS) == ("ANN001", "F401")
+        assert enabled_rule_lines(_SAMPLE_SETTINGS) == ("ANN001", "F401"), (
+            "the dump's order must survive so the inventory diff is readable"
+        )
 
     def test_rejects_a_dump_without_the_enabled_block(self) -> None:
         """A moved block must fail, not silently compare empty sets."""
@@ -63,7 +65,9 @@ class TestEnabledRuleReader:
     def test_stops_at_the_block_end(self) -> None:
         """Following settings must not be read as more rule entries."""
         text = _SAMPLE_SETTINGS + "linter.rules.previews = [\n\tanything (ZZZ999),\n]\n"
-        assert enabled_rule_lines(text) == ("ANN001", "F401")
+        assert enabled_rule_lines(text) == ("ANN001", "F401"), (
+            "a following settings block was read as more enabled rules"
+        )
 
 
 class TestInventoryReader:
@@ -72,7 +76,9 @@ class TestInventoryReader:
     def test_ignores_comments_and_blank_lines(self) -> None:
         """The header is prose and must not be parsed as codes."""
         text = "# generated\n\nF401\n# reviewed\nANN001\n"
-        assert inventory_codes(text) == ("F401", "ANN001")
+        assert inventory_codes(text) == ("F401", "ANN001"), (
+            "a header or comment line was parsed as a reviewed code"
+        )
 
     def test_rejects_an_entry_that_is_not_a_code(self) -> None:
         """A pasted selector must not be accepted as a reviewed code."""
@@ -101,7 +107,9 @@ version = "0.15.13"
 name = "ty"
 version = "0.0.61"
 """
-        assert locked_ruff_version(text) == "0.15.13"
+        assert locked_ruff_version(text) == "0.15.13", (
+            "the reader did not return the one Ruff version the lock names"
+        )
 
     def test_rejects_a_lock_without_ruff(self) -> None:
         """A lock the reader cannot find Ruff in must fail loudly."""
@@ -129,14 +137,18 @@ class TestConfigurationDiscovery:
     def test_finds_the_ruff_toml_the_lockfile_names(self, tmp_path: Path) -> None:
         """A standalone ``ruff.toml`` is a candidate wherever it sits."""
         (tmp_path / "ruff.toml").write_text("line-length = 88\n", encoding="utf-8")
-        assert ruff_configuration_candidates(tmp_path) == ((tmp_path / "ruff.toml"),)
+        assert ruff_configuration_candidates(tmp_path) == ((tmp_path / "ruff.toml"),), (
+            "a standalone ruff.toml beside the module was not found"
+        )
 
     def test_ignores_a_pyproject_without_ruff_settings(self, tmp_path: Path) -> None:
         """A ``pyproject.toml`` is only a Ruff config when it says so."""
         (tmp_path / "pyproject.toml").write_text(
             '[project]\nname = "x"\nversion = "0.1"\n', encoding="utf-8"
         )
-        assert ruff_configuration_candidates(tmp_path) == ()
+        assert not ruff_configuration_candidates(tmp_path), (
+            "a pyproject without ruff settings was treated as a Ruff config"
+        )
 
     def test_finds_a_pyproject_that_declares_ruff_settings(
         self, tmp_path: Path
@@ -147,7 +159,9 @@ class TestConfigurationDiscovery:
             '[project]\nname = "x"\n\n[tool.ruff.lint]\nselect = ["F"]\n',
             encoding="utf-8",
         )
-        assert ruff_configuration_candidates(tmp_path) == (project,)
+        assert ruff_configuration_candidates(tmp_path) == (project,), (
+            "a pyproject declaring [tool.ruff] was not found"
+        )
 
     def test_reports_both_files_when_both_exist(self, tmp_path: Path) -> None:
         """Two candidates mean the repository cannot say which one Ruff uses."""
@@ -155,8 +169,12 @@ class TestConfigurationDiscovery:
         project = tmp_path / "pyproject.toml"
         project.write_text("[tool.ruff]\nline-length = 88\n", encoding="utf-8")
         found = ruff_configuration_candidates(tmp_path)
-        assert len(found) == 2
-        assert {path.name for path in found} == {"pyproject.toml", "ruff.toml"}
+        assert len(found) == 2, (
+            f"two candidate files exist, but the reader found {len(found)}"
+        )
+        assert {path.name for path in found} == {"pyproject.toml", "ruff.toml"}, (
+            "the ambiguous candidates were not both reported by name"
+        )
 
     def test_unreadable_pyproject_is_not_silently_skipped(self, tmp_path: Path) -> None:
         """A malformed file must not read as "this directory configures nothing".
@@ -190,20 +208,24 @@ class TestDirectoryDiscovery:
         assert directories_between(tmp_path, [module]) == (
             tmp_path / "package",
             inner,
-        )
+        ), "the intermediate directory holding no module was skipped"
 
     def test_excludes_the_root_and_anything_above_it(self, tmp_path: Path) -> None:
         """The root's own configuration is the one the inventory records."""
         module = tmp_path / "module.py"
         module.write_text("", encoding="utf-8")
-        assert not directories_between(tmp_path, [module])
+        assert not directories_between(tmp_path, [module]), (
+            "the root or a directory above it was reported as an intermediate"
+        )
 
     def test_reports_each_directory_once(self, tmp_path: Path) -> None:
         """Two files in one directory must not produce two rows for it."""
         package = tmp_path / "package"
         package.mkdir()
         files = [package / "one.py", package / "two.py"]
-        assert directories_between(tmp_path, files) == (package,)
+        assert directories_between(tmp_path, files) == (package,), (
+            "one directory with two files produced more than one row"
+        )
 
 
 class TestRuffSectionReader:
@@ -212,7 +234,9 @@ class TestRuffSectionReader:
     def test_reads_a_nested_value(self) -> None:
         """A present key resolves to its value, not to its parent table."""
         document = {"tool": {"ruff": {"lint": {"select": ["F"]}}}}
-        assert ruff_section(document, "lint", "select") == ["F"]
+        assert ruff_section(document, "lint", "select") == ["F"], (
+            "a nested key did not resolve to its own value"
+        )
 
     def test_rejects_a_missing_table(self) -> None:
         """A renamed table must not resolve to None and compare equal."""
