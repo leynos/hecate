@@ -343,6 +343,18 @@ instead of arriving as a surprise CI failure? The observable end state:
      held `PLR09111`, which has five and duplicated the case above it; it now
      uses `PLR091112`. Committed as `e43841b`, all seven gates green
      (728 passed), and pushed with the tracking ref refreshed.
+- [x] Refreshed the generated `typos.toml` against the shared oxendict base and
+     committed it as `9284bb0`; the refresh is deterministic, so the diff is
+     reviewable. With it the branch stands at head `9284bb0`, tree clean and
+     local `HEAD` equal to the remote branch.
+- [x] Corrected two stale figures in this document before the hosted
+     assessments were requested. The retrospective's commit count still said
+     32 and its cost paragraph still said 40 files / 4143 insertions / 77
+     deletions; measured against `74af1a6~1` at `9284bb0` the branch carries
+     40 commits and 41 non-ExecPlan files changed with 4217 insertions and 78
+     deletions. Both drifted across the three commits pushed after the section
+     was written, which is the ordinary cost of a living document whose
+     numbers are measurements rather than restatements.
 
 ## Surprises & discoveries
 
@@ -654,7 +666,7 @@ instead of arriving as a surprise CI failure? The observable end state:
 
 ## Outcomes & retrospective
 
-Delivered. The four milestones are complete, and the branch carries 32 commits
+Delivered. The four milestones are complete, and the branch carries 40 commits
 from the base of `74af1a6~1`. Every acceptance criterion is discharged by
 something a reader can run.
 
@@ -710,8 +722,8 @@ configuration file describes intent and the binary describes behaviour.
 ### Cost
 
 The change exceeds the plan's original 30-file / 1200-line tolerance. Counting
-only non-ExecPlan files, as the plan's own exception clause requires: 40 files,
-4143 insertions and 77 deletions. The overrun was escalated and recorded in the
+only non-ExecPlan files, as the plan's own exception clause requires: 41 files,
+4217 insertions and 78 deletions. The overrun was escalated and recorded in the
 Decision log rather than trimmed to fit. Most of it is the 106-code adoption
 list, the committed inventory, and the contract suite, all of which are the
 deliverable rather than incidental.
@@ -977,3 +989,7 @@ point the measurement must use. The code change is a shared rule-code shape in
 suppression contracts, and a test-level skip for the Git-dependent walk. The
 escalation affects remaining work only in that milestone 4 must not add scope
 until the overrun is accepted; milestone 3's acceptance evidence is unchanged.
+
+Revision 3: pre-assessment bookkeeping at head `9284bb0`. Records the
+`typos.toml` refresh and the corrected commit-count and cost figures. No
+acceptance evidence, decision or verification obligation changed.
