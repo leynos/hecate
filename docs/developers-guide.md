@@ -1161,9 +1161,17 @@ make build
 ```
 
 `build` depends on `.venv`, so it creates or recreates the virtual environment
-when `pyproject.toml` changes and then runs `uv sync --group dev`. No separate
-install step is needed before any other target: every gate that needs the
-environment depends on `build` itself.
+when `pyproject.toml` changes and then runs `uv sync --locked --group dev`. No
+separate install step is needed before any other target: every gate that needs
+the environment depends on `build` itself.
+
+`--locked` is deliberate. Without it `uv` re-resolves when `pyproject.toml` and
+`uv.lock` disagree and installs whatever it resolves, which is how a committed
+change can install a Ruff nobody reviewed. With it, that case exits non-zero
+and names `uv lock`; regenerating the lock is then an explicit commit whose
+diff can be read. `tests/ruff_policy_contract/test_provenance.py` holds both
+halves of that contract: the recipe must carry the flag, and the version the
+lock pins must be the version the virtualenv imports.
 
 ### Iterating
 
@@ -1249,12 +1257,12 @@ _Table 5: Commit gates, local commands, and whether CI runs them._
 
 - **`make check-fmt`** verifies Python formatting with `ruff format --check`
   and Markdown formatting with `mdtablefix --check`.
-- **`make lint`** runs `make lint-python` and `make skylos`. `lint-python`
-  runs `ruff check` and then Pylint 4.0.9 on managed PyPy 3.12. `skylos` runs
-  the pinned Skylos release under Python 3.14 against `hecate`, excluding
-  `tests`, in strict dead-code gate mode with uploads and provenance disabled.
-  CI runs the same `make lint` target, so an unexplained Skylos finding blocks
-  both local commits and pull requests.
+- **`make lint`** runs `make lint-python`, `make skylos`, and the duplication
+  gate. `lint-python` runs `ruff check` and then Pylint 4.0.9 on managed PyPy
+  3.12. `skylos` runs the pinned Skylos release under Python 3.14 against
+  `hecate`, excluding `tests`, in strict dead-code gate mode with uploads and
+  provenance disabled. CI runs the same `make lint` target, so an unexplained
+  Skylos finding blocks both local commits and pull requests.
 - **`make typecheck`** runs `ty check hecate tests`, and that is the
   typechecking gate. `pyright` is installed in the `dev` group but is **not**
   the gate and is not run by any target or workflow.
@@ -1343,6 +1351,94 @@ make test
 ```
 
 _Code block 5: Bootstrapping the pinned Makefile parser._
+
+### Ruff preview policy
+
+`preview = true` stays on in `[tool.ruff]`, but preview rules are adopted one
+code at a time instead of through the prefix selectors.
+`[tool.ruff.lint].explicit-preview-rules = true` makes Ruff ignore every
+preview rule whose exact code is not named in `select` or `extend-select`.
+Without it a selector such as `D` or `RUF` acquires whatever preview rules a
+future Ruff release adds to that prefix, so a dependency bump could change what
+the gate enforces without a line of this repository moving. Issue #140 records
+the failure that motivated the switch.
+
+Each reviewed preview code is named in `extend-select` beside the linter it
+belongs to. Adopting a rule means adding one line with its rationale; dropping
+one is a deliberate policy edit. Do not put a prefix in that list and do not
+widen a selector to pick up a new preview rule.
+
+The set Ruff actually resolves is recorded in
+`tests/ruff_policy_contract/enabled_rules.txt`, and
+`tests/ruff_policy_contract/test_inventory.py` compares the two in both
+directions, so an unlisted addition fails as loudly as a check that quietly
+stopped running. When a configuration edit or a Ruff upgrade is meant to move
+the set, print the new resolution and review every line that moved:
+
+```shell
+uv run python -m ruff check --show-settings hecate/checker.py
+```
+
+_Code block 6: Recording the resolved Ruff rule set._
+
+The inventory is generated data, but a reviewed artefact: copy the codes in the
+order that command prints them and keep its `# ruff-version:` header in step
+with the binary that produced it. One row describes the whole tree because one
+configuration governs it; a `pyproject.toml` with `[tool.ruff]`, a `ruff.toml`,
+or a `.ruff.toml` in any subdirectory would re-root Ruff for the files beneath
+it and make the row a lie for those files, so the contract fails if one appears.
+`tests/ruff_policy_contract/test_preview_adoption.py` rounds this out by
+running a throwaway project under this repository's configuration: a preview
+rule outside the list stays silent, and an adopted one flags.
+
+### Suppressing a Ruff diagnostic
+
+Write the suppression on the line Ruff reports, name the codes it covers, and
+say why it is safe:
+
+```python
+import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
+```
+
+_Code block 7: A suppression naming its code and stating why it is safe._
+
+The comment is checked, not merely permitted. Three rules apply.
+
+**Name the codes.** `# ruff: ignore[]`, a bare `# noqa`, and
+`# ruff: file-ignore[]` hide everything the line or file grows, including
+diagnostics nobody has reviewed, so a comment naming no code is refused.
+Several codes go between the brackets, separated by commas:
+`# ruff: ignore[S603, S607]`.
+
+**Write a rationale after a second `#`.** A suppression with no reason is
+indistinguishable from one nobody thought about. A run of punctuation is not a
+reason; the contract wants a letter or a digit in the text.
+
+**Use the canonical spelling.** Ruff matches the prefix, the directive name and
+the codes case-sensitively, so `# RUFF: ignore[S404]` and
+`# ruff: ignore[s404]` both suppress nothing while looking like policy. Write
+`ruff` and `ignore` in lower case and codes in upper case.
+
+`ignore` covers its own line. `file-ignore` and `disable` cover more than one,
+so a security code (`S404`, `S603`, `S607`) in either is refused: the review
+that justified the comment covered one call site, and the form extends it to a
+region. Put `ruff: ignore[...]` on each reviewed call site instead. `enable`
+closes a region and carries no rationale of its own — the reason on its
+`disable` is the reason for both.
+
+A suppression may share its line with another tool's directive. A coverage
+pragma goes after the policy comment and its reason, and both survive:
+
+```python
+slow_call()  # ruff: ignore[S603]  # Vector is a literal.  # pragma: no cover
+```
+
+_Code block 8: A policy comment sharing its line with a coverage pragma._
+
+The convention lives in `tests/ruff_policy_contract/`, which reads every module
+the lint gate checks, so `make test` fails on a suppression that breaks it.
+`test_reading_suppressions.py` holds the named cases and
+`test_suppression_properties.py` states the same rules over generated comments.
 
 ### Markdown formatting and lint
 

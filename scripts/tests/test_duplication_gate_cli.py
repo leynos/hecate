@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import dataclasses as dc
 import json
-import subprocess  # noqa: S404 - tests exercise real gate and detector commands.
+import subprocess  # ruff: ignore[S404]  # tests exercise real gate and detector commands.
 import sys
 import textwrap
 from pathlib import Path
@@ -166,7 +166,7 @@ class TestCheckCli:
     def test_real_check_cli_passes(self) -> None:
         """The checked-in gate runs successfully through its real CLI boundary."""
         _resolved_binary_or_skip()
-        result = subprocess.run(  # noqa: S603 - fixed repository gate command.
+        result = subprocess.run(  # ruff: ignore[S603]  # fixed repository gate command.
             [
                 sys.executable,
                 str(REPOSITORY_ROOT / "scripts" / "duplication_gate.py"),
@@ -217,7 +217,7 @@ class TestPinnedDetector:
         command = detector.build_command(
             binary, dc.replace(settings, roots=(".",), min_size=8)
         )
-        result = subprocess.run(  # noqa: S603 - pinned, repository-owned binary.
+        result = subprocess.run(  # ruff: ignore[S603]  # pinned, repository-owned binary.
             command,
             cwd=workspace,
             check=True,

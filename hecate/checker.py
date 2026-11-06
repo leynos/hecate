@@ -39,7 +39,7 @@ class ArchitectureCheckResult:
 
     @property
     def ok(self) -> bool:
-        """Return ``True`` when no architecture violation was found.
+        """``True`` when no architecture violation was found.
 
         Coverage diagnostics only fail the check when they carry error
         severity, which happens for unclassified and unresolved internal edges
@@ -57,7 +57,7 @@ class ArchitectureCheckResult:
 
     @property
     def coverage_failures(self) -> tuple[CoverageDiagnostic, ...]:
-        """Return the coverage diagnostics that fail the check."""
+        """The coverage diagnostics that fail the check."""
         return tuple(
             diagnostic for diagnostic in self.coverage if diagnostic.is_failure
         )

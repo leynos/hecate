@@ -19,7 +19,7 @@ from __future__ import annotations
 import dataclasses as dc
 import enum
 import fcntl
-import subprocess  # noqa: S404 - tests start fixed gate commands.
+import subprocess  # ruff: ignore[S404]  # tests start fixed gate commands.
 import sys
 import time
 import tomllib
@@ -63,7 +63,7 @@ def _start_writer(
     script: Path, key: str, reason: str, environment: dict[str, str]
 ) -> subprocess.Popen[str]:
     """Start one allow command in the background and return its handle."""
-    return subprocess.Popen(  # noqa: S603 - fixed copied gate command.
+    return subprocess.Popen(  # ruff: ignore[S603]  # fixed copied gate command.
         gate_command(script, "allow", "--first", key, "--reason", reason),
         cwd=script.parent.parent,
         env=environment,
@@ -497,37 +497,37 @@ class _ContendedRun:
 
     @property
     def blocked_at(self) -> dict[str, float]:
-        """Return the monotonic times each writer was seen waiting."""
+        """The monotonic times each writer was seen waiting."""
         return self.observation.blocked_at
 
     @property
     def bystander_blocked(self) -> bool | None:
-        """Return whether the probe ever reported the control as waiting."""
+        """Whether the probe ever reported the control as waiting."""
         return self.observation.bystander_blocked
 
     @property
     def original_manifest(self) -> bytes:
-        """Return the manifest as it read before either writer started."""
+        """The manifest as it read before either writer started."""
         return self.observation.original_manifest
 
     @property
     def held_manifest(self) -> bytes:
-        """Return the manifest as it read while the lock was still held."""
+        """The manifest as it read while the lock was still held."""
         return self.observation.held_manifest
 
     @property
     def probe_outcome(self) -> _ProbeOutcome | None:
-        """Return how far the kernel probe got, or ``None`` if none ran."""
+        """How far the kernel probe got, or ``None`` if none ran."""
         return self.observation.probe_outcome
 
     @property
     def lock_refused_second_acquirer(self) -> bool:
-        """Return whether the held lock refused a second acquirer."""
+        """Whether the held lock refused a second acquirer."""
         return self.observation.lock_refused_second_acquirer
 
     @property
     def attempted_lock_pids(self) -> set[int]:
-        """Return the writer pids recorded entering the blocking lock call."""
+        """The writer pids recorded entering the blocking lock call."""
         return self.observation.attempted_lock_pids
 
     def reap(self, *, grace_seconds: float = _WRITER_GRACE_SECONDS) -> None:

@@ -89,7 +89,7 @@ endef
 	$(UV_ENV) $(UV) venv --clear
 
 build: .venv ## Build virtual-env and install deps
-	$(UV_ENV) $(UV) sync --group dev
+	$(UV_ENV) $(UV) sync --locked --group dev
 
 build-release: ## Build artefacts (sdist & wheel)
 	$(call ensure_uv)
