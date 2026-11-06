@@ -11,6 +11,7 @@ The reconciling upload and digest check are covered by
 
 from __future__ import annotations
 
+import dataclasses as dc
 import json
 import os
 import sys
@@ -38,12 +39,22 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+@dc.dataclass(frozen=True, slots=True)
+class _View:
+    """What the ``gh release view`` stand-in reports."""
+
+    status: int = 0
+    error: str = "release not found"
+
+
+_VIEW_FOUND = _View()
+
+
 def _run_with_fake_gh(
     tmp_path: pth.Path,
     script: str,
     *,
-    view_status: int = 0,
-    view_error: str = "release not found",
+    view: _View = _VIEW_FOUND,
     extra_env: dict[str, str] | None = None,
 ) -> tuple[int, str, list[list[str]]]:
     """Run ``script`` with a recording ``gh``; return status, stderr, and calls.
@@ -71,8 +82,8 @@ def _run_with_fake_gh(
     env = {
         "PATH": os.pathsep.join((str(tmp_path / "tools"), os.defpath)),
         "GH_CALLS": str(calls),
-        "GH_VIEW_STATUS": str(view_status),
-        "GH_VIEW_ERROR": view_error,
+        "GH_VIEW_STATUS": str(view.status),
+        "GH_VIEW_ERROR": view.error,
         "GH_IS_DRAFT": "true",
         "GITHUB_REF_NAME": _TAG,
         **(extra_env or {}),
@@ -110,7 +121,7 @@ def test_a_missing_release_is_created_as_a_draft(
     status, stderr, calls = _run_with_fake_gh(
         tmp_path,
         step_script("draft-release", "Create or reuse the draft release"),
-        view_status=1,
+        view=_View(status=1),
         extra_env={"IS_PRERELEASE": is_prerelease},
     )
 
@@ -131,8 +142,7 @@ def test_an_unreadable_release_stops_before_creating(tmp_path: pth.Path) -> None
     status, stderr, calls = _run_with_fake_gh(
         tmp_path,
         step_script("draft-release", "Create or reuse the draft release"),
-        view_status=1,
-        view_error="HTTP 403: Resource not accessible by integration",
+        view=_View(status=1, error="HTTP 403: Resource not accessible by integration"),
         extra_env={"IS_PRERELEASE": "false"},
     )
 
