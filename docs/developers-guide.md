@@ -1400,6 +1400,8 @@ say why it is safe:
 import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
 ```
 
+_Code block 7: A suppression naming its code and stating why it is safe._
+
 The comment is checked, not merely permitted. Three rules apply.
 
 **Name the codes.** `# ruff: ignore[]`, a bare `# noqa`, and
@@ -1430,6 +1432,8 @@ pragma goes after the policy comment and its reason, and both survive:
 ```python
 slow_call()  # ruff: ignore[S603]  # Vector is a literal.  # pragma: no cover
 ```
+
+_Code block 8: A policy comment sharing its line with a coverage pragma._
 
 The convention lives in `tests/ruff_policy_contract/`, which reads every module
 the lint gate checks, so `make test` fails on a suppression that breaks it.

@@ -97,8 +97,18 @@ def reported(report: str) -> list[tuple[str, int]]:
 
     This is a reader of text, not a runner: it starts no process and writes no
     file, so a caller can hold it to its parse of a report recorded earlier.
-    Keeping the two apart is what lets ``diagnostics_*`` below be the only
-    functions here that touch the filesystem.
+    Keeping the two apart is what leaves :func:`run_ruff` the only function
+    here that touches the filesystem; a caller that wants both writes the
+    composition itself, which is one line and says which half does what.
+
+    Every shape this cannot read becomes one :class:`RuffPolicyError` rather
+    than whichever exception the indexing happened to raise. A caller has no
+    reason to know that a null location was a ``TypeError`` and a truncated
+    report a ``JSONDecodeError``: both mean the report is not the report this
+    reader understands, and neither may be read as "no diagnostics". The
+    message names the diagnostic that could not be read where there is one, so
+    a failure points at the entry rather than at the whole report, and the
+    original exception is chained so the cause stays available.
 
     Parameters
     ----------
@@ -112,57 +122,26 @@ def reported(report: str) -> list[tuple[str, int]]:
         An empty report is an empty list rather than an error: a fixture that
         draws no diagnostic is a result, not a malformed run.
 
-    """
-    return [
-        (diagnostic["code"], diagnostic["location"]["row"])
-        for diagnostic in json.loads(report)
-    ]
-
-
-def diagnostics_with_lines(
-    tmp_path: Path, source: str, codes: tuple[str, ...]
-) -> list[tuple[str, int]]:
-    """Write ``source`` to a fixture module, check it, and read the report.
-
-    A case that asks whether a *neighbouring* line is still checked needs the
-    line, not only the code: two occurrences of one code are one entry each,
-    and a set of codes would collapse them and hide an over-broad suppression
-    that also silenced the neighbour.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Where to write the fixture module.
-    source : str
-        The module to check.
-    codes : tuple[str, ...]
-        The rule codes to select.
-
-    Returns
-    -------
-    list[tuple[str, int]]
-        One ``(code, line)`` pair per diagnostic, in Ruff's report order.
+    Raises
+    ------
+    RuffPolicyError
+        If the report will not decode, or a diagnostic has no readable code and
+        location. The message names the entry that could not be read.
 
     """
-    return reported(run_ruff(tmp_path, source, codes).stdout)
-
-
-def diagnostics(tmp_path: Path, source: str, codes: tuple[str, ...]) -> list[str]:
-    """Return the codes Ruff reports for ``source``, restricted to ``codes``.
-
-    Parameters
-    ----------
-    tmp_path : Path
-        Where to write the fixture module.
-    source : str
-        The module to check.
-    codes : tuple[str, ...]
-        The rule codes to select.
-
-    Returns
-    -------
-    list[str]
-        One entry per diagnostic, in Ruff's report order.
-
-    """
-    return [code for code, _ in diagnostics_with_lines(tmp_path, source, codes)]
+    try:
+        diagnostics = json.loads(report)
+    except json.JSONDecodeError as error:
+        message = f"Ruff's report is not one this reader understands: {error}"
+        raise RuffPolicyError(message) from error
+    pairs: list[tuple[str, int]] = []
+    for diagnostic in diagnostics:
+        try:
+            pairs.append((diagnostic["code"], diagnostic["location"]["row"]))
+        except (KeyError, TypeError) as error:
+            message = (
+                "Ruff reported a diagnostic with no readable code and "
+                f"location: {diagnostic!r}"
+            )
+            raise RuffPolicyError(message) from error
+    return pairs
