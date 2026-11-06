@@ -1387,3 +1387,17 @@ shared-pragma fixture is now described as a compatibility case rather than a
 migrated one, because the base carries exactly one `# pragma: no cover` and it
 sits on a line with no suppression; and the four `0.15.13` references in the
 contract modules now read "then-pinned", since `uv.lock` pins 0.17.3.
+
+Revision 11: the head that closed revision 10's checks, `827b92e`, failed CI on
+`make check-fmt`. `mdtablefix --wrap` wanted this very section reflowed by
+three characters — the paragraph above, rewritten after the last local
+`check-fmt` run, not a tool-version difference between here and CI. The local
+command reproduces the CI message exactly once the file is re-read, which is
+the evidence that separates the two explanations.
+
+The lesson is not "run the gates again". It is that a documentation edit made
+*after* a gate has passed invalidates that gate, and that the invalidation is
+silent: `mdtablefix` reports a count against a path, and a skimming reader sees
+"1 file would be reformatted" and moves on. The corrective commit `fa2dc17`
+carries only the reflow, and `make check-fmt`, `make markdownlint` and
+`make nixie` were re-run against it rather than inherited from the earlier head.
