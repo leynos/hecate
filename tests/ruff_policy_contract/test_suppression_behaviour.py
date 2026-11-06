@@ -32,7 +32,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .ruff_run import diagnostics as _diagnostics
+from .ruff_run import reported as _read_report
 from .ruff_run import run_ruff as _run_ruff
 
 #: The codes the repository suppresses around subprocess calls, which is what
@@ -55,7 +55,8 @@ class TestSuppressionScope:
     ) -> None:
         """A neighbouring code on the same line must stay visible."""
         unsuppressed = f"import subprocess\n{_VECTOR}\n"
-        reported = _diagnostics(tmp_path, unsuppressed, SECURITY)
+        before = _run_ruff(tmp_path, unsuppressed, SECURITY)
+        reported = [code for code, _ in _read_report(before.stdout)]
         assert set(SECURITY) <= set(reported), (
             "the fixture does not trigger both security codes, so the "
             "assertion below would pass whether or not the suppression "
@@ -63,7 +64,8 @@ class TestSuppressionScope:
         )
 
         suppressed = f"import subprocess\n{_VECTOR}  {_SUPPRESS_S603}\n"
-        reported = _diagnostics(tmp_path, suppressed, SECURITY)
+        after = _run_ruff(tmp_path, suppressed, SECURITY)
+        reported = [code for code, _ in _read_report(after.stdout)]
         assert "S603" not in reported, (
             "a suppression naming S603 did not silence it, so the syntax the "
             "migration relies on does not do what the contract assumes"
@@ -76,7 +78,8 @@ class TestSuppressionScope:
     def test_removing_the_comment_restores_the_diagnostic(self, tmp_path: Path) -> None:
         """The suppression, not the fixture, is what keeps the codes quiet."""
         unsuppressed = f"import subprocess\n{_VECTOR}\n"
-        assert set(_diagnostics(tmp_path, unsuppressed, SECURITY)) == set(SECURITY), (
+        before = _run_ruff(tmp_path, unsuppressed, SECURITY)
+        assert {code for code, _ in _read_report(before.stdout)} == set(SECURITY), (
             "the call does not trigger both selected diagnostics, so the "
             "assertion below would pass whether or not the suppression did "
             "anything"
@@ -84,7 +87,8 @@ class TestSuppressionScope:
 
         both = "# ruff: ignore[S603, S607]  # Fixed two-word vector."
         suppressed = f"import subprocess\n{_VECTOR}  {both}\n"
-        assert not _diagnostics(tmp_path, suppressed, SECURITY), (
+        after = _run_ruff(tmp_path, suppressed, SECURITY)
+        assert not _read_report(after.stdout), (
             "a suppression naming both codes did not silence the call's "
             "diagnostics, and that is the form the migration relies on"
         )
@@ -101,7 +105,8 @@ class TestSuppressionScope:
             "    check=True,\n"
             ")\n"
         )
-        assert set(_diagnostics(tmp_path, multi_line, SECURITY)) == set(SECURITY), (
+        bare = _run_ruff(tmp_path, multi_line, SECURITY)
+        assert {code for code, _ in _read_report(bare.stdout)} == set(SECURITY), (
             "the multi-line call does not trigger both codes, so the scope "
             "assertions below would pass vacuously"
         )
@@ -110,7 +115,8 @@ class TestSuppressionScope:
             "subprocess.run(\n",
             "subprocess.run(  # ruff: ignore[S603]  # Fixed two-word vector.\n",
         )
-        reported = _diagnostics(tmp_path, call_line_only, SECURITY)
+        on_call = _run_ruff(tmp_path, call_line_only, SECURITY)
+        reported = [code for code, _ in _read_report(on_call.stdout)]
         assert "S603" not in reported, (
             "a suppression on the call line did not silence S603, which "
             "Ruff reports there"
@@ -124,7 +130,8 @@ class TestSuppressionScope:
             "    ['make', name],\n",
             "    ['make', name],  # ruff: ignore[S607]  # make comes from PATH.\n",
         )
-        assert not _diagnostics(tmp_path, per_argument, SECURITY), (
+        on_argument = _run_ruff(tmp_path, per_argument, SECURITY)
+        assert not _read_report(on_argument.stdout), (
             "a suppression on the argument line did not silence S607, which "
             "is where Ruff reports it for a multi-line call"
         )

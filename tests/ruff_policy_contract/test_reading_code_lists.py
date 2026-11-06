@@ -90,11 +90,12 @@ class TestAcceptedCodeLists:
 class TestSeparators:
     """The comma is required, and its absence is not a style question.
 
-    Measured on the then-pinned 0.15.13 over a call that trips both codes: with
-    ``[S603 S607]`` *both* diagnostics are still reported, so the comment
-    suppresses nothing, and the comma form of the same call is silent. Ruff
-    0.17.3 reports the space form as RUF103 instead. A reader that split on
-    whitespace would accept a comment that never suppressed anything.
+    Measured on 0.15.13 and re-checked on the pinned 0.17.3, over a call that
+    trips both codes: with ``[S603 S607]`` *both* diagnostics are still
+    reported, so the comment suppresses nothing, and the comma form of the same
+    call is silent. Ruff 0.17.3 reports the space form as RUF103 instead. A
+    reader that split on whitespace would accept a comment that never suppressed
+    anything.
     """
 
     def test_a_space_joined_pair_in_the_ruff_form_is_reported(self) -> None:

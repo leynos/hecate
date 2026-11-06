@@ -21,6 +21,7 @@ from pathlib import Path
 
 import pytest
 
+from .reading import RuffPolicyError
 from .ruff_run import reported
 
 
@@ -29,7 +30,7 @@ class TestReportParsing:
 
     def test_an_empty_report_is_no_diagnostics(self) -> None:
         """A fixture that draws nothing is a result, not a malformed run."""
-        assert reported("[]") == [], (
+        assert not reported("[]"), (
             "an empty report was not read as zero diagnostics, so the "
             "negative controls in the behaviour contracts could be reading a "
             "parse failure as a clean run"
@@ -59,13 +60,21 @@ class TestReportParsing:
         )
 
     def test_a_missing_location_is_an_error_not_a_silent_zero(self) -> None:
-        """Ruff 0.16 can emit null locations; that must not read as line 1."""
+        """Ruff can emit a null location; that must not read as line 1.
+
+        A reader that substituted a row would report a diagnostic at a line
+        the author never wrote, so the case asserts a rejection rather than a
+        sentinel, and names no inner exception: which one the failed index
+        happened to raise is an implementation detail, while
+        :class:`RuffPolicyError` is the contract every caller here handles.
+        """
         report = json.dumps([{"code": "S404", "location": None}])
-        with pytest.raises(TypeError):
+        with pytest.raises(RuffPolicyError) as raised:
             reported(report)
-        # ``None["row"]`` raises TypeError. Asserting the raise rather than a
-        # sentinel is the point: a reader that substituted a row would report
-        # a diagnostic at a line the author never wrote.
+        assert "S404" in str(raised.value) or "location" in str(raised.value), (
+            "the rejection does not mention what it could not read, so a "
+            f"reader debugging a real report learns nothing: {raised.value!r}"
+        )
 
 
 class TestNoFilesystemContact:
@@ -92,5 +101,9 @@ class TestNoFilesystemContact:
         swallowed a decode error would turn a broken run into a passing
         negative control.
         """
-        with pytest.raises(json.JSONDecodeError):
+        with pytest.raises(RuffPolicyError) as raised:
             reported('[{"code": "S404", "location": {"row": 1')
+        assert "reader understands" in str(raised.value), (
+            "a truncated report should surface as a policy error saying the "
+            f"report was not readable: {raised.value!r}"
+        )
