@@ -280,11 +280,14 @@ class TestTheBuildTarget:
 def test_the_probe_uses_the_uv_on_path() -> None:
     """The probe runs the uv a caller would get, and records which one.
 
-    The version line is the whole assertion. ``make build`` resolves ``uv``
-    through ``command -v``, and :func:`_uv` resolves it the same way, so the two
-    agree by construction; what a reader of a failure needs is evidence that
-    the binary was present and answered, which is what this prints when it does
-    not.
+    The version line is the whole assertion. ``TestTheBuildTarget`` passes
+    ``UV={_uv()}`` to every recipe it runs, so those cases compile with exactly
+    the binary :func:`_uv` resolved, rather than with the recipe's own
+    ``command -v`` default, which a caller's environment can shadow through the
+    ``UV`` override at the top of the Makefile. That agreement is imposed by
+    the override rather than observable, so what this case adds is the other
+    half: the binary was present and answered, which is what a reader needs
+    when every probe above has silently skipped.
     """
     completed = subprocess.run(  # ruff: ignore[S603]  # Literal argv, no shell.
         [_uv(), "--version"],
