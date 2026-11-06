@@ -1391,6 +1391,51 @@ it and make the row a lie for those files, so the contract fails if one appears.
 running a throwaway project under this repository's configuration: a preview
 rule outside the list stays silent, and an adopted one flags.
 
+### Suppressing a Ruff diagnostic
+
+Write the suppression on the line Ruff reports, name the codes it covers, and
+say why it is safe:
+
+```python
+import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
+```
+
+The comment is checked, not merely permitted. Three rules apply.
+
+**Name the codes.** `# ruff: ignore[]`, a bare `# noqa`, and
+`# ruff: file-ignore[]` hide everything the line or file grows, including
+diagnostics nobody has reviewed, so a comment naming no code is refused.
+Several codes go between the brackets, separated by commas:
+`# ruff: ignore[S603, S607]`.
+
+**Write a rationale after a second `#`.** A suppression with no reason is
+indistinguishable from one nobody thought about. A run of punctuation is not a
+reason; the contract wants a letter or a digit in the text.
+
+**Use the canonical spelling.** Ruff matches the prefix, the directive name and
+the codes case-sensitively, so `# RUFF: ignore[S404]` and
+`# ruff: ignore[s404]` both suppress nothing while looking like policy. Write
+`ruff` and `ignore` in lower case and codes in upper case.
+
+`ignore` covers its own line. `file-ignore` and `disable` cover more than one,
+so a security code (`S404`, `S603`, `S607`) in either is refused: the review
+that justified the comment covered one call site, and the form extends it to a
+region. Put `ruff: ignore[...]` on each reviewed call site instead. `enable`
+closes a region and carries no rationale of its own — the reason on its
+`disable` is the reason for both.
+
+A suppression may share its line with another tool's directive. A coverage
+pragma goes after the policy comment and its reason, and both survive:
+
+```python
+slow_call()  # ruff: ignore[S603]  # Vector is a literal.  # pragma: no cover
+```
+
+The convention lives in `tests/ruff_policy_contract/`, which reads every module
+the lint gate checks, so `make test` fails on a suppression that breaks it.
+`test_reading_suppressions.py` holds the named cases and
+`test_suppression_properties.py` states the same rules over generated comments.
+
 ### Markdown formatting and lint
 
 `make fmt` rewrites the Markdown files Git tracks, plus untracked files it does

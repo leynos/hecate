@@ -71,7 +71,7 @@ _NOQA_RE = re.compile(
 #:
 #: Matched case-insensitively so that a wrongly-cased directive is **read**, not
 #: skipped. That is deliberate and is the whole point of the case rule: Ruff
-#: matches case-sensitively, measured on the pinned 0.15.13 over a call that
+#: matches case-sensitively, measured on the then-pinned 0.15.13 over a call that
 #: trips S607 — the canonical ``ruff: ignore[S607]`` suppresses it, while a
 #: wrongly-cased prefix, a wrongly-cased directive name, or a lower-case code each
 #: leaves it reported. Ruff reports only the wrongly-cased *name*, as RUF103; a
@@ -148,7 +148,7 @@ class Suppression:
     def records_canonical_case(self) -> bool:
         """Report whether the spelling is one Ruff would actually honour.
 
-        Measured on the pinned 0.15.13: the prefix, the directive name and the
+        Measured on the then-pinned 0.15.13: the prefix, the directive name and the
         codes are each matched case-sensitively, in both spellings. ``noqa``
         itself is read in any casing, but its code list is not: ``# noqa:
         s607`` leaves S607 reported. A comment written in another case is
