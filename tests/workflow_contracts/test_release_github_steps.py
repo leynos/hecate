@@ -43,9 +43,15 @@ def _run_with_fake_gh(
     script: str,
     *,
     view_status: int = 0,
+    view_error: str = "release not found",
     extra_env: dict[str, str] | None = None,
 ) -> tuple[int, str, list[list[str]]]:
-    """Run ``script`` with a recording ``gh``; return status, stderr, and calls."""
+    """Run ``script`` with a recording ``gh``; return status, stderr, and calls.
+
+    ``gh`` writes its failure to standard error, so the stand-in does too; the
+    step distinguishes "no release yet" by that message rather than by the
+    exit status alone.
+    """
     calls = tmp_path / "gh-calls"
     install_tool(
         tmp_path / "tools",
@@ -56,6 +62,9 @@ def _run_with_fake_gh(
         "    *--jq*) printf '%s\\n' \"${GH_IS_DRAFT}\";;\n"
         "    *--json\\ assets*) printf '{\"assets\": []}\\n';;\n"
         "  esac\n"
+        '  if [ "${GH_VIEW_STATUS}" -ne 0 ]; then\n'
+        "    printf '%s\\n' \"${GH_VIEW_ERROR}\" >&2\n"
+        "  fi\n"
         '  exit "${GH_VIEW_STATUS}"\n'
         "fi",
     )
@@ -63,6 +72,7 @@ def _run_with_fake_gh(
         "PATH": os.pathsep.join((str(tmp_path / "tools"), os.defpath)),
         "GH_CALLS": str(calls),
         "GH_VIEW_STATUS": str(view_status),
+        "GH_VIEW_ERROR": view_error,
         "GH_IS_DRAFT": "true",
         "GITHUB_REF_NAME": _TAG,
         **(extra_env or {}),
@@ -113,6 +123,25 @@ def test_a_missing_release_is_created_as_a_draft(
     )
     assert ("--prerelease" in create) is expect_prerelease_flag, (
         "the pre-release flag must follow the version check"
+    )
+
+
+def test_an_unreadable_release_stops_before_creating(tmp_path: pth.Path) -> None:
+    """An access or network failure is not mistaken for "no release yet"."""
+    status, stderr, calls = _run_with_fake_gh(
+        tmp_path,
+        step_script("draft-release", "Create or reuse the draft release"),
+        view_status=1,
+        view_error="HTTP 403: Resource not accessible by integration",
+        extra_env={"IS_PRERELEASE": "false"},
+    )
+
+    assert status != 0, "an unreadable release must fail the step"
+    assert "Resource not accessible" in stderr, (
+        "the failure must preserve gh's diagnostic"
+    )
+    assert calls == [["release", "view", _TAG]], (
+        "a failed lookup must not be followed by a create"
     )
 
 
