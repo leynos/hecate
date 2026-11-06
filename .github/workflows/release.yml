@@ -326,8 +326,15 @@ jobs:
             exit 0
           fi
           echo "is-draft=true" >> "${GITHUB_OUTPUT}"
+      # This read decides what the release stages, so it must not act on a
+      # listing that predates `publish-pypi`'s upload: a name the stale copy
+      # omits would look absent from PyPI, and the run's rebuild would be
+      # copied into the release. GitHub never overwrites an asset, so that
+      # mistake would need a manual deletion. Poll until every name appears.
       - name: Fetch the PyPI index
         id: index
+        env:
+          EXPECTED_PUBLISH: dist/publish
         run: *fetch-index
       - name: List the release assets
         id: assets
