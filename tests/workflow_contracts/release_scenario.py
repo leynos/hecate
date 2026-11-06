@@ -9,6 +9,7 @@ bundle, and the destinations seeded with one name per reconciliation case.
 
 from __future__ import annotations
 
+import dataclasses as dc
 import re
 import shutil
 import typing as typ
@@ -56,9 +57,16 @@ def local(name: str) -> bytes:
     return f"rebuilt {name}".encode()
 
 
-def job_directory(fake: FakeRelease, job: str) -> tuple[pth.Path, dict[str, str]]:
-    """Stage one job's workspace with this run's artefacts and bundle."""
-    cwd = fake.root / job
+def job_directory(
+    fake: FakeRelease, job: str, *, label: str | None = None
+) -> tuple[pth.Path, dict[str, str]]:
+    """Stage one job's workspace with this run's artefacts and bundle.
+
+    ``label`` names the workspace directory, so a test can stage the same job
+    twice -- once per run -- without reusing a directory that already holds the
+    first run's output. The step lookup still uses ``job``.
+    """
+    cwd = fake.root / (label or job)
     for name in ARTEFACTS:
         (cwd / "dist" / "publish").mkdir(parents=True, exist_ok=True)
         (cwd / "dist" / "publish" / name).write_bytes(local(name))
@@ -118,35 +126,73 @@ def run_required(job: str, name: str, cwd: pth.Path, env: dict[str, str]) -> Non
     )
 
 
+def snapshot_release(
+    fake: FakeRelease, *, label: str = "draft-release", create: bool = False
+) -> pth.Path:
+    """Create or reuse the draft and snapshot its assets; return the workspace."""
+    cwd, env = job_directory(fake, "draft-release", label=label)
+    if create:
+        run_required("draft-release", "Create or reuse the draft release", cwd, env)
+    run_required("draft-release", "Snapshot the release assets", cwd, env)
+    return cwd
+
+
+def publish_pypi_from_snapshot(
+    fake: FakeRelease, snapshot: pth.Path, *, label: str = "publish-pypi"
+) -> None:
+    """Stage PyPI's upload set from a snapshot and model the upload."""
+    cwd, env = job_directory(fake, "publish-pypi", label=label)
+    shutil.copytree(snapshot / "github-state", cwd / "github-state")
+    run_required("publish-pypi", "Fetch the PyPI index", cwd, env)
+    run_required("publish-pypi", "Skip artefacts already on PyPI", cwd, env)
+    if outputs(cwd / "output")["remaining"] != "true":
+        return
+    for staged in (cwd / "dist" / "publish").iterdir():
+        assert not (fake.pypi / staged.name).exists(), (  # noqa: S101
+            "PyPI never overwrites"
+        )
+        shutil.copyfile(staged, fake.pypi / staged.name)
+
+
 def draft_and_publish_pypi(fake: FakeRelease) -> None:
     """Run the snapshot, the PyPI staging, and the modelled PyPI upload."""
-    draft, env = job_directory(fake, "draft-release")
-    run_required("draft-release", "Snapshot the release assets", draft, env)
-    pypi, env = job_directory(fake, "publish-pypi")
-    shutil.copytree(draft / "github-state", pypi / "github-state")
-    run_required("publish-pypi", "Fetch the PyPI index", pypi, env)
-    run_required("publish-pypi", "Skip artefacts already on PyPI", pypi, env)
-    if outputs(pypi / "output")["remaining"] == "true":
-        for staged in (pypi / "dist" / "publish").iterdir():
-            assert not (fake.pypi / staged.name).exists(), (  # noqa: S101
-                "PyPI never overwrites"
-            )
-            shutil.copyfile(staged, fake.pypi / staged.name)
+    snapshot = snapshot_release(fake)
+    publish_pypi_from_snapshot(fake, snapshot)
 
 
-def publish_release(fake: FakeRelease, *, verify: bool = True) -> pth.Path:
+@dc.dataclass(frozen=True, slots=True)
+class ReleaseRun:
+    """How one ``publish-release`` run should be staged.
+
+    ``draft`` is the state the stand-in reports for the release, so a test can
+    model a re-run against an already published one. ``publish`` runs the final
+    step that un-drafts the release.
+    """
+
+    label: str = "publish-release"
+    verify: bool = True
+    draft: bool | None = None
+    publish: bool = False
+
+
+def publish_release(fake: FakeRelease, run: ReleaseRun | None = None) -> pth.Path:
     """Run ``publish-release`` up to its digest check; return its workspace."""
-    cwd, env = job_directory(fake, "publish-release")
+    options = run or ReleaseRun()
+    cwd, env = job_directory(fake, "publish-release", label=options.label)
+    if options.draft is not None:
+        env = {**env, "FAKE_RELEASE_DRAFT": "true" if options.draft else "false"}
     for name in PUBLISH_STEPS:
         run_required("publish-release", name, cwd, env)
     run_required("publish-release", "Upload the assets the release lacks", cwd, env)
     # The index is re-read after the upload, so the digest check sees PyPI's
     # state now rather than the copy fetched before anything was published.
     run_required("publish-release", "Re-fetch the PyPI index", cwd, env)
-    if verify:
+    if options.verify:
         run_required(
             "publish-release", "Check both destinations hold the same bytes", cwd, env
         )
+    if options.publish:
+        run_required("publish-release", "Publish the GitHub Release", cwd, env)
     return cwd
 
 
