@@ -1452,9 +1452,13 @@ Six jobs run in order, each with only the permissions it needs:
 - `publish-pypi` runs in the `pypi` environment, reads PyPI's Simple index,
   and uploads only the filenames PyPI does not already list, with
   `skip-existing: true`. It holds no GitHub token.
-- `publish-release` uploads only the assets the draft lacks, verifies that
-  every name has the same SHA-256 on PyPI and on GitHub, and then un-drafts the
-  release with the pre-release flag when the version check asked for one.
+- `publish-release` reads the index again, polling until it lists every name
+  this run built, then uploads only the assets the draft lacks, verifies that
+  every name has the same SHA-256 on PyPI and on GitHub, and finally un-drafts
+  the release with the pre-release flag when the version check asked for one.
+  The initial read polls for the same reason the final one does: staging from a
+  listing that predates `publish-pypi`'s upload would copy this run's rebuild
+  into the release, and GitHub never overwrites an asset.
 
 The bundle is named after the tag alone, so a re-run meets the name the release
 already holds. It is attached only when every artefact's canonical bytes are
@@ -1472,10 +1476,11 @@ already disagree on a name, `publish-release` fails and the release stays a
 draft; recovery is manual, by deleting the offending GitHub Release asset
 (PyPI's published files cannot be deleted).
 
-PyPI serves its Simple index through a CDN cache, so the index is re-read after
-the upload and polled, within a bounded number of attempts, until it lists
-every name this run staged. A cache that is merely behind delays the release
-rather than failing it.
+PyPI serves its Simple index through a CDN cache, so both index reads in
+`publish-release` poll, within a bounded number of attempts, until the listing
+shows every name this run built. A cache that is merely behind delays the
+release rather than failing it, and a stale first read can never stage a
+rebuild under a name PyPI already holds.
 
 ### Release tests
 
@@ -1493,7 +1498,9 @@ directories, and pin the workflow's structure:
   actual step scripts and assert the reconciliation, digest checks, index
   polling, and re-run behaviour.
 - `test_ci_wheel_build.py` checks the pull-request build's sdist and wheel
-  cardinality and the clean-environment install.
+  cardinality, the archive metadata (both `PKG-INFO` and `METADATA` name
+  `hecate-enforce` and declare `pyproject.toml`'s version), and the
+  clean-environment install.
 
 Run them with `uv run pytest tests/workflow_contracts`, or as part of
 `make test`. `make test-workflow-contracts` runs only the shared CV-005
@@ -1507,6 +1514,23 @@ Two settings are not in the repository and must exist before the first tag:
 - A PyPI Trusted Publisher for the `hecate-enforce` project, naming owner
   `leynos`, repository `hecate`, workflow `release.yml`, and environment
   `pypi`. No API token is stored in the repository.
+
+#### Registering the project
+
+A project that does not exist on PyPI yet needs a _pending_ publisher, added at
+<https://pypi.org/manage/account/publishing/> with those same five values. PyPI
+creates the project on the first successful trusted publish; until then the
+project has no page and its Simple index answers `404`. An existing project
+adds the publisher under its _Publishing_ settings instead.
+
+A `404` from `https://pypi.org/simple/hecate-enforce/` does not prove that the
+name is claimable. The workflow treats it as an empty listing so a first
+release can proceed, but the same response can be a transient CDN miss, or
+describe a project whose publisher names a different repository, workflow, or
+environment. Before the first tag, confirm the name's state in the PyPI web
+interface and re-check the publisher tuple; do not treat the workflow's `404`
+handling as a collision check or as evidence that the publisher is configured
+correctly.
 
 The `hecate-enforce` name was unregistered on PyPI when this pipeline was
 adopted; the `hecate` name belongs to an unrelated third-party library, which
