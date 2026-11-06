@@ -32,7 +32,6 @@ from scripts.release_assets import (
     State,
     carryover,
     check_fetched,
-    local_names,
     missing_from_index,
     stage_github,
     stage_pypi,
@@ -94,7 +93,7 @@ def _stage_github(state: State, args: argparse.Namespace) -> None:
 def _index_expected(state: State, args: argparse.Namespace) -> None:
     """Fail unless the index lists every name this run staged."""
     del args
-    problems = missing_from_index(local_names(state.publish), state.pypi)
+    problems = missing_from_index(state.names(), state.pypi)
     if problems:
         msg = (
             "the PyPI index still does not list "

@@ -137,6 +137,13 @@ workflow's steps keep no filename knowledge of their own. There is no
 `scripts/release_assets_cli.py` wraps this library in the `argparse` interface
 `release.yml` calls; the library itself declares no command line.
 
+Reading the publish directory and validating its names are both fallible, so
+`State.names()` exposes that read explicitly: it returns the staged names or
+raises, and the pure `plan()` and the verification helpers take those names as
+input. A decision therefore never lists the directory on a caller's behalf, and
+a filesystem failure surfaces where it happened rather than as an apparently
+empty plan.
+
 ### No-overwrite verification and manual recovery
 
 Before `publish-release` un-drafts the release, it re-reads both the PyPI index
