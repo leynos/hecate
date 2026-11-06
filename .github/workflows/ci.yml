@@ -204,4 +204,5 @@ jobs:
           "${VENV_DIR}/bin/python" -m pip install --quiet --disable-pip-version-check \
             "${WHEEL_DIR}"/*.whl
           python3 scripts/verify_installed_distribution.py \
-            --venv "${VENV_DIR}" --policy "${POLICY}"
+            --venv "${VENV_DIR}" --policy "${POLICY}" \
+            --dist "${WHEEL_DIR}" --pyproject pyproject.toml
