@@ -117,12 +117,13 @@ not declare.
   draft receives uploads: a published release is by definition complete, so a
   re-run — which always offers the bundle it built, even when the release
   already holds that name — uploads nothing and still succeeds, which is what
-  makes a repeated tag idempotent. A draft path uploads the names the release
-  lacks, taking PyPI's bytes through the index's `files[].url` and checking
-  them against `files[].hashes.sha256`, plus the run's Sigstore bundle. Both
-  paths then verify that every name carries the same SHA-256 on PyPI and on
-  GitHub and that the bundle is attached when one can be truthful, and only
-  then un-draft the release, with `--prerelease` set from the version check.
+  makes a repeated tag idempotent. A draft path reads the index, polling until
+  it lists every name this run built, then uploads the names the release lacks,
+  taking PyPI's bytes through the index's `files[].url` and checking them
+  against `files[].hashes.sha256`, plus the run's Sigstore bundle. Both paths
+  then verify that every name carries the same SHA-256 on PyPI and on GitHub
+  and that the bundle is attached when one can be truthful, and only then
+  un-draft the release, with `--prerelease` set from the version check.
 
 ### Reconciliation and precedence
 
@@ -153,6 +154,15 @@ and fails the step only when the budget runs out. A cache that is merely behind
 therefore delays the release rather than failing it, and the intermediate
 misses are logged as plain messages, not error annotations.
 
+The job's first index read polls for the same reason, and it is the more
+dangerous of the two: staging decides what the release uploads. A listing that
+predates the upload would make a name look absent from PyPI, so the run's
+rebuild would be copied into the release in place of PyPI's canonical bytes.
+Because GitHub never overwrites an asset, that mistake cannot be repaired by a
+re-run; it needs a manual asset deletion. Both reads therefore set
+`EXPECTED_PUBLISH`, and the final digest check remains as the independent
+confirmation that the two destinations agree.
+
 A name that already differs between the destinations makes `publish-release`
 fail and the release stays a draft. Recovery is deliberately manual: an
 administrator must delete the offending asset from the GitHub Release (PyPI's
@@ -176,18 +186,22 @@ the [developer guide](developers-guide.md#publishing-a-release).
 The PyPI JSON Simple index is read with an explicit bounded retry loop of at
 most six attempts, on a network failure, `429`, or a `5xx` status, because the
 runner's `curl` cannot report `%{num_retries}`; the loop counts its own
-attempts. A `404` means the project does not exist yet and is read as an empty
-index; any other non-200 status fails the run rather than guessing.
+attempts. A `404` is read as an empty index so a first release can proceed; any
+other non-200 status fails the run rather than guessing. That reading is not a
+claim about the name: `404` can also be a transient cache miss or a project
+whose publisher names a different repository, workflow, or environment. Name
+availability is confirmed out of band before the first tag, as the developer
+guide describes.
 
 A `200` alone does not establish that the listing is current, because the
-response comes through a cache. A caller that sets `EXPECTED_PUBLISH` — only
-`publish-release`, whose re-fetch happens after the upload — spends the rest of
-that same budget asking until the listing contains every name in the directory,
-so the staleness that status cannot show is retried rather than trusted. The
-check runs in `scripts/release_assets_cli.py`, so the workflow keeps no
-filename knowledge of its own; its intermediate failures are printed without an
-Actions error annotation, because a miss the next attempt repairs is not a
-failure of the step.
+response comes through a cache. A caller that sets `EXPECTED_PUBLISH` — both of
+`publish-release`'s reads do — spends the rest of that same budget asking until
+the listing contains every name in the directory, so the staleness that status
+cannot show is retried rather than trusted. The check runs in
+`scripts/release_assets_cli.py`, so the workflow keeps no filename knowledge of
+its own; its intermediate failures are printed without an Actions error
+annotation, because a miss the next attempt repairs is not a failure of the
+step.
 
 ### Attestations
 
@@ -238,14 +252,15 @@ action is reintroduced.
 `scripts/release_assets_cli.py` wraps the importable reconciliation library
 `scripts/release_assets.py`, `scripts/release_index.py` reads the Simple index,
 and `scripts/release_version.py` compares the tag with the manifest.
-`scripts/verify_installed_distribution.py` checks the wheel the pull-request
-build installed into a clean environment. These modules use only the Python
-standard library, not Cyclopts or Plumbum, and their entry points run under the
-runner's preinstalled `python3` rather than through `uv run`. The verifier has
-its own reason: it runs with the runner's interpreter *outside* the environment
-under test, so it cannot import anything that environment installs. This is a
-deliberate, documented exception to
-[scripting standards](scripting-standards.md): `publish-pypi` holds the PyPI
+`scripts/verify_installed_distribution.py` checks the sdist's `PKG-INFO` and
+the wheel's `METADATA` against each other and against `pyproject.toml`, then
+checks the wheel the pull-request build installed into a clean environment.
+These modules use only the Python standard library, not Cyclopts or Plumbum,
+and their entry points run under the runner's preinstalled `python3` rather
+than through `uv run`. The verifier has its own reason: it runs with the
+runner's interpreter *outside* the environment under test, so it cannot import
+anything that environment installs. This is a deliberate, documented exception
+to [scripting standards](scripting-standards.md): `publish-pypi` holds the PyPI
 OpenID Connect (OIDC) credential and must not resolve any third-party package
 while that credential is live. Every network call these scripts might otherwise
 make stays in the workflow's own `curl` and `gh` steps, which the scripts only
