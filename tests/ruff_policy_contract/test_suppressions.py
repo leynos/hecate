@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import subprocess  # ruff: ignore[S404]  # Runs the pinned Ruff, never user input.
 import sys
+import typing as typ
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,9 @@ import pytest
 from .convention import violations
 from .reading import REPO_ROOT, RuffPolicyError, repository_files_present
 from .suppressions import scan
+
+if typ.TYPE_CHECKING:
+    import collections.abc as cabc
 
 pytestmark = pytest.mark.skipif(
     not repository_files_present(),
@@ -130,12 +134,38 @@ def checked_modules() -> tuple[str, ...]:
     return ruff_show_files(*LINT_TARGETS)
 
 
-def _scan_result() -> dict[str, list[str]]:
-    """Return the convention messages for every checked module that has any."""
+def _scan_result(
+    paths: cabc.Iterable[str], read: cabc.Callable[[str], str]
+) -> dict[str, list[str]]:
+    """Return the convention messages for each path that breaks one.
+
+    The parameters are what make this drivable from a fixture as well as from
+    the tree: the gate calls it with :func:`checked_modules` and
+    :func:`read_module`, and a case here passes literal sources and their own
+    lookup. Both therefore exercise this one scan-and-filter, so a case cannot
+    pass against a copy of it.
+
+    A path whose suppressions all follow the convention is left out rather than
+    mapped to an empty list, so a caller can assert against the set of paths
+    the scan had something to say about.
+
+    Parameters
+    ----------
+    paths : cabc.Iterable[str]
+        The paths to scan, as a reviewer should see them in the report.
+    read : cabc.Callable[[str], str]
+        Returns the source text for one path.
+
+    Returns
+    -------
+    dict[str, list[str]]
+        One entry per path with at least one message, in scan order.
+
+    """
     return {
         path: messages
-        for path, suppressions in scan(checked_modules(), read_module)
-        if (messages := violations(suppressions))
+        for path, found in scan(paths, read)
+        if (messages := violations(found))
     }
 
 
@@ -144,7 +174,7 @@ class TestRepositorySuppressions:
 
     def test_every_suppression_names_codes_and_a_reason(self) -> None:
         """A bare or unexplained suppression is policy nobody can review."""
-        broken = _scan_result()
+        broken = _scan_result(checked_modules(), read_module)
         assert not broken, (
             "these suppressions break the house convention: "
             f"{broken}. Write `# ruff: ignore[CODE]  # why this is safe` on "
@@ -207,11 +237,7 @@ class TestScanReport:
             "bad.py": "x = 1  # noqa\n",
             "good.py": "y = 2  # ruff: ignore[S404]  # Why this is safe.\n",
         }
-        reported = {
-            path: messages
-            for path, found in scan(sources, sources.__getitem__)
-            if (messages := violations(found))
-        }
+        reported = _scan_result(sources, sources.__getitem__)
         assert set(reported) == {"bad.py"}, (
             "the scan reported on the wrong set of paths; a clean module was "
             f"named or the broken one was not: {sorted(reported)}"
@@ -224,12 +250,8 @@ class TestScanReport:
     def test_a_valid_suppression_produces_no_report(self) -> None:
         """The negative control: the same scan must clear a clean module."""
         sources = {"good.py": "y = 2  # ruff: ignore[S404]  # Why this is safe.\n"}
-        reported = [
-            path
-            for path, found in scan(sources, sources.__getitem__)
-            if violations(found)
-        ]
-        assert reported == [], (
+        reported = _scan_result(sources, sources.__getitem__)
+        assert reported == {}, (
             "a module whose only suppression names a code and a reason was "
             f"reported against: {reported}"
         )

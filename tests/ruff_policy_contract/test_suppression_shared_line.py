@@ -45,7 +45,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .ruff_run import diagnostics_with_lines
+from .ruff_run import reported as read_report
+from .ruff_run import run_ruff
 
 #: The line both codes are reported on. S404 is the security judgement about
 #: importing a process-spawning module; F401 is the ordinary "imported but
@@ -68,7 +69,7 @@ class TestTwoToolsOneLine:
 
     def test_an_import_reports_both_of_its_codes(self, tmp_path: Path) -> None:
         """The negative control: nothing suppressed, so both codes appear."""
-        reported = diagnostics_with_lines(tmp_path, f"{_IMPORT}\n", _IMPORT_CODES)
+        reported = read_report(run_ruff(tmp_path, f"{_IMPORT}\n", _IMPORT_CODES).stdout)
         assert {code for code, _ in reported} == set(_IMPORT_CODES), (
             "the fixture does not draw both of the codes the assertions "
             "below are about, so every suppression claim that follows would "
@@ -80,7 +81,7 @@ class TestTwoToolsOneLine:
     ) -> None:
         """Suppressing S404 must not take F401 with it."""
         suppressed = f"{_IMPORT}  # ruff: ignore[S404]  # Runs the pinned Ruff.\n"
-        reported = diagnostics_with_lines(tmp_path, suppressed, _IMPORT_CODES)
+        reported = read_report(run_ruff(tmp_path, suppressed, _IMPORT_CODES).stdout)
         assert ("S404", 1) not in reported, (
             "a suppression naming S404 did not silence it on an import line, "
             "so the migration does not work in the position it was applied"
@@ -96,7 +97,7 @@ class TestTwoToolsOneLine:
         source = (
             f"{_IMPORT}  # ruff: ignore[S404]  # Runs the pinned Ruff.\nimport os\n"
         )
-        reported = diagnostics_with_lines(tmp_path, source, _IMPORT_CODES)
+        reported = read_report(run_ruff(tmp_path, source, _IMPORT_CODES).stdout)
         assert ("S404", 1) not in reported, (
             "the suppressed first import line still drew S404"
         )
@@ -111,7 +112,7 @@ class TestTwoToolsOneLine:
     ) -> None:
         """A coverage pragma is not a suppression, and must not act as one."""
         source = f"{_IMPORT}  {_PRAGMA}\n"
-        reported = diagnostics_with_lines(tmp_path, source, _IMPORT_CODES)
+        reported = read_report(run_ruff(tmp_path, source, _IMPORT_CODES).stdout)
         assert ("S404", 1) in reported, (
             "a coverage pragma silenced S404, so Ruff read the pragma as a "
             "suppression; the migration could then be replaced by a pragma, "
@@ -146,7 +147,7 @@ class TestTwoToolsOneLine:
             "displaced the other tool's directive"
         )
 
-        reported = diagnostics_with_lines(tmp_path, source, _IMPORT_CODES)
+        reported = read_report(run_ruff(tmp_path, source, _IMPORT_CODES).stdout)
         assert ("S404", 1) not in reported, (
             "the directive stopped suppressing once a pragma shared its line, "
             "so the pragma displaced Ruff's own reader of the comment"
@@ -170,7 +171,7 @@ class TestTwoToolsOneLine:
         text is still present; it does not measure coverage.
         """
         source = f"{_IMPORT}  {_PRAGMA}  # ruff: ignore[S404]  # Runs it.\n"
-        reported = diagnostics_with_lines(tmp_path, source, _IMPORT_CODES)
+        reported = read_report(run_ruff(tmp_path, source, _IMPORT_CODES).stdout)
         assert ("S404", 1) not in reported, (
             "the directive stopped suppressing when the pragma came first, "
             "so the position of the pragma inside the comment decides whether "

@@ -11,11 +11,11 @@ These properties say exactly that, and the named cases stay beside them as the
 readable specification. Hypothesis is already a project dependency, so this
 costs no new tooling.
 
-The first run of these cases failed, and the failures were mine rather than the
-code's: I had keyed the assertions on words the messages do not use, and I had
-assumed a lower-case code was canonically cased. Both are recorded here because
-they are the reason the properties are worth having — a named case written from
-the same wrong assumption would have passed.
+Assertions here key on the exact substrings the messages use, named as constants
+below, so a reworded message fails loudly rather than silently turning a claim
+vacuous. That matters more than it looks: a property phrased around a word the
+message never contains passes for every generated input while proving nothing,
+and only naming the string makes the coupling visible.
 
 The generated text is deliberately narrow: a comment, not a module. Feeding
 Hypothesis whole Python sources would spend most of its budget on code that no
@@ -30,7 +30,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from .convention import violations
-from .suppressions import classify, suppressions_in
+from .suppressions import Suppression, classify, suppressions_in
 
 #: The codes the breadth rule treats as security judgements.
 _SECURITY_CODES = ("S404", "S603", "S607")
@@ -92,7 +92,7 @@ def _comment(codes: list[str], rationale: str | None, *, form: str = "ignore") -
     return comment
 
 
-def _drew(suppressions: tuple, needle: str) -> list[str]:
+def _drew(suppressions: tuple[Suppression, ...], needle: str) -> list[str]:
     """Return the violation messages containing ``needle``."""
     return [message for message in violations(suppressions) if needle in message]
 
@@ -200,10 +200,10 @@ class TestCaseAndOrdering:
     ) -> None:
         """The complement: a code in another case suppresses nothing.
 
-        This is the row the first run of these properties taught me to write. I
-        had generated codes in any casing and asserted that none drew a case
-        message; Hypothesis produced ``A0`` versus ``a0`` and showed the premise
-        was mine, not the code's.
+        Ruff matches codes case-sensitively, so a lower-cased list names nothing
+        it will read. Asserting the negative alone would be satisfied by a
+        reader that recorded every list as canonical, whatever its casing, so
+        the case above pairs with this one to pin which spelling is which.
         """
         lowered = [code.lower() for code in codes]
         parsed = classify(_comment(lowered, rationale))

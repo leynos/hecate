@@ -7,7 +7,7 @@ PyPy-backed Pylint and Skylos dead-code detection.
 
 ## Date
 
-2026-08-24.
+2026-08-24, last updated 2026-11-06.
 
 ## Context and problem statement
 
@@ -63,9 +63,9 @@ selected or suppressed.
 rule whose exact code is not named. A prefix selector such as `D` or `RUF`
 would otherwise acquire whatever preview rules a later Ruff release adds to
 that prefix, so a dependency bump could change what the gate enforces without a
-line of this repository moving. That is what Dependabot #129 exposed: 0.15.13
-resolved 673 rules, 0.16.9 resolved 682 from the same `pyproject.toml`, and
-0.17.3 resolved 683. The resolved set is now recorded in
+line of this repository moving. That is what Dependabot #129 exposed[^1]:
+0.15.13 resolved 673 rules, 0.16.9 resolved 682 from the same `pyproject.toml`,
+and 0.17.3 resolved 683. The resolved set is now recorded in
 `tests/ruff_policy_contract/enabled_rules.txt` and compared in both directions
 by the contract suite, so an unreviewed addition fails as loudly as a check
 that quietly stopped running.
@@ -95,3 +95,8 @@ pin, and the production roots and exclusions live in `[tool.df12_skylos]` and
 ignored repository-local `.pyproject.toml.df12.lock` file. Its behaviour is
 tested in df12-python-lints and CI runs the shared-actions `df12-skylos`
 action, so this repository keeps only its configuration and exceptions.
+
+______________________________________________________________________
+
+[^1]: Dependabot pull request #129, closed:
+    <https://github.com/leynos/hecate/pull/129>.

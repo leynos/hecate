@@ -1223,13 +1223,14 @@ rule-set deltas for 0.15.13, 0.16.9, and 0.17.3, the discovery that
 codes are not, and the CI evidence that the live grouped update fails on the
 same class of blocker plus `UP052`.
 
-Revision 2: sixteenth review pass, during milestone 3. Adds the measured scope
-against the tolerance and records that both bounds are exceeded, with the fork
-point the measurement must use. The code change is a shared rule-code shape in
-`reading.is_rule_code`, replacing the duplicate definitions in the selector and
-suppression contracts, and a test-level skip for the Git-dependent walk. The
-escalation affects remaining work only in that milestone 4 must not add scope
-until the overrun is accepted; milestone 3's acceptance evidence is unchanged.
+Revision 2: sixteenth review pass, during milestone 3. Records the measured
+scope against the tolerance and that both bounds are exceeded, with the fork
+point the measurement must use. The code change delegates the rule-code shape to
+`reading.is_rule_code`, replacing the duplicate definitions in the selector
+and suppression contracts, and adds a test-level skip for the Git-dependent
+walk. The escalation affects remaining work only in that milestone 4 must not
+add scope until the overrun is accepted; milestone 3's acceptance evidence is
+unchanged.
 
 Revision 3: pre-assessment bookkeeping at head `9284bb0`. Records the
 `typos.toml` refresh and the corrected commit-count and cost figures. No
@@ -1334,9 +1335,9 @@ rather than absent from the branch.
 Revision 10: the formal review's first pass at the ready head. Two inline
 findings and five failed pre-merge checks, dispositioned as follows.
 
-The inline finding was real: `tests/ruff_policy_contract/ruff_run.py` wrote the
-`-isable` form of "recognizable" in a comment, and `typos.toml` itself carries
-that mapping. Corrected.
+The inline finding was real: `tests/ruff_policy_contract/ruff_run.py` used the
+British `-isable` suffix in a comment, which `typos.toml` maps to the American
+`-izable` one. Corrected to the mapped spelling.
 
 Four of the five pre-merge checks were gaps this plan had left open rather than
 defects, and each is now closed rather than argued away.
@@ -1386,7 +1387,8 @@ Two further review points were documentation corrections and are applied: the
 shared-pragma fixture is now described as a compatibility case rather than a
 migrated one, because the base carries exactly one `# pragma: no cover` and it
 sits on a line with no suppression; and the four `0.15.13` references in the
-contract modules now read "then-pinned", since `uv.lock` pins 0.17.3.
+contract modules were rewritten to say the measurement was taken on the
+then-pinned 0.15.13 and has been re-checked on the pinned 0.17.3.
 
 Revision 11: the head that closed revision 10's checks, `827b92e`, failed CI on
 `make check-fmt`. `mdtablefix --wrap` wanted this very section reflowed by
@@ -1401,3 +1403,45 @@ silent: `mdtablefix` reports a count against a path, and a skimming reader sees
 "1 file would be reformatted" and moves on. The corrective commit `fa2dc17`
 carries only the reflow, and `make check-fmt`, `make markdownlint` and
 `make nixie` were re-run against it rather than inherited from the earlier head.
+
+Revision 12: the second formal review's pass at `364da1c`. Eleven inline
+findings, two outside the diff, and three failed pre-merge checks. Every one
+was verified against the tree before it was applied; all were still valid.
+
+The two pre-merge checks that asked for behaviour rather than wording were the
+substantive ones. *Testing (Unit And Behavioural)* asked for an end-to-end run
+of `make build`, not a transcription of its flags, so `test_locked_build.py`
+gained `TestTheBuildTarget`: it drives the repository's own recipe through
+`make -C <tmp> -f <repo>/Makefile build` against the throwaway project and
+asserts a matching lockfile syncs, a stale one fails, and neither rewrites the
+lock. That also replaced the `"--locked" in stderr` assertion, which pinned
+uv's wording; the control is now the same stale project synced without the
+flag, which succeeds and *does* rewrite the lock. The two runs differ in the
+flag and nothing else, which is what the old assertion was reaching for.
+
+*Unit Architecture* asked for the side-effecting `diagnostics` and
+`diagnostics_with_lines` wrappers to go. They were a second way to reach
+`run_ruff` and `reported`, and the two behavioural modules now compose those
+two explicitly. `reported` stays the read-only half, and `test_ruff_run.py`
+still holds it to hand-written reports with no filesystem contact.
+
+*Testing (Overall)* asked for `_scan_result()` to be drivable from fixtures. It
+already was the repository's scan-and-filter, but it hard-coded the gate's path
+list and reader, so `TestScanReport` had reimplemented the filter beside it. It
+now takes both as parameters: the gate calls it with `checked_modules()` and
+`read_module`, and the two cases call it with literal sources, so neither can
+pass against a copy.
+
+The remaining findings were wording and structure. `reported` now raises one
+`RuffPolicyError` naming the diagnostic it could not read, chaining the decode
+or index error as the cause, and the two tests assert the policy error rather
+than `TypeError` and `JSONDecodeError`. `_drew` takes
+`tuple[Suppression, ...]`. The module and test docstrings in
+`test_suppression_properties.py` describe the contract rather than the session
+that produced it. The probe's version case now says it measures the
+PATH-resolved binary, and the `sys.version_info` assertion, which checked
+pytest's interpreter rather than uv's, is gone. The ADR `Date` reads
+`2026-08-24, last updated 2026-11-06` with the Dependabot reference as footnote
+`[^1]`. The developer guide's two new blocks carry `_Code block 7_` and
+`_Code block 8_` captions, and its `-isable` wording now names the mapped word
+instead of the mangled suffix.

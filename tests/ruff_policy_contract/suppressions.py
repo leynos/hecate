@@ -71,10 +71,11 @@ _NOQA_RE = re.compile(
 #:
 #: Matched case-insensitively so that a wrongly-cased directive is **read**, not
 #: skipped. That is deliberate and is the whole point of the case rule: Ruff
-#: matches case-sensitively, measured on the then-pinned 0.15.13 over a call that
-#: trips S607 — the canonical ``ruff: ignore[S607]`` suppresses it, while a
-#: wrongly-cased prefix, a wrongly-cased directive name, or a lower-case code each
-#: leaves it reported. Ruff reports only the wrongly-cased *name*, as RUF103; a
+#: matches case-sensitively — measured on 0.15.13 and re-checked on the pinned
+#: 0.17.3, over a call that trips S607. The canonical ``ruff: ignore[S607]``
+#: suppresses it, while a wrongly-cased prefix, a wrongly-cased directive name,
+#: or a lower-case code each leaves it reported. Ruff reports only the
+#: wrongly-cased *name*, as RUF103; a
 #: wrong-case prefix and a wrong-case code draw no diagnostic at all. A reader
 #: that ignored them as prose would clear a comment that looks like policy and
 #: suppresses nothing. So the pattern reads every casing and records the
@@ -148,12 +149,12 @@ class Suppression:
     def records_canonical_case(self) -> bool:
         """Report whether the spelling is one Ruff would actually honour.
 
-        Measured on the then-pinned 0.15.13: the prefix, the directive name and the
-        codes are each matched case-sensitively, in both spellings. ``noqa``
-        itself is read in any casing, but its code list is not: ``# noqa:
-        s607`` leaves S607 reported. A comment written in another case is
-        therefore not a suppression at all, and a reader that normalized it
-        silently would clear a comment that suppresses nothing.
+        Measured on 0.15.13 and re-checked on the pinned 0.17.3: the prefix, the
+        directive name and the codes are each matched case-sensitively, in both
+        spellings. ``noqa`` itself is read in any casing, but its code list is
+        not: ``# noqa: s607`` leaves S607 reported. A comment written in another
+        case is therefore not a suppression at all, and a reader that normalized
+        it silently would clear a comment that suppresses nothing.
         """
         return self.written == self.written.lower() and self.codes == self.written_codes
 
