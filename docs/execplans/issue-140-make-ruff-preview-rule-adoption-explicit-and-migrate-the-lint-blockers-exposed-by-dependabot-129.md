@@ -1445,3 +1445,19 @@ pytest's interpreter rather than uv's, is gone. The ADR `Date` reads
 `[^1]`. The developer guide's two new blocks carry `_Code block 7_` and
 `_Code block 8_` captions, and its `-isable` wording now names the mapped word
 instead of the mangled suffix.
+
+Revision 13: CodeRabbit's replies to the eleven threads at `cc0e02d`. Ten
+confirmed the fix and resolved. One did not, and it was right. Thread
+`4489627464` pointed out that `test_the_probe_uses_the_uv_on_path` still said
+`_uv` and the build recipe "agree by construction", which is false: the recipe
+resolves `uv` through `command -v`, while the test passes `UV={_uv()}` and
+therefore *overrides* whatever the recipe would have found. The two agree
+because the probe imposes the agreement, not because either resolves the same
+way, and `Makefile` line 12 spells the variable `UV ?=`, so a caller's
+environment can shadow it regardless.
+
+The docstring now says the override is what holds the two together, and keeps
+the one claim the case can actually make: the binary was present and answered.
+A resolved thread is not evidence that the point was addressed, so this
+revision exists to record that the confirmation above was read rather than
+counted.
