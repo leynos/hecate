@@ -120,6 +120,33 @@ def test_the_canonical_digest_comes_from_the_source_the_plan_chose(
     ), "a name neither destination holds must report this run's digest"
 
 
+def test_the_names_query_returns_the_staged_names_sorted(tmp_path: pth.Path) -> None:
+    """The fallible read is the one place the directory is listed."""
+    publish = _built(tmp_path / "publish", "b.whl", "a.whl")
+
+    assert State(publish, {}, {}).names() == ("a.whl", "b.whl"), (
+        "the query must return every staged name in a stable order"
+    )
+    assert sorted(path.name for path in publish.iterdir()) == ["a.whl", "b.whl"], (
+        "reading the names must not alter the staged artefacts"
+    )
+
+
+def test_the_names_query_refuses_an_unsafe_name(tmp_path: pth.Path) -> None:
+    """A name that is not a safe path and TSV field fails at the boundary."""
+    publish = _built(tmp_path / "publish", "safe.whl")
+    (publish / "unsafe name.whl").write_bytes(b"built")
+
+    with pytest.raises(release_assets.ReleaseAssetError, match="unsafe artefact"):
+        State(publish, {}, {}).names()
+
+
+def test_the_names_query_reports_a_missing_directory(tmp_path: pth.Path) -> None:
+    """A publish directory that cannot be read is an error, not an empty plan."""
+    with pytest.raises(FileNotFoundError):
+        State(tmp_path / "absent", {}, {}).names()
+
+
 @pytest.mark.parametrize(
     ("expected_names", "listed", "missing"),
     [

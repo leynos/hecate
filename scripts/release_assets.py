@@ -176,9 +176,31 @@ class State:
         pypi = read_pypi_index(index) if index is not None else {}
         return cls(publish, pypi, read_github_assets(assets) if assets else {})
 
-    def plan(self) -> Plan:
-        """Plan this run's uploads against both destinations."""
-        return plan(local_names(self.publish), self.pypi, self.github)
+    def names(self) -> tuple[str, ...]:
+        """Read and validate the staged artefact names.
+
+        Reading the directory and refusing an unsafe name are both fallible, so
+        this query is explicit about it: callers that plan or verify receive
+        the names it returned rather than re-reading the directory themselves.
+
+        Returns
+        -------
+        tuple[str, ...]
+            The staged names, sorted.
+
+        Raises
+        ------
+        ReleaseAssetError
+            If a staged name is not a safe path component and TSV field.
+        OSError
+            If the publish directory cannot be read.
+
+        """
+        return tuple(local_names(self.publish))
+
+    def plan(self, names: cabc.Iterable[str]) -> Plan:
+        """Plan uploads for ``names`` against both destinations."""
+        return plan(names, self.pypi, self.github)
 
 
 def carryover(state: State) -> list[str]:
@@ -197,7 +219,7 @@ def carryover(state: State) -> list[str]:
         upload GitHub's canonical bytes without holding a GitHub token.
 
     """
-    return sorted(set(local_names(state.publish)) & set(state.github))
+    return sorted(set(state.names()) & set(state.github))
 
 
 def stage_pypi(state: State, github_files: Path) -> bool:
@@ -216,7 +238,7 @@ def stage_pypi(state: State, github_files: Path) -> bool:
         Whether any artefact remains to upload.
 
     """
-    decided = state.plan()
+    decided = state.plan(state.names())
     for name, source in sorted(decided.canonical.items()):
         artefact = state.publish / name
         if source is Source.PYPI:
@@ -261,7 +283,7 @@ def canonical_digest(state: State, name: str) -> tuple[Source, str | None]:
     The digest is ``None`` only for a GitHub asset whose digest GitHub did not
     report; this run's own bytes are always hashable.
     """
-    source = state.plan().canonical[name]
+    source = _canonical_source(name, state.pypi, state.github)
     if source is Source.PYPI:
         return source, state.pypi[name].sha256
     if source is Source.GITHUB:
@@ -293,7 +315,7 @@ def attests_canonical_bytes(state: State) -> bool:
         bundle cannot be shown to describe it.
 
     """
-    for name in sorted(state.plan().canonical):
+    for name in sorted(state.names()):
         source, expected = canonical_digest(state, name)
         if source is Source.LOCAL:
             continue
@@ -369,7 +391,7 @@ def stage_github(state: State, bundles: Path, output: Path) -> list[tuple[str, s
         which the caller downloads and then checks with :func:`check_fetched`.
 
     """
-    lacking = sorted(state.plan().github_uploads)
+    lacking = sorted(state.plan(state.names()).github_uploads)
     fetch = _pypi_fetch_list(lacking, state.pypi)
     output.mkdir(parents=True, exist_ok=True)
     _copy_pypi_gap(lacking, state.pypi, state.publish, output)
@@ -394,7 +416,7 @@ def check_fetched(state: State, output: Path) -> None:
         reports no digest for it.
 
     """
-    for name in sorted(state.plan().github_uploads & set(state.pypi)):
+    for name in sorted(state.plan(state.names()).github_uploads & set(state.pypi)):
         check_digest(output / name, state.pypi[name].sha256)
 
 
@@ -419,7 +441,7 @@ def verify(state: State, bundles: Path) -> list[str]:
 
     """
     pypi = {name: file.sha256 for name, file in state.pypi.items()}
-    problems = mismatches(local_names(state.publish), pypi, state.github)
+    problems = mismatches(state.names(), pypi, state.github)
     if not attests_canonical_bytes(state):
         return problems
     missing = sorted(
