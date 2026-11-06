@@ -15,6 +15,7 @@ The re-run cases, where both destinations already hold every name, live in
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 
 import pytest
@@ -114,7 +115,7 @@ def test_the_check_fails_when_the_destinations_disagree(fake: FakeRelease) -> No
     """Differing bytes under one name stop the release before it is visible."""
     (fake.github / scene.BOTH).write_bytes(b"clobbered by an earlier workflow")
     scene.draft_and_publish_pypi(fake)
-    cwd = scene.publish_release(fake, verify=False)
+    cwd = scene.publish_release(fake, scene.ReleaseRun(verify=False))
 
     completed = run_bash(
         step_script("publish-release", "Check both destinations hold the same bytes"),
@@ -153,6 +154,86 @@ def test_bytes_that_do_not_match_the_index_are_never_uploaded(
     assert scene.PYPI_ONLY not in scene.holdings(fake.github), (
         "a mismatched download must never reach the release"
     )
+
+
+def test_carried_github_bytes_that_changed_after_the_snapshot_are_refused(
+    fake: FakeRelease,
+) -> None:
+    """A carried asset must still match the digest the snapshot reported.
+
+    ``draft-release`` records GitHub's digest for each name and downloads the
+    bytes for ``publish-pypi`` to carry over. If the downloaded file changes
+    between that snapshot and the upload, staging must stop rather than send
+    bytes no destination vouches for.
+    """
+    draft, env = scene.job_directory(fake, "draft-release")
+    scene.run_required("draft-release", "Snapshot the release assets", draft, env)
+    pypi, env = scene.job_directory(fake, "publish-pypi")
+    shutil.copytree(draft / "github-state", pypi / "github-state")
+    (pypi / "github-state" / "files" / scene.GITHUB_ONLY).write_bytes(
+        b"changed after the snapshot"
+    )
+    scene.run_required("publish-pypi", "Fetch the PyPI index", pypi, env)
+
+    completed = scene.run_step(
+        "publish-pypi", "Skip artefacts already on PyPI", pypi, env
+    )
+
+    assert completed.returncode != 0, (
+        "a carried file must match the digest recorded at the snapshot"
+    )
+    assert scene.GITHUB_ONLY in completed.stderr, (
+        "the failure must name the asset whose bytes changed"
+    )
+    assert scene.GITHUB_ONLY not in scene.holdings(fake.pypi), (
+        "unverified bytes must never be uploaded"
+    )
+
+
+def test_a_github_asset_without_a_digest_is_refused(fake: FakeRelease) -> None:
+    """An asset GitHub will not vouch for cannot be carried to PyPI."""
+    draft, env = scene.job_directory(fake, "draft-release")
+    env = {**env, "FAKE_GITHUB_NO_DIGEST": scene.GITHUB_ONLY}
+    scene.run_required("draft-release", "Snapshot the release assets", draft, env)
+    pypi, env = scene.job_directory(fake, "publish-pypi")
+    env = {**env, "FAKE_GITHUB_NO_DIGEST": scene.GITHUB_ONLY}
+    shutil.copytree(draft / "github-state", pypi / "github-state")
+    scene.run_required("publish-pypi", "Fetch the PyPI index", pypi, env)
+
+    completed = scene.run_step(
+        "publish-pypi", "Skip artefacts already on PyPI", pypi, env
+    )
+
+    assert completed.returncode != 0, (
+        "a missing GitHub digest must fail staging, not upload unchecked bytes"
+    )
+    assert scene.GITHUB_ONLY in completed.stderr, (
+        "the failure must name the asset without a digest"
+    )
+    assert scene.GITHUB_ONLY not in scene.holdings(fake.pypi)
+
+
+def test_verification_requires_the_bundle_when_it_attests_the_shipped_bytes(
+    fake: FakeRelease,
+) -> None:
+    """A first release must attach the bundle that describes its own bytes."""
+    for name in scene.ARTEFACTS:
+        (fake.pypi / name).unlink(missing_ok=True)
+        (fake.github / name).unlink(missing_ok=True)
+    scene.draft_and_publish_pypi(fake)
+    cwd = scene.publish_release(fake, scene.ReleaseRun(verify=False))
+    (fake.github / scene.BUNDLE).unlink()
+
+    completed = run_bash(
+        step_script("publish-release", "Check both destinations hold the same bytes"),
+        cwd,
+        fake.env(GITHUB_REF_NAME=scene.TAG, GITHUB_OUTPUT=str(cwd / "output")),
+    )
+
+    assert completed.returncode != 0, (
+        "a release shipping this run's bytes must carry this run's bundle"
+    )
+    assert scene.BUNDLE in completed.stderr, "the failure must name the missing bundle"
 
 
 def test_the_re_fetch_polls_past_a_cached_index(fake: FakeRelease) -> None:

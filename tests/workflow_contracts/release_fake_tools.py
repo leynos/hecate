@@ -16,6 +16,9 @@ checked-in step scripts execute unchanged against state the test controls:
   ``FAKE_CURL_STALE_NAMES``: which index responses serve a CDN-stale listing.
   Counting from zero, responses after the first ``AFTER`` and for the next
   ``CALLS`` calls omit every file named in ``NAMES``.
+- ``FAKE_GITHUB_NO_DIGEST``: comma-separated asset names for which
+  ``gh release view --json assets`` reports no digest, as an asset uploaded
+  through a path that did not compute one.
 
 Like the real services, neither stand-in ever overwrites a file it holds: a
 second upload of an existing asset name fails, as ``gh`` does without
@@ -56,8 +59,13 @@ def _record(tool: str, args: list[str]) -> None:
 
 def _assets_json() -> str:
     """Render the release's assets as ``gh release view --json assets`` does."""
+    without_digest = set(os.environ.get("FAKE_GITHUB_NO_DIGEST", "").split(","))
     assets = [
-        {"name": path.name, "digest": f"sha256:{_digest(path)}"}
+        (
+            {"name": path.name}
+            if path.name in without_digest
+            else {"name": path.name, "digest": f"sha256:{_digest(path)}"}
+        )
         for path in sorted(_directory("FAKE_GITHUB_ASSETS").iterdir())
     ]
     return json.dumps({"assets": assets, "isDraft": _is_draft()})
