@@ -13,6 +13,12 @@ would make each fixture measure the project's configuration as well as the
 syntax under test, and the point of these fixtures is to be about one
 behaviour at a time. Callers name the codes they want, so an unrelated
 diagnostic cannot be mistaken for the one under test.
+
+Running and reading are separate functions for a reason. ``run_ruff`` is the
+one function that writes a file and starts a process; :func:`reported` is a
+pure parse of the JSON that comes back. A caller that wants to show what Ruff
+reported for a recorded run can call the reader alone, and the unit tests here
+hold it to a hand-written report without touching the filesystem.
 """
 
 from __future__ import annotations
@@ -27,7 +33,7 @@ from .reading import RuffPolicyError
 if typ.TYPE_CHECKING:
     from pathlib import Path
 
-#: The fixture's file name. One name keeps the written module recognisable in
+#: The fixture's file name. One name keeps the written module recognizable in
 #: a failing report, and nothing here depends on the module being importable.
 FIXTURE_NAME = "fixture.py"
 
@@ -86,10 +92,37 @@ def run_ruff(
     return completed
 
 
+def reported(report: str) -> list[tuple[str, int]]:
+    """Return each diagnostic in a Ruff JSON report as a code and a line.
+
+    This is a reader of text, not a runner: it starts no process and writes no
+    file, so a caller can hold it to its parse of a report recorded earlier.
+    Keeping the two apart is what lets ``diagnostics_*`` below be the only
+    functions here that touch the filesystem.
+
+    Parameters
+    ----------
+    report : str
+        Ruff's standard output from ``--output-format json``.
+
+    Returns
+    -------
+    list[tuple[str, int]]
+        One ``(code, one-based line)`` pair per diagnostic, in report order.
+        An empty report is an empty list rather than an error: a fixture that
+        draws no diagnostic is a result, not a malformed run.
+
+    """
+    return [
+        (diagnostic["code"], diagnostic["location"]["row"])
+        for diagnostic in json.loads(report)
+    ]
+
+
 def diagnostics_with_lines(
     tmp_path: Path, source: str, codes: tuple[str, ...]
 ) -> list[tuple[str, int]]:
-    """Return each diagnostic's code and one-based line.
+    """Write ``source`` to a fixture module, check it, and read the report.
 
     A case that asks whether a *neighbouring* line is still checked needs the
     line, not only the code: two occurrences of one code are one entry each,
@@ -111,11 +144,7 @@ def diagnostics_with_lines(
         One ``(code, line)`` pair per diagnostic, in Ruff's report order.
 
     """
-    completed = run_ruff(tmp_path, source, codes)
-    return [
-        (diagnostic["code"], diagnostic["location"]["row"])
-        for diagnostic in json.loads(completed.stdout)
-    ]
+    return reported(run_ruff(tmp_path, source, codes).stdout)
 
 
 def diagnostics(tmp_path: Path, source: str, codes: tuple[str, ...]) -> list[str]:

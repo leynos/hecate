@@ -1,18 +1,21 @@
 """Behaviour: a migrated suppression beside a code it does not name, or a pragma.
 
 The migration rewrote comments that were not alone on their line. Two things
-share a line with a suppression in real code, and both are tested here.
+could share a line with a suppression, and both are tested here.
 
-The first is another diagnostic. ``import subprocess`` draws ``S404``, the
-security judgement about importing a process-spawning module, and ``F401``,
-the ordinary "imported but unused" finding. They are reported on the same line,
-so an ``import`` is the natural place to show that naming one code leaves its
-neighbour visible.
+The first is present in the tree and is the case the migration actually met.
+``import subprocess`` draws ``S404``, the security judgement about importing a
+process-spawning module, and ``F401``, the ordinary "imported but unused"
+finding. They are reported on the same line, so an ``import`` is the natural
+place to show that naming one code leaves its neighbour visible.
 
-The second is another tool's directive. A line that a coverage run skips
-carries ``# pragma: no cover``, and the migration has to be able to share that
-comment without displacing it. A pragma on its own is the negative control —
-it is not a suppression, and must not act as one.
+The second is not present at the base and is a compatibility case rather than a
+migrated one. The tree carries exactly one ``# pragma: no cover``, on a line
+with no suppression, so no comment here was ever rewritten to carry both. The
+fixture exists because a line that a coverage run skips carries that pragma,
+and the policy comment has to be able to share it without displacing it if the
+two ever do meet. A pragma on its own is the negative control — it is not a
+suppression, and must not act as one.
 
 What the cases here assert is narrower than a coverage measurement, and the
 narrowing is deliberate rather than a gap left open. ``coverage`` is not a

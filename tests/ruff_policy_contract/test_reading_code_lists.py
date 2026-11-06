@@ -90,7 +90,7 @@ class TestAcceptedCodeLists:
 class TestSeparators:
     """The comma is required, and its absence is not a style question.
 
-    Measured on the pinned 0.15.13 over a call that trips both codes: with
+    Measured on the then-pinned 0.15.13 over a call that trips both codes: with
     ``[S603 S607]`` *both* diagnostics are still reported, so the comment
     suppresses nothing, and the comma form of the same call is silent. Ruff
     0.17.3 reports the space form as RUF103 instead. A reader that split on

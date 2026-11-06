@@ -441,16 +441,20 @@ instead of arriving as a surprise CI failure? The observable end state:
   but the checked-in file says `revision = 3`. `uv sync --locked` still accepts
   it, so `--locked` refuses *content* drift, not a stale revision number.
 - `make spelling` regenerates the tracked `typos.toml` from the upstream
-  shared dictionary on every run, so a plain `make markdownlint` leaves a
-  modified tracked file in the working tree. The gate still exits 0; the
-  rewrite reflects upstream dictionary drift, not this change. The plan's first
-  response was to revert it rather than smuggle an unrelated regeneration into
-  a Ruff commit. That was not the final state: the refresh proved deterministic
-  and reviewable, so it is committed separately as `9284bb0` and the file
-  therefore *is* changed by this branch. Keeping the regeneration out of the
-  Ruff commits and giving it its own is what the original note was protecting;
-  leaving `typos.toml` untouched entirely was not achievable while also passing
-  the Markdown gate.
+  shared dictionary on every run. Before the refresh was committed, a plain
+  `make markdownlint` therefore left a modified tracked file in the working
+  tree; that dirty-worktree observation dates from before `9284bb0` and no
+  longer describes the tree. Two things that note ran together belong apart:
+  the gate **exited 0** while the file was modified, which is the gate passing
+  despite the rewrite, and the worktree was dirty, which is a separate fact
+  about the tree rather than about the gate's verdict. The plan's first
+  response was to revert the rewrite rather than smuggle an unrelated
+  regeneration into a Ruff commit. That was not the final state: the refresh
+  proved deterministic and reviewable, so it is committed separately as
+  `9284bb0` and the file therefore *is* changed by this branch. Keeping the
+  regeneration out of the Ruff commits and giving it its own is what the
+  original note was protecting; leaving `typos.toml` untouched entirely was not
+  achievable while also passing the Markdown gate.
 - Twelve preview codes were already named individually in `select` before this
   change (`PLE4703`, `PLR0202`, `PLR0203`, `PLR0914`, `PLR0916`, `PLR1702`,
   `PLR6104`, `PLR6201`, `PLR6301`, `RUF036`, `RUF055`, `RUF066`), so the
@@ -458,7 +462,7 @@ instead of arriving as a surprise CI failure? The observable end state:
   `PLW0108`, `RUF053`, and `RUF064` sit in the same block but are stable on
   0.15.13 and stay in `select` untouched.
 - The behaviour fixture cannot use `D421` or `RUF105` to demonstrate explicit
-  adoption: neither exists on the pinned 0.15.13 binary (`ruff rule D421`
+  adoption: neither exists on the then-pinned 0.15.13 binary (`ruff rule D421`
   answers `invalid value 'D421'`). The fixture uses `D420`
   (incorrect-section-order) as the adopted preview rule, which works on the
   pinned version and keeps the demonstration honest.
@@ -504,7 +508,7 @@ instead of arriving as a surprise CI failure? The observable end state:
   comment's start. A comment documenting the syntax, such as one naming a code
   inside double backticks, is therefore a live directive: 0.17.3 reports it as
   an unused suppression, or warns that it is invalid. 0.16.9 does not, so this
-  class of mistake is invisible on the pinned 0.15.13 binary and appears on
+  class of mistake is invisible on the then-pinned 0.15.13 binary and appears
   upgrade. The reader now searches rather than anchors to match, and the
   repository contract immediately flagged the two explanatory comments in
   `suppressions.py` itself, which is the strongest evidence that the rule has
@@ -521,15 +525,16 @@ instead of arriving as a surprise CI failure? The observable end state:
   TOML".
 - Ruff's suppression spelling is case-sensitive at every position, in both
   spellings — a fact that measurement alone established. Over a call tripping
-  S607 on the pinned 0.15.13: the canonical `ruff: ignore[S607]` suppresses it;
-  `RUFF: ignore[S607]`, `Ruff: Ignore[S607]`, `ruff: IGNORE[S607]` and
-  `ruff: ignore[s607]` all leave it reported; and `# noqa: s607` leaves it
-  reported too, while `# NOQA: S607` suppresses it. Ruff reports only the
-  wrongly-cased directive *name* (`RUF103`, "unknown ruff directive"), and
-  draws no diagnostic at all for a wrong-case prefix or a wrong-case code. This
-  is the single most dangerous failure mode the reader has to cover: the
-  comment looks reviewed, changes nothing, and the linter stays silent. The
-  contract is therefore the only guard, and it reads every casing deliberately.
+  S607 on the then-pinned 0.15.13: the canonical `ruff: ignore[S607]`
+  suppresses it; `RUFF: ignore[S607]`, `Ruff: Ignore[S607]`,
+  `ruff: IGNORE[S607]` and `ruff: ignore[s607]` all leave it reported; and
+  `# noqa: s607` leaves it reported too, while `# NOQA: S607` suppresses it.
+  Ruff reports only the wrongly-cased directive *name* (`RUF103`, "unknown ruff
+  directive"), and draws no diagnostic at all for a wrong-case prefix or a
+  wrong-case code. This is the single most dangerous failure mode the reader
+  has to cover: the comment looks reviewed, changes nothing, and the linter
+  stays silent. The contract is therefore the only guard, and it reads every
+  casing deliberately.
 - The 970 rule codes Ruff 0.17.3 ships all match `^[A-Z]+\d+$`, with prefixes
   one to five letters (`ASYNC` is the longest) and three or four digits. That
   measured shape is what the contract's code-shape rule is built on; it
@@ -741,8 +746,8 @@ instead of arriving as a surprise CI failure? The observable end state:
   it. A test module importing a sibling would also drag the imported module's
   `pytestmark` along with the function, which is exactly the defect this plan
   already fixed once when `reporting.py` imported `test_suppressions`.
-  Splitting instead keeps both modules well under the cap (182 and 176 lines)
-  and gives the runner one home for the next contract that needs it.
+  Splitting instead keeps both modules well under the cap (182 and 178 lines at
+  `e810082`) and gives the runner one home for the next contract that needs it.
 
 ## Outcomes & retrospective
 
@@ -1325,3 +1330,60 @@ variants rather than the same files. The module now says so explicitly. The
 in fact refreshes it as `9284bb0`, which the same document records nine lines
 later, so the note now says the regeneration is kept out of the Ruff commits
 rather than absent from the branch.
+
+Revision 10: the formal review's first pass at the ready head. Two inline
+findings and five failed pre-merge checks, dispositioned as follows.
+
+The inline finding was real: `tests/ruff_policy_contract/ruff_run.py` wrote
+the `-isable` form of "recognizable" in a comment, and `typos.toml` itself
+carries that mapping. Corrected.
+
+Four of the five pre-merge checks were gaps this plan had left open rather than
+defects, and each is now closed rather than argued away.
+
+- *Unit architecture* — running and reading are now separate.
+  `run_ruff` remains the only function that writes a fixture and starts a
+  process; `reported` is a pure parse of the JSON that comes back.
+  `test_ruff_run.py` holds it to hand-written reports, including an empty one,
+  two diagnostics on a shared row, a null location that must raise rather than
+  read as line 1, and a monkeypatched working directory proving it touches no
+  path. `diagnostics_with_lines` is now `reported(run_ruff(...).stdout)`, so
+  the composition is visible in one line.
+
+- *Testing, end to end* — `test_suppressions.py` gained `TestScanReport`, which
+  drives the real scan over literal sources and asserts that the report names
+  the offending path and its line, and that a clean module produces no entry.
+  Until this case, nothing asserted the shape of the gate's own output.
+
+- *Testing, unit and behavioural* — `test_locked_build.py` builds a throwaway
+  uv project under `--offline` and shows the three behaviours the flag is for:
+  a matching lockfile syncs, a stale one fails with `--locked` named in the
+  message, and neither rewrites the lockfile. Previously the contract only
+  asserted that the string `--locked` appeared in the `build` recipe, which is
+  a claim about text. The `build` recipe genuinely changed in this branch
+  (`uv sync --group dev` to `uv sync --locked --group dev`), so the behaviour
+  was untested as well as unchecked.
+
+- *Testing, property* — `test_suppression_properties.py` generates code lists,
+  rationales and casings and asserts the breadth rule fires exactly when a
+  security code appears in a broad form, that a missing or meaningless
+  rationale is reported independently, that a lower-case code is always
+  miscased, that reordering codes changes no verdict, and that a directive
+  inside a string literal is never read while the same text as a comment is.
+  The first run failed, and the failures were the assertions': I had keyed on
+  words the messages do not use, and had assumed a lower-case code was
+  canonically cased. Both are recorded in the module, because a named case
+  written from the same wrong premise would have passed.
+
+- *Developer documentation* — `docs/developers-guide.md` gained "Suppressing a
+  Ruff diagnostic", covering the syntax, the rationale, casing, comma-separated
+  code lists, the breadth rule for security codes and the shared-line shape.
+  `docs/adr-002-four-tier-python-linting.md` gained an addendum recording the
+  preview-selection and suppression policies as decisions, which is where a
+  reader of the ADR would look for them.
+
+Two further review points were documentation corrections and are applied: the
+shared-pragma fixture is now described as a compatibility case rather than a
+migrated one, because the base carries exactly one `# pragma: no cover` and it
+sits on a line with no suppression; and the four `0.15.13` references in the
+contract modules now read "then-pinned", since `uv.lock` pins 0.17.3.
