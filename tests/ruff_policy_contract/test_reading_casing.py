@@ -1,7 +1,7 @@
 """Contract: what a suppression's spelling has to look like for Ruff to read it.
 
 Ruff matches the ``ruff:`` prefix, the directive name and the rule codes
-case-sensitively. Measured on the pinned 0.15.13 over a call that trips S607:
+case-sensitively. Measured on the then-pinned 0.15.13 over a call that trips S607:
 the canonical ``ruff: ignore[S607]`` suppresses the diagnostic, while a
 wrong-case prefix, a wrong-case name or a lower-case code each leave it
 reported. That makes a wrongly-cased comment the worst kind of suppression —

@@ -188,3 +188,48 @@ class TestRepositorySuppressions:
             "convention above was never exercised; check that the reader "
             "still matches the spelling the project writes"
         )
+
+
+class TestScanReport:
+    """A scan must name the offending path, not only that something is wrong."""
+
+    def test_an_invalid_suppression_is_reported_against_its_path(self) -> None:
+        """The report a reviewer reads must say which file and which line.
+
+        ``_scan_result`` is the whole gate's output, and until now nothing
+        asserted its shape: a reader that dropped the path, or that reported
+        every file whether or not it broke the convention, would have satisfied
+        every case above. This drives the same reader over literal sources and
+        checks the two halves a person needs — the path, and a message naming
+        the line.
+        """
+        sources = {
+            "bad.py": "x = 1  # noqa\n",
+            "good.py": "y = 2  # ruff: ignore[S404]  # Why this is safe.\n",
+        }
+        reported = {
+            path: messages
+            for path, found in scan(sources, sources.__getitem__)
+            if (messages := violations(found))
+        }
+        assert set(reported) == {"bad.py"}, (
+            "the scan reported on the wrong set of paths; a clean module was "
+            f"named or the broken one was not: {sorted(reported)}"
+        )
+        assert any("line 1" in message for message in reported["bad.py"]), (
+            "the report for the broken module does not name its line, so a "
+            f"reviewer cannot find it: {reported['bad.py']}"
+        )
+
+    def test_a_valid_suppression_produces_no_report(self) -> None:
+        """The negative control: the same scan must clear a clean module."""
+        sources = {"good.py": "y = 2  # ruff: ignore[S404]  # Why this is safe.\n"}
+        reported = [
+            path
+            for path, found in scan(sources, sources.__getitem__)
+            if violations(found)
+        ]
+        assert reported == [], (
+            "a module whose only suppression names a code and a reason was "
+            f"reported against: {reported}"
+        )
