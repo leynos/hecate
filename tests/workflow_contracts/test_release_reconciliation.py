@@ -200,6 +200,47 @@ def test_the_re_fetch_polls_past_a_cached_index(fake: FakeRelease) -> None:
     )
 
 
+def test_a_stale_initial_index_never_stages_the_rebuild(fake: FakeRelease) -> None:
+    """The first index read must wait for PyPI's upload before staging.
+
+    ``publish-pypi`` has just uploaded, and PyPI's CDN can still answer with a
+    listing that predates it. Staging from that response would make the name
+    look absent from PyPI, so the run's rebuild would be copied into the
+    release -- and GitHub never overwrites an asset, so the digest conflict
+    would need a manual deletion. The initial read therefore polls like the
+    re-fetch does, and the release takes PyPI's bytes.
+    """
+    scene.draft_and_publish_pypi(fake)
+    cwd, env = scene.job_directory(fake, "publish-release")
+    # `publish-pypi` read the index once; the next response is the stale cache.
+    env = {
+        **env,
+        "FAKE_CURL_STALE_AFTER": "1",
+        "FAKE_CURL_STALE_CALLS": "1",
+        "FAKE_CURL_STALE_NAMES": scene.PYPI_ONLY,
+    }
+    before = len(fake.calls("curl"))
+
+    for name in scene.PUBLISH_STEPS:
+        scene.run_required("publish-release", name, cwd, env)
+
+    index_url = "https://pypi.org/simple/hecate-enforce/"
+    indexes = [call for call in fake.calls("curl")[before:] if call[-1] == index_url]
+    assert len(indexes) == 2, "the initial read must poll past the stale response"
+    staged = (cwd / "github-upload" / scene.PYPI_ONLY).read_bytes()
+    assert staged == b"pypi", "the release must stage PyPI's bytes, not the rebuild"
+
+    scene.run_required(
+        "publish-release", "Upload the assets the release lacks", cwd, env
+    )
+    assert (fake.github / scene.PYPI_ONLY).read_bytes() == b"pypi", (
+        "the release must never receive the rebuild"
+    )
+    assert scene.local(scene.PYPI_ONLY) not in scene.holdings(fake.github).values(), (
+        "no destination may hold this run's rebuild under a published name"
+    )
+
+
 def test_the_re_fetch_stays_bounded_when_the_index_never_catches_up(
     fake: FakeRelease,
 ) -> None:
