@@ -12,6 +12,7 @@ not. The composite action is held to building both artefacts with one plain
 from __future__ import annotations
 
 import base64
+import dataclasses as dc
 import hashlib
 import io
 import subprocess  # noqa: S404 - the helper's return type only.
@@ -55,25 +56,40 @@ def _record(name: str, data: bytes) -> str:
     return f"{name},sha256={digest.rstrip(b'=').decode()},{len(data)}"
 
 
-def _write_wheel(
-    directory: Path,
-    *,
-    name: str = "hecate-enforce",
-    include_package: bool = True,
-    check_exit: int = 0,
-) -> Path:
-    """Write a small wheel that mimics the interface the release must expose.
+def _vendored_metadata(name: str) -> bytes:
+    """Return a nested distribution's core metadata, as a vendored copy would be."""
+    return f"Metadata-Version: 2.1\nName: {name}\nVersion: 9.9.9\n".encode()
 
-    ``name`` is the distribution name in the metadata; the import package is
-    always ``hecate`` when ``include_package`` is set. A caller can therefore
-    break one interface layer at a time without a real build.
+
+@dc.dataclass(frozen=True, slots=True)
+class _WheelSpec:
+    """What a synthetic wheel should contain.
+
+    ``vendored`` adds a nested ``.dist-info`` for another distribution, written
+    first so archive order alone would find it before the wheel's own metadata.
     """
+
+    name: str = "hecate-enforce"
+    include_package: bool = True
+    check_exit: int = 0
+    vendored: str | None = None
+
+
+_DEFAULT_WHEEL = _WheelSpec()
+
+
+def _write_wheel(directory: Path, spec: _WheelSpec = _DEFAULT_WHEEL) -> Path:
+    """Write a small wheel that mimics the interface the release must expose."""
     directory.mkdir(parents=True, exist_ok=True)
-    normalized = name.replace("-", "_")
+    normalized = spec.name.replace("-", "_")
     dist_info = f"{normalized}-0.1.0.dist-info"
-    files: dict[str, bytes] = {
+    files: dict[str, bytes] = {}
+    if spec.vendored is not None:
+        nested = f"hecate/_vendor/{spec.vendored.replace('-', '_')}-9.9.9.dist-info"
+        files[f"{nested}/METADATA"] = _vendored_metadata(spec.vendored)
+    files |= {
         f"{dist_info}/METADATA": (
-            f"Metadata-Version: 2.1\nName: {name}\nVersion: 0.1.0\n".encode()
+            f"Metadata-Version: 2.1\nName: {spec.name}\nVersion: 0.1.0\n".encode()
         ),
         f"{dist_info}/WHEEL": (
             b"Wheel-Version: 1.0\n"
@@ -85,13 +101,13 @@ def _write_wheel(
             b"[console_scripts]\nhecate = hecate.cli:main\n"
         ),
     }
-    if include_package:
+    if spec.include_package:
         files.update({
             "hecate/__init__.py": b"",
             "hecate/__main__.py": (
                 b"from hecate.cli import main\nraise SystemExit(main())\n"
             ),
-            "hecate/cli.py": _CLI.format(check_exit=check_exit).encode(),
+            "hecate/cli.py": _CLI.format(check_exit=spec.check_exit).encode(),
         })
     records = list(starmap(_record, files.items()))
     records.append(f"{dist_info}/RECORD,,")
@@ -109,17 +125,30 @@ def _write_sdist(
     *,
     name: str = "hecate-enforce",
     version: str = "0.1.0",
+    vendored: str | None = None,
 ) -> Path:
-    """Write a small source distribution whose ``PKG-INFO`` mirrors the wheel."""
+    """Write a small source distribution whose ``PKG-INFO`` mirrors the wheel.
+
+    ``vendored`` adds a nested ``PKG-INFO`` for another distribution, written
+    first so that archive order alone would find it before the sdist's own.
+    """
     directory.mkdir(parents=True, exist_ok=True)
     normalized = name.replace("-", "_")
     payload = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n".encode()
     sdist = directory / f"{normalized}-{version}.tar.gz"
     with tarfile.open(sdist, "w:gz") as archive:
-        info = tarfile.TarInfo(f"{normalized}-{version}/PKG-INFO")
-        info.size = len(payload)
-        archive.addfile(info, io.BytesIO(payload))
+        if vendored is not None:
+            nested = f"{normalized}-{version}/hecate/_vendor/{vendored}/PKG-INFO"
+            _add_member(archive, nested, _vendored_metadata(vendored))
+        _add_member(archive, f"{normalized}-{version}/PKG-INFO", payload)
     return sdist
+
+
+def _add_member(archive: tarfile.TarFile, name: str, payload: bytes) -> None:
+    """Add one file to an open tar archive."""
+    info = tarfile.TarInfo(name)
+    info.size = len(payload)
+    archive.addfile(info, io.BytesIO(payload))
 
 
 def _run_with_sdist_count(tmp_path: Path, count: int) -> tuple[int, str]:
@@ -237,7 +266,7 @@ def test_the_verification_rejects_the_wrong_installed_distribution(
     tmp_path: Path,
 ) -> None:
     """A wheel installed under another name fails the metadata check."""
-    wheel = _write_wheel(tmp_path / "dist", name="hecate")
+    wheel = _write_wheel(tmp_path / "dist", _WheelSpec(name="hecate"))
 
     completed = _run_verification(tmp_path, wheel=wheel)
 
@@ -260,6 +289,42 @@ def test_the_verification_rejects_an_sdist_with_another_name(
         "the failure must name the archive metadata that disagreed"
     )
     assert "hecate-enforce" in completed.stderr
+
+
+def test_the_verification_reads_the_root_metadata_past_a_vendored_copy(
+    tmp_path: Path,
+) -> None:
+    """A vendored archive member must not stand in for the archive's own."""
+    wheel = _write_wheel(tmp_path / "dist", _WheelSpec(vendored="some-vendored-lib"))
+    sdist = _write_sdist(tmp_path / "dist", vendored="some-vendored-lib")
+
+    completed = _run_verification(tmp_path, wheel=wheel, sdist=sdist)
+
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+
+
+@pytest.mark.parametrize("archive", ["wheel", "sdist"], ids=["wheel", "sdist"])
+def test_the_verification_judges_the_root_metadata_only(
+    tmp_path: Path, archive: str
+) -> None:
+    """A correct vendored copy must not excuse the archive's own metadata."""
+    if archive == "wheel":
+        wheel = _write_wheel(
+            tmp_path / "dist", _WheelSpec(name="hecate", vendored="hecate-enforce")
+        )
+        sdist = _write_sdist(tmp_path / "dist")
+    else:
+        wheel = _write_wheel(tmp_path / "dist")
+        sdist = _write_sdist(
+            tmp_path / "dist", name="hecate", vendored="hecate-enforce"
+        )
+
+    completed = _run_verification(tmp_path, wheel=wheel, sdist=sdist)
+
+    assert completed.returncode != 0, "the archive's own metadata is the subject"
+    assert "hecate-enforce" in completed.stderr, (
+        "the failure must name the distribution the root metadata should declare"
+    )
 
 
 def test_the_verification_rejects_an_archive_version_mismatch(
@@ -293,7 +358,7 @@ def test_the_verification_rejects_a_wheel_that_does_not_import(
     tmp_path: Path,
 ) -> None:
     """A wheel whose package is missing fails before either entry point runs."""
-    wheel = _write_wheel(tmp_path / "dist", include_package=False)
+    wheel = _write_wheel(tmp_path / "dist", _WheelSpec(include_package=False))
 
     completed = _run_verification(tmp_path, wheel=wheel)
 
@@ -305,7 +370,7 @@ def test_the_verification_rejects_a_failing_check_command(
     tmp_path: Path,
 ) -> None:
     """A ``hecate check`` that exits non-zero fails the installation step."""
-    wheel = _write_wheel(tmp_path / "dist", check_exit=1)
+    wheel = _write_wheel(tmp_path / "dist", _WheelSpec(check_exit=1))
 
     completed = _run_verification(tmp_path, wheel=wheel)
 
