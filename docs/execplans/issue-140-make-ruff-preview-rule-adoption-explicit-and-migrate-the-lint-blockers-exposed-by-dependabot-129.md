@@ -1334,9 +1334,9 @@ rather than absent from the branch.
 Revision 10: the formal review's first pass at the ready head. Two inline
 findings and five failed pre-merge checks, dispositioned as follows.
 
-The inline finding was real: `tests/ruff_policy_contract/ruff_run.py` wrote
-the `-isable` form of "recognizable" in a comment, and `typos.toml` itself
-carries that mapping. Corrected.
+The inline finding was real: `tests/ruff_policy_contract/ruff_run.py` wrote the
+`-isable` form of "recognizable" in a comment, and `typos.toml` itself carries
+that mapping. Corrected.
 
 Four of the five pre-merge checks were gaps this plan had left open rather than
 defects, and each is now closed rather than argued away.
