@@ -13,8 +13,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import subprocess  # noqa: S404 - the helper's return type only.
 import sys
+import tarfile
 import typing as typ
 import zipfile
 from itertools import starmap
@@ -102,6 +104,24 @@ def _write_wheel(
     return wheel
 
 
+def _write_sdist(
+    directory: Path,
+    *,
+    name: str = "hecate-enforce",
+    version: str = "0.1.0",
+) -> Path:
+    """Write a small source distribution whose ``PKG-INFO`` mirrors the wheel."""
+    directory.mkdir(parents=True, exist_ok=True)
+    normalized = name.replace("-", "_")
+    payload = f"Metadata-Version: 2.1\nName: {name}\nVersion: {version}\n".encode()
+    sdist = directory / f"{normalized}-{version}.tar.gz"
+    with tarfile.open(sdist, "w:gz") as archive:
+        info = tarfile.TarInfo(f"{normalized}-{version}/PKG-INFO")
+        info.size = len(payload)
+        archive.addfile(info, io.BytesIO(payload))
+    return sdist
+
+
 def _run_with_sdist_count(tmp_path: Path, count: int) -> tuple[int, str]:
     """Run the count step with one pure wheel and ``count`` source distributions."""
     wheel_dir = tmp_path / "dist"
@@ -117,8 +137,23 @@ def _run_with_sdist_count(tmp_path: Path, count: int) -> tuple[int, str]:
     return result.returncode, result.stderr
 
 
-def _run_verification(tmp_path: Path, wheel: Path) -> subprocess.CompletedProcess[str]:
-    """Run the workflow's installation step against ``wheel``."""
+def _run_verification(
+    tmp_path: Path,
+    *,
+    wheel: Path | None = None,
+    sdist: Path | None = None,
+    version: str = "0.1.0",
+) -> subprocess.CompletedProcess[str]:
+    """Run the workflow's installation step against the staged archives."""
+    directory = tmp_path / "dist"
+    if wheel is None:
+        wheel = _write_wheel(directory)
+    if sdist is None:
+        sdist = _write_sdist(directory, version=version)
+    (tmp_path / "pyproject.toml").write_text(
+        f'[project]\nname = "hecate-enforce"\nversion = "{version}"\n',
+        encoding="utf-8",
+    )
     link_scripts(tmp_path)
     return run_bash(
         step_script(JOB, VERIFY_STEP, workflow=WORKFLOW),
@@ -190,10 +225,10 @@ def test_the_installed_wheel_exposes_the_distribution_and_cli(
     """The installed metadata, import, and both entry points all answer."""
     wheel = _write_wheel(tmp_path / "dist")
 
-    completed = _run_verification(tmp_path, wheel)
+    completed = _run_verification(tmp_path, wheel=wheel)
 
     assert completed.returncode == 0, completed.stdout + completed.stderr
-    assert "The installed wheel exposes the hecate-enforce interface." in (
+    assert "The archives and installed wheel expose the hecate-enforce interface." in (
         completed.stdout
     )
 
@@ -204,11 +239,54 @@ def test_the_verification_rejects_the_wrong_installed_distribution(
     """A wheel installed under another name fails the metadata check."""
     wheel = _write_wheel(tmp_path / "dist", name="hecate")
 
-    completed = _run_verification(tmp_path, wheel)
+    completed = _run_verification(tmp_path, wheel=wheel)
 
     assert completed.returncode != 0, "the distribution name must be checked"
     assert "installed-distribution" in completed.stderr
     assert "hecate-enforce" in completed.stderr
+
+
+def test_the_verification_rejects_an_sdist_with_another_name(
+    tmp_path: Path,
+) -> None:
+    """The sdist's ``PKG-INFO`` must name the distribution, not just the wheel."""
+    wheel = _write_wheel(tmp_path / "dist")
+    sdist = _write_sdist(tmp_path / "dist", name="hecate")
+
+    completed = _run_verification(tmp_path, wheel=wheel, sdist=sdist)
+
+    assert completed.returncode != 0, "the sdist's name must be checked"
+    assert "PKG-INFO" in completed.stderr, (
+        "the failure must name the archive metadata that disagreed"
+    )
+    assert "hecate-enforce" in completed.stderr
+
+
+def test_the_verification_rejects_an_archive_version_mismatch(
+    tmp_path: Path,
+) -> None:
+    """Both archives must declare the version ``pyproject.toml`` states."""
+    wheel = _write_wheel(tmp_path / "dist")
+    sdist = _write_sdist(tmp_path / "dist")
+
+    completed = _run_verification(tmp_path, wheel=wheel, sdist=sdist, version="0.2.0")
+
+    assert completed.returncode != 0, "the declared version must be checked"
+    assert "0.2.0" in completed.stderr, (
+        "the failure must name the version pyproject.toml declares"
+    )
+
+
+def test_the_verification_requires_exactly_one_sdist(tmp_path: Path) -> None:
+    """A second source distribution is ambiguous, so the check refuses it."""
+    wheel = _write_wheel(tmp_path / "dist")
+    _write_sdist(tmp_path / "dist")
+    _write_sdist(tmp_path / "dist", version="0.1.1")
+
+    completed = _run_verification(tmp_path, wheel=wheel)
+
+    assert completed.returncode != 0, "two sdists must fail the archive check"
+    assert "exactly one source distribution" in completed.stderr
 
 
 def test_the_verification_rejects_a_wheel_that_does_not_import(
@@ -217,7 +295,7 @@ def test_the_verification_rejects_a_wheel_that_does_not_import(
     """A wheel whose package is missing fails before either entry point runs."""
     wheel = _write_wheel(tmp_path / "dist", include_package=False)
 
-    completed = _run_verification(tmp_path, wheel)
+    completed = _run_verification(tmp_path, wheel=wheel)
 
     assert completed.returncode != 0, "the import must be checked"
     assert "No module named 'hecate'" in completed.stderr
@@ -229,7 +307,7 @@ def test_the_verification_rejects_a_failing_check_command(
     """A ``hecate check`` that exits non-zero fails the installation step."""
     wheel = _write_wheel(tmp_path / "dist", check_exit=1)
 
-    completed = _run_verification(tmp_path, wheel)
+    completed = _run_verification(tmp_path, wheel=wheel)
 
     assert completed.returncode != 0, "the check command's status must be checked"
     assert "hecate check --config" in completed.stderr
