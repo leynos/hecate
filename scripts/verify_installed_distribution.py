@@ -74,36 +74,50 @@ def _check_metadata(label: str, text: str, version: str) -> None:
         raise VerificationError(msg)
 
 
+def _name_and_version(filename: str, suffix: str) -> tuple[str, str]:
+    """Return the escaped name and version a distribution filename begins with.
+
+    ``<escaped name>-<version>[-<build>]-<python>-<abi>-<platform>.whl`` and
+    ``<escaped name>-<version>.tar.gz`` both start with the same pair, and the
+    archive's root metadata sits under exactly that pair. Deriving it from the
+    filename keeps the match exact without consulting ``pyproject.toml``.
+    """
+    name, version, *_ = filename.removesuffix(suffix).split("-")
+    return name, version
+
+
 def _wheel_metadata(wheel: Path) -> str:
-    """Return the ``METADATA`` text of one wheel."""
+    """Return the root ``METADATA`` text of one wheel.
+
+    The member is matched by its exact path, not by suffix, because a wheel
+    may vendor another distribution's ``.dist-info`` directory. Reading that
+    one would check metadata this project does not ship.
+    """
+    name, version = _name_and_version(wheel.name, ".whl")
+    member = f"{name}-{version}.dist-info/METADATA"
     with zipfile.ZipFile(wheel) as archive:
-        member = next(
-            (
-                name
-                for name in archive.namelist()
-                if name.endswith(".dist-info/METADATA")
-            ),
-            None,
-        )
-        if member is None:
-            msg = f"{wheel.name} has no METADATA"
+        if member not in archive.namelist():
+            msg = f"{wheel.name} has no {member}"
             raise VerificationError(msg)
         return archive.read(member).decode("utf-8")
 
 
 def _sdist_metadata(sdist: Path) -> str:
-    """Return the ``PKG-INFO`` text of one source distribution."""
+    """Return the root ``PKG-INFO`` text of one source distribution.
+
+    The member is matched at the archive's own root directory rather than by
+    suffix, so a vendored project's ``PKG-INFO`` cannot stand in for this
+    distribution's.
+    """
+    name, version = _name_and_version(sdist.name, ".tar.gz")
+    member = f"{name}-{version}/PKG-INFO"
     with tarfile.open(sdist) as archive:
-        member = next(
-            (item for item in archive.getmembers() if item.name.endswith("/PKG-INFO")),
-            None,
-        )
-        if member is None:
-            msg = f"{sdist.name} has no PKG-INFO"
-            raise VerificationError(msg)
-        extracted = archive.extractfile(member)
+        try:
+            extracted = archive.extractfile(member)
+        except KeyError:
+            extracted = None
         if extracted is None:
-            msg = f"{sdist.name} has an unreadable PKG-INFO"
+            msg = f"{sdist.name} has no {member}"
             raise VerificationError(msg)
         return extracted.read().decode("utf-8")
 
