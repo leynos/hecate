@@ -443,9 +443,14 @@ instead of arriving as a surprise CI failure? The observable end state:
 - `make spelling` regenerates the tracked `typos.toml` from the upstream
   shared dictionary on every run, so a plain `make markdownlint` leaves a
   modified tracked file in the working tree. The gate still exits 0; the
-  rewrite reflects upstream dictionary drift, not this change. The plan reverts
-  it rather than smuggling an unrelated regeneration into a Ruff commit, and
-  the final commit leaves `typos.toml` untouched.
+  rewrite reflects upstream dictionary drift, not this change. The plan's first
+  response was to revert it rather than smuggle an unrelated regeneration into
+  a Ruff commit. That was not the final state: the refresh proved deterministic
+  and reviewable, so it is committed separately as `9284bb0` and the file
+  therefore *is* changed by this branch. Keeping the regeneration out of the
+  Ruff commits and giving it its own is what the original note was protecting;
+  leaving `typos.toml` untouched entirely was not achievable while also passing
+  the Markdown gate.
 - Twelve preview codes were already named individually in `select` before this
   change (`PLE4703`, `PLR0202`, `PLR0203`, `PLR0914`, `PLR0916`, `PLR1702`,
   `PLR6104`, `PLR6201`, `PLR6301`, `RUF036`, `RUF055`, `RUF066`), so the
@@ -869,8 +874,8 @@ facts it can assert without the tool: the pragma survives verbatim in the
 migrated comment, and Ruff still honours its own directive beside it.
 
 The coverage half was measured directly instead, with the real tool pinned to
-an exact version, against the same four fixtures the contract builds. The
-driver below is complete: it constructs the fixtures, runs them, and reads
+an exact version, against the same four comment variants the contract builds.
+The driver below is complete: it constructs the fixtures, runs them, and reads
 `analysis2` rather than inferring exclusion from `report -m`. Run it from an
 empty directory; it writes nothing into the repository.
 
@@ -1163,11 +1168,11 @@ repository scan's own non-vacuity test; removing the broad-form rule from
 `uv run ruff check hecate tests scripts` reports `All checks passed!`.
 
 The coverage half of the shared-line contract was measured out of band with
-coverage 7.17.2, against the same four fixtures the contract builds. It is not
-a suite assertion because `coverage` is not a dependency and adding it would
-edit the two files issue 176 also edits; see "What remains open". The complete
-reproduction, including fixture construction and the `analysis2` call, is in
-"What remains open" above.
+coverage 7.17.2, against the same four comment variants the contract builds. It
+is not a suite assertion because `coverage` is not a dependency and adding it
+would edit the two files issue 176 also edits; see "What remains open". The
+complete reproduction, including fixture construction and the `analysis2` call,
+is in "What remains open" above.
 
 ```plaintext
 directive_then_pragma      excluded=[3]       missing=[]        line3_excluded=True line3_missing=False
@@ -1308,3 +1313,15 @@ stated delta of nine; measurement confirms 0.16.9 adds nine rules (`D421`,
 `RUF074`, `RUF075`, `RUF077`, `RUF105`, `RUF106`, `RUF201`, `UP048`, `UP051`)
 and 0.17.3 adds a tenth, `UP052`, so the phrase is now "and eight others" with
 `UP052` named as the tenth rather than left implicit in "again".
+
+Revision 9: two documentation discrepancies from the review of revision 8. The
+contract module's docstring still described the out-of-band measurement as
+reading line 2, which was correct for the superseded driver and wrong for the
+function-wrapped one; and both call sites called the driver's fixtures "the
+same four fixtures the contract builds", when the suite imports at module top
+level and the driver deliberately does not, so they are the same comment
+variants rather than the same files. The module now says so explicitly. The
+`typos.toml` note said the final commit leaves the file untouched; the branch
+in fact refreshes it as `9284bb0`, which the same document records nine lines
+later, so the note now says the regeneration is kept out of the Ruff commits
+rather than absent from the branch.

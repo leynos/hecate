@@ -25,11 +25,13 @@ honours its own directive beside it.
 
 The coverage half was measured out of band instead, with the real tool, and
 the result is recorded in the ExecPlan's Milestone 3 evidence: across both
-directive orders and a pragma-only control, ``analysis2`` reports line 2 as
-excluded in all three, while the no-comment control reports it as a statement
-that is not excluded. That is the same four-way matrix these cases build, run
-through coverage 7.17.2. Reproducing it needs only ``uv tool run --from
-coverage``; nothing in the repository changes.
+directive orders and a pragma-only control, ``analysis2`` reports the commented
+line as excluded in all three, while the no-comment control reports that same
+line as missing. That is the four-way matrix of the same comment variants these
+cases build — not the same fixtures verbatim, because the driver places each
+import inside a function it never calls so the line genuinely does not execute,
+whereas the cases here import at module top level. Reproducing it needs only
+``uv tool run --from coverage``; nothing in the repository changes.
 
 This module is separate from ``test_suppression_behaviour`` because the two
 together exceed the module-length cap. It imports the runner from
