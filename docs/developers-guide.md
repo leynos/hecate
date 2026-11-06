@@ -1481,6 +1481,35 @@ shows every name this run built. A cache that is merely behind delays the
 release rather than failing it, and a stale first read can never stage a
 rebuild under a name PyPI already holds.
 
+### Release scripts
+
+The reconciliation decisions live in `scripts/release_assets.py`, with three
+interfaces the workflow and its tests share:
+
+- `Source` names the destination a filename's canonical bytes come from:
+  `PYPI`, `GITHUB`, or `LOCAL` (this run's build), in that precedence order.
+- `plan(local, on_pypi, on_github)` is pure: given the names this run built and
+  what each destination holds, it returns a `Plan` whose `canonical` mapping
+  names each filename's source and whose `pypi_uploads` and `github_uploads`
+  sets name only what each side lacks. It performs no I/O, so a test can state
+  any combination of holdings directly.
+- `State` holds the publish directory and both destinations' listings.
+  `State.names()` is the one fallible read of the publish directory: it lists
+  and validates the staged names and raises `ReleaseAssetError` for an unsafe
+  name or `OSError` when the directory cannot be read. `State.plan(names)` then
+  plans from those names, so the rest of the module never re-reads the
+  directory behind a caller's back.
+
+`scripts/release_assets_cli.py` wires those interfaces to the workflow's steps:
+`carryover`, `stage-pypi`, `stage-github`, `check-fetched`, `index-expected`,
+and `verify`. Both modules, together with `scripts/release_index.py` and
+`scripts/release_version.py`, use only the Python standard library and run
+under the runner's preinstalled `python3`. That is deliberate: `publish-pypi`
+holds the PyPI OpenID Connect credential and must not resolve any third-party
+package while it is live. Keep network calls in the workflow's `curl` and `gh`
+steps; the scripts only plan for them. The design rationale is in
+[ADR 004](adr-004-attested-reconciled-release-pipeline.md#stdlib-only-release-scripts).
+
 ### Release tests
 
 `tests/workflow_contracts/` holds the release's tests. They run the checked-in
@@ -1495,7 +1524,13 @@ directories, and pin the workflow's structure:
 - `test_release_publish_steps.py`, `test_release_github_steps.py`,
   `test_release_reconciliation.py`, and `test_release_rerun.py` execute the
   actual step scripts and assert the reconciliation, digest checks, index
-  polling, and re-run behaviour.
+  polling, carried-asset digests, the required bundle, and re-run behaviour.
+- `test_release_end_to_end.py` runs the whole job sequence twice: the first run
+  publishes every name and un-drafts the release, and the second uploads
+  nothing and changes no bytes.
+- `test_release_assets.py` and `test_release_property.py` pin the planning,
+  digest, and bundle decisions directly, including generated combinations of
+  holdings.
 - `test_ci_wheel_build.py` checks the pull-request build's sdist and wheel
   cardinality, the archive metadata (both `PKG-INFO` and `METADATA` name
   `hecate-enforce` and declare `pyproject.toml`'s version), and the
