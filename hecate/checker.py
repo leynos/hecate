@@ -202,7 +202,7 @@ def _find_unmatched_ignores(
     policy: ArchitecturePolicy,
     ignored: dict[tuple[str, str], IgnoredImportDiagnostic],
 ) -> tuple[str, ...]:
-    """Return sorted ``importer -> imported`` labels for ignores matching no edge."""
+    """Return sorted ``importer -> imported`` labels for unselected ignores."""
     matched = set(ignored)
     unmatched = [
         f"{ignored_import.importer} -> {ignored_import.imported}"

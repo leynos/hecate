@@ -58,7 +58,7 @@ class _FailureProperty[Value](property):
     """
 
     def __get__(self, instance: object, owner: type | None = None) -> Value:
-        """Return the wrapped property value, narrowed to ``Value`` for checkers."""
+        """Delegate to ``property.__get__`` and cast the result for type checkers."""
         return typ.cast("Value", super().__get__(instance, owner))
 
 
