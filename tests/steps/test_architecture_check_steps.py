@@ -263,6 +263,7 @@ def then_stderr_contains(fixture_ctx: FixtureContext, text: str) -> None:
 
 
 def _result(fixture_ctx: FixtureContext) -> CliRun:
+    """Return the recorded CLI result, failing if none was captured."""
     assert fixture_ctx.result is not None, (
         f"expected CLI result to be recorded, got {fixture_ctx.result!r}"
     )

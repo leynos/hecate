@@ -299,6 +299,7 @@ def _direct_import_bindings(node: ast.Import) -> tuple[tuple[str, Binding], ...]
 
 
 def _direct_import_binding(alias: ast.alias) -> tuple[str, Binding]:
+    """Return the name and binding that one ``import`` alias creates."""
     if alias.asname is not None:
         return (alias.asname, Imported(origin=alias.name, symbol=None))
     leading = alias.name.split(".", maxsplit=1)[0]
@@ -342,6 +343,7 @@ def _wildcard_origins_from_statement(
 def _resolve_from(
     node: ast.ImportFrom, *, module: str, is_package_init: bool
 ) -> str | None:
+    """Return the absolute module that a ``from`` statement imports from."""
     return resolve_import_from(
         module,
         is_package_init=is_package_init,

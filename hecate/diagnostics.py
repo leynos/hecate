@@ -58,6 +58,7 @@ class _FailureProperty[Value](property):
     """
 
     def __get__(self, instance: object, owner: type | None = None) -> Value:
+        """Delegate to ``property.__get__`` and cast the result for type checkers."""
         return typ.cast("Value", super().__get__(instance, owner))
 
 
@@ -75,25 +76,32 @@ class _ClassifiedEdge(typ.Protocol):
     """
 
     @property
-    def rule_id(self) -> str: ...
+    def rule_id(self) -> str:
+        """Return the identifier of the rule that governs this edge."""
 
     @property
-    def importer(self) -> str: ...
+    def importer(self) -> str:
+        """Return the dotted name of the module that performs the import."""
 
     @property
-    def imported(self) -> str: ...
+    def imported(self) -> str:
+        """Return the dotted name of the import target or its resolved origin."""
 
     @property
-    def line(self) -> int: ...
+    def line(self) -> int:
+        """Return the line number of the import statement."""
 
     @property
-    def source_path(self) -> Path: ...
+    def source_path(self) -> Path:
+        """Return the path of the file that contains the import."""
 
     @property
-    def importer_group(self) -> str | None: ...
+    def importer_group(self) -> str | None:
+        """Return the group of the importing module, or None if it has none."""
 
     @property
-    def imported_group(self) -> str | None: ...
+    def imported_group(self) -> str | None:
+        """Return the group matched by the import target or resolved origin, if any."""
 
 
 @dc.dataclass(frozen=True, slots=True)

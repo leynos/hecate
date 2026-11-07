@@ -353,6 +353,7 @@ class _FailingStream:
         if name == self.method:
 
             def fail(*_args: object, **_kwargs: object) -> None:
+                """Raise OSError in place of the wrapped stream's method."""
                 message = f"temporary file {self.method} failed"
                 raise OSError(message)
 
@@ -379,6 +380,7 @@ def test_removes_the_temporary_file_when_an_early_write_fails(
     open_stream = atomic_write.tempfile.NamedTemporaryFile
 
     def failing(*args: object, **kwargs: object) -> _FailingStream:
+        """Stand in for ``NamedTemporaryFile`` with a stream whose ``method`` fails."""
         # ``object``-typed ``*args`` matches no ``NamedTemporaryFile`` overload,
         # even though the only call that reaches this double passes exactly the
         # two keywords ``atomic_write`` itself uses.
