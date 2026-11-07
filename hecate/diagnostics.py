@@ -101,7 +101,7 @@ class _ClassifiedEdge(typ.Protocol):
 
     @property
     def imported_group(self) -> str | None:
-        """Return the group of the imported module, or None if it has none."""
+        """Return the group matched by the import target or resolved origin, if any."""
 
 
 @dc.dataclass(frozen=True, slots=True)
