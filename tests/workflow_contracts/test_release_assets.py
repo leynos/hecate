@@ -153,6 +153,7 @@ def test_one_command_lists_the_publish_directory_once(
     original = release_assets.local_names
 
     def counting(directory: pth.Path) -> list[str]:
+        """Record one listing of ``directory`` and pass its names through."""
         reads.append(directory)
         return original(directory)
 

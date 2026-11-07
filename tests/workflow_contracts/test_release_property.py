@@ -346,6 +346,7 @@ def test_the_bundle_reaches_the_release_only_when_it_attests_what_ships(
     published = on_pypi | on_github
 
     def held(name: str) -> bytes:
+        """Return the bytes this destination already holds for ``name``."""
         return b"other build" if name in differing else f"{build} {name}".encode()
 
     final = _release_pass(
