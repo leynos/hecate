@@ -175,6 +175,61 @@ class _Pass:
     names: tuple[str, ...] = NAMES
 
 
+def _bundles(run_root: pth.Path) -> pth.Path:
+    """Write this run's bundle and return the directory holding it."""
+    bundles = run_root / "bundles"
+    bundles.mkdir(parents=True)
+    (bundles / "run.sigstore.json").write_bytes(b"bundle")
+    return bundles
+
+
+def _publish_pypi(
+    run_root: pth.Path,
+    dist: pth.Path,
+    destinations: _Destinations,
+    upload: cabc.Collection[str] | None,
+) -> tuple[_Destinations, bool]:
+    """Stage and model the PyPI upload; report whether it was interrupted.
+
+    ``upload`` names the artefacts the upload step managed to send before the
+    job stopped. When it is given and the step did not send everything, the
+    caller must stop: ``publish-release`` never runs after a failed upload.
+    """
+    publish = shutil.copytree(dist, run_root / "publish-pypi")
+    github_files = run_root / "github-files"
+    github_files.mkdir()
+    for name, data in destinations.github.items():
+        (github_files / name).write_bytes(data)
+    release_assets.stage_pypi(_state(publish, destinations), github_files)
+
+    after = _copy(destinations)
+    staged = {path.name for path in publish.iterdir()}
+    for path in sorted(publish.iterdir()):
+        if upload is not None and path.name not in upload:
+            continue
+        assert path.name not in after.pypi, "PyPI never overwrites"
+        after.pypi[path.name] = path.read_bytes()
+    return after, upload is not None and not staged <= set(upload)
+
+
+def _publish_release(
+    run_root: pth.Path, dist: pth.Path, bundles: pth.Path, destinations: _Destinations
+) -> _Destinations:
+    """Stage, fetch, check, and model the GitHub Release upload."""
+    publish = shutil.copytree(dist, run_root / "publish-release")
+    state = _state(publish, destinations)
+    output = run_root / "out"
+    fetch = release_assets.stage_github(state, bundles, output)
+    for name, url in fetch:
+        assert url.startswith("https://"), "every PyPI download must use HTTPS"
+        (output / name).write_bytes(destinations.pypi[name])
+    release_assets.check_fetched(state, output)
+    for path in sorted(output.iterdir()):
+        assert path.name not in destinations.github, "the release never overwrites"
+        destinations.github[path.name] = path.read_bytes()
+    return destinations
+
+
 def _release_pass(
     root: pth.Path,
     options: _Pass,
@@ -184,52 +239,19 @@ def _release_pass(
     """Run one release pass against ``destinations`` and return the result.
 
     Each job starts from a fresh copy of the build's ``dist``, as the
-    ``release-dist`` artefact hands it on. ``upload`` names the artefacts the
-    PyPI upload step managed to send before the job stopped; when it is given
-    and the step did not send everything, the pass ends there, because
-    ``publish-release`` never runs after a failed upload.
+    ``release-dist`` artefact hands it on.
     """
     # Hypothesis reuses one ``tmp_path`` across examples, so each pass starts
     # from a directory of its own name that holds nothing from an earlier one.
     run_root = root / options.label
     shutil.rmtree(run_root, ignore_errors=True)
     dist = _build(run_root / "build", options.build, options.names)
-    bundles = run_root / "bundles"
-    bundles.mkdir(parents=True)
-    (bundles / "run.sigstore.json").write_bytes(b"bundle")
+    bundles = _bundles(run_root)
 
-    # publish-pypi: stage the canonical bytes PyPI lacks, then upload them.
-    publish = shutil.copytree(dist, run_root / "publish-pypi")
-    github_files = run_root / "github-files"
-    github_files.mkdir()
-    for name, data in destinations.github.items():
-        (github_files / name).write_bytes(data)
-    release_assets.stage_pypi(_state(publish, destinations), github_files)
-
-    after_pypi = _copy(destinations)
-    staged = {path.name for path in publish.iterdir()}
-    for path in sorted(publish.iterdir()):
-        if upload is not None and path.name not in upload:
-            continue
-        assert path.name not in after_pypi.pypi, "PyPI never overwrites"
-        after_pypi.pypi[path.name] = path.read_bytes()
-    if upload is not None and not staged <= set(upload):
+    after_pypi, interrupted = _publish_pypi(run_root, dist, destinations, upload)
+    if interrupted:
         return after_pypi
-
-    # publish-release: stage what the release lacks, fetch PyPI's bytes, check
-    # them, then upload.
-    publish = shutil.copytree(dist, run_root / "publish-release")
-    state = _state(publish, after_pypi)
-    output = run_root / "out"
-    fetch = release_assets.stage_github(state, bundles, output)
-    for name, url in fetch:
-        assert url.startswith("https://"), "every PyPI download must use HTTPS"
-        (output / name).write_bytes(after_pypi.pypi[name])
-    release_assets.check_fetched(state, output)
-    for path in sorted(output.iterdir()):
-        assert path.name not in after_pypi.github, "the release never overwrites"
-        after_pypi.github[path.name] = path.read_bytes()
-    return after_pypi
+    return _publish_release(run_root, dist, bundles, after_pypi)
 
 
 def _assert_preserved(before: _Destinations, after: _Destinations) -> None:
