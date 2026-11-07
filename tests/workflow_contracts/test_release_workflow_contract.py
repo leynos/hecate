@@ -247,6 +247,13 @@ def test_the_release_is_published_only_after_pypi() -> None:
             f"{name!r} must run unconditionally, or a conditional could bypass "
             "the digest check and publish a release the check never inspected"
         )
+    # `continue-on-error` bypasses the same gate the other way: the job would
+    # carry on to publication after the check failed.
+    for declared in _declared_steps("publish-release"):
+        assert "continue-on-error" not in declared, (
+            f"{declared.get('name')!r} must not tolerate failure, or a failed "
+            "digest check could still be followed by publication"
+        )
     assert "--draft=false" in step_script(
         "publish-release", "Publish the GitHub Release"
     ), "publication must un-draft the release"

@@ -316,8 +316,23 @@ def canonical_digest(
     staged files, and the :class:`State` that holds them, stays at the caller's
     boundary. ``local_digests`` need only hold the names this run staged.
 
-    The digest is ``None`` for a GitHub asset whose digest GitHub did not
-    report, and for a name the chosen listing does not hold.
+    Parameters
+    ----------
+    name : str
+        The artefact name to resolve.
+    pypi_digests : collections.abc.Mapping[str, str]
+        PyPI's SHA-256 hex digest for each name it holds.
+    github_digests : collections.abc.Mapping[str, str | None]
+        The GitHub Release's digest per asset, ``None`` when GitHub reports none.
+    local_digests : collections.abc.Mapping[str, str]
+        This run's SHA-256 hex digest for each staged name it hashed.
+
+    Returns
+    -------
+    tuple[Source, str | None]
+        The canonical source and its digest. The digest is ``None`` for a
+        GitHub asset whose digest GitHub did not report, and for a name the
+        chosen listing does not hold.
     """
     source = _canonical_source(name, pypi_digests, github_digests)
     if source is Source.PYPI:

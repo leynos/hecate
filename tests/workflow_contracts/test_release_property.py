@@ -358,8 +358,9 @@ def test_the_bundle_reaches_the_release_only_when_it_attests_what_ships(
     )
 
     assert final.problems == [], "agreeing destinations must not block publication"
+    ships_another_build = bool(differing & published)
     assert ("run.sigstore.json" in final.destinations.github) is not (
-        differing & published
+        ships_another_build
     ), "the bundle must ride along exactly when it describes every shipped byte"
 
 
