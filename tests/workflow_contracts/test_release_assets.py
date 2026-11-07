@@ -58,8 +58,9 @@ def _built(publish: pth.Path, *names: str) -> pth.Path:
 def test_a_first_release_attests_the_bytes_it_ships(tmp_path: pth.Path) -> None:
     """Nothing is published yet, so this run's bytes are canonical everywhere."""
     publish = _built(tmp_path / "publish", "h-1.whl", "h-1.tar.gz")
+    state = _state(publish)
 
-    assert release_assets.attests_canonical_bytes(_state(publish)), (
+    assert release_assets.attests_canonical_bytes(state, state.names()), (
         "a first release must attest the bytes it ships"
     )
 
@@ -70,7 +71,7 @@ def test_a_rerun_whose_rebuild_differs_attests_nothing(tmp_path: pth.Path) -> No
     state = _state(publish, pypi={"h-1.whl": "canonical"})
     (publish / "h-1.whl").write_bytes(b"rebuilt differently")
 
-    assert not release_assets.attests_canonical_bytes(state), (
+    assert not release_assets.attests_canonical_bytes(state, state.names()), (
         "a differing rebuild must not be attested"
     )
 
@@ -80,7 +81,7 @@ def test_a_rerun_whose_rebuild_matches_still_attests_it(tmp_path: pth.Path) -> N
     publish = _built(tmp_path / "publish", "h-1.whl")
     state = _state(publish, pypi={"h-1.whl": "canonical"})
 
-    assert release_assets.attests_canonical_bytes(state), (
+    assert release_assets.attests_canonical_bytes(state, state.names()), (
         "a byte-identical rebuild must still be attested"
     )
 
@@ -90,7 +91,7 @@ def test_an_unreported_github_digest_attests_nothing(tmp_path: pth.Path) -> None
     publish = _built(tmp_path / "publish", "h-1.whl")
     state = _state(publish, github={"h-1.whl": None})
 
-    assert not release_assets.attests_canonical_bytes(state), (
+    assert not release_assets.attests_canonical_bytes(state, state.names()), (
         "an asset without a digest must not be attested"
     )
 
@@ -118,6 +119,35 @@ def test_the_canonical_digest_comes_from_the_source_the_plan_chose(
         Source.LOCAL,
         release_assets.sha256_of(publish / "c.whl"),
     ), "a name neither destination holds must report this run's digest"
+
+
+@pytest.mark.parametrize("command", ["verify", "stage-github"])
+def test_one_command_lists_the_publish_directory_once(
+    tmp_path: pth.Path, monkeypatch: pytest.MonkeyPatch, command: str
+) -> None:
+    """Every decision in one command shares the names read at the boundary."""
+    publish = _built(tmp_path / "publish", "h-1.whl")
+    bundles = tmp_path / "bundles"
+    bundles.mkdir()
+    (bundles / "h-1.sigstore.json").write_bytes(b"bundle")
+    state = _state(publish)
+    reads: list[pth.Path] = []
+    original = release_assets.local_names
+
+    def counting(directory: pth.Path) -> list[str]:
+        reads.append(directory)
+        return original(directory)
+
+    monkeypatch.setattr(release_assets, "local_names", counting)
+
+    if command == "verify":
+        release_assets.verify(state, bundles)
+    else:
+        release_assets.stage_github(state, bundles, tmp_path / "out")
+
+    assert len(reads) == 1, (
+        f"{command} must read the directory once, not once per decision"
+    )
 
 
 def test_the_names_query_returns_the_staged_names_sorted(tmp_path: pth.Path) -> None:

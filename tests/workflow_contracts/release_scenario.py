@@ -58,20 +58,32 @@ def local(name: str) -> bytes:
 
 
 def job_directory(
-    fake: FakeRelease, job: str, *, label: str | None = None
+    fake: FakeRelease,
+    job: str,
+    *,
+    label: str | None = None,
+    dist_from: pth.Path | None = None,
 ) -> tuple[pth.Path, dict[str, str]]:
     """Stage one job's workspace with this run's artefacts and bundle.
 
     ``label`` names the workspace directory, so a test can stage the same job
     twice -- once per run -- without reusing a directory that already holds the
     first run's output. The step lookup still uses ``job``.
+
+    ``dist_from`` models the ``release-dist`` artefact hand-off: the job starts
+    with the ``dist`` directory another job uploaded, rather than with a fresh
+    copy of this run's build. A test that passes it is asserting that the
+    workflow's own paths carry the bytes, not that each job can rebuild them.
     """
     cwd = fake.root / (label or job)
-    for name in ARTEFACTS:
-        (cwd / "dist" / "publish").mkdir(parents=True, exist_ok=True)
-        (cwd / "dist" / "publish" / name).write_bytes(local(name))
-    (cwd / "dist" / "attestations").mkdir(parents=True)
-    (cwd / "dist" / "attestations" / BUNDLE).write_bytes(b"bundle")
+    if dist_from is None:
+        for name in ARTEFACTS:
+            (cwd / "dist" / "publish").mkdir(parents=True, exist_ok=True)
+            (cwd / "dist" / "publish" / name).write_bytes(local(name))
+        (cwd / "dist" / "attestations").mkdir(parents=True)
+        (cwd / "dist" / "attestations" / BUNDLE).write_bytes(b"bundle")
+    else:
+        shutil.copytree(dist_from, cwd / "dist")
     link_scripts(cwd)
     return cwd, fake.env(GITHUB_REF_NAME=TAG, GITHUB_OUTPUT=str(cwd / "output"))
 
@@ -127,10 +139,14 @@ def run_required(job: str, name: str, cwd: pth.Path, env: dict[str, str]) -> Non
 
 
 def snapshot_release(
-    fake: FakeRelease, *, label: str = "draft-release", create: bool = False
+    fake: FakeRelease,
+    *,
+    label: str = "draft-release",
+    create: bool = False,
+    dist_from: pth.Path | None = None,
 ) -> pth.Path:
     """Create or reuse the draft and snapshot its assets; return the workspace."""
-    cwd, env = job_directory(fake, "draft-release", label=label)
+    cwd, env = job_directory(fake, "draft-release", label=label, dist_from=dist_from)
     if create:
         run_required("draft-release", "Create or reuse the draft release", cwd, env)
     run_required("draft-release", "Snapshot the release assets", cwd, env)
@@ -138,20 +154,29 @@ def snapshot_release(
 
 
 def publish_pypi_from_snapshot(
-    fake: FakeRelease, snapshot: pth.Path, *, label: str = "publish-pypi"
-) -> None:
-    """Stage PyPI's upload set from a snapshot and model the upload."""
-    cwd, env = job_directory(fake, "publish-pypi", label=label)
+    fake: FakeRelease,
+    snapshot: pth.Path,
+    *,
+    label: str = "publish-pypi",
+    dist_from: pth.Path | None = None,
+) -> bool:
+    """Stage PyPI's upload set from a snapshot and model the upload.
+
+    Returns whether the step told the workflow that artefacts remain to upload,
+    which is the condition the workflow's upload step reads.
+    """
+    cwd, env = job_directory(fake, "publish-pypi", label=label, dist_from=dist_from)
     shutil.copytree(snapshot / "github-state", cwd / "github-state")
     run_required("publish-pypi", "Fetch the PyPI index", cwd, env)
     run_required("publish-pypi", "Skip artefacts already on PyPI", cwd, env)
     if outputs(cwd / "output")["remaining"] != "true":
-        return
+        return False
     for staged in (cwd / "dist" / "publish").iterdir():
         assert not (fake.pypi / staged.name).exists(), (  # noqa: S101
             "PyPI never overwrites"
         )
         shutil.copyfile(staged, fake.pypi / staged.name)
+    return True
 
 
 def draft_and_publish_pypi(fake: FakeRelease) -> None:
@@ -173,12 +198,15 @@ class ReleaseRun:
     verify: bool = True
     draft: bool | None = None
     publish: bool = False
+    dist_from: pth.Path | None = None
 
 
 def publish_release(fake: FakeRelease, run: ReleaseRun | None = None) -> pth.Path:
     """Run ``publish-release`` up to its digest check; return its workspace."""
     options = run or ReleaseRun()
-    cwd, env = job_directory(fake, "publish-release", label=options.label)
+    cwd, env = job_directory(
+        fake, "publish-release", label=options.label, dist_from=options.dist_from
+    )
     if options.draft is not None:
         env = {**env, "FAKE_RELEASE_DRAFT": "true" if options.draft else "false"}
     for name in PUBLISH_STEPS:

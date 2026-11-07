@@ -139,10 +139,12 @@ workflow's steps keep no filename knowledge of their own. There is no
 
 Reading the publish directory and validating its names are both fallible, so
 `State.names()` exposes that read explicitly: it returns the staged names or
-raises, and the pure `plan()` and the verification helpers take those names as
-input. A decision therefore never lists the directory on a caller's behalf, and
-a filesystem failure surfaces where it happened rather than as an apparently
-empty plan.
+raises, and the pure `plan()`, `attests_canonical_bytes()`, and the
+verification helpers take those names as input. Each command reads the names
+once and passes the same tuple to every decision it makes, so one operation
+cannot act on two different listings. A decision therefore never lists the
+directory on a caller's behalf, and a filesystem failure surfaces where it
+happened rather than as an apparently empty plan.
 
 ### No-overwrite verification and manual recovery
 
