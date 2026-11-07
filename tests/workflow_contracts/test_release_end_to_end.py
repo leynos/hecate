@@ -28,10 +28,12 @@ The job order and the permission scopes are pinned separately by
 from __future__ import annotations
 
 import dataclasses as dc
+import os
 import pathlib as pth
 import shutil
 import subprocess  # noqa: S404 - the test runs the build the workflow runs.
 import sys
+import tarfile
 import tomllib
 
 import pytest
@@ -130,15 +132,26 @@ def _declared_version() -> str:
     return str(document["project"]["version"])
 
 
-def _uv_build(destination: pth.Path) -> pth.Path:
-    """Build the project with the workflow's own ``uv build`` command."""
+def _uv_build(
+    destination: pth.Path,
+    project: pth.Path = ROOT,
+    env: dict[str, str] | None = None,
+) -> pth.Path:
+    """Build ``project`` with the workflow's own ``uv build`` command.
+
+    ``project`` is this checkout unless a test needs a project shaped like the
+    one a CI job builds, such as a copy carrying a virtual environment.
+    ``env`` replaces the inherited environment where a test needs the build's
+    own files to stay outside the project.
+    """
     uv = shutil.which("uv")
     assert uv is not None, "the test suite runs under uv, so the build must find it"
     completed = subprocess.run(  # noqa: S603 - the resolved build command runs in the repository root.
         [uv, "build", "--out-dir", str(destination)],
         capture_output=True,
         check=False,
-        cwd=ROOT,
+        cwd=project,
+        env=env,
         text=True,
     )
     assert completed.returncode == 0, (
@@ -285,4 +298,57 @@ def test_a_real_build_reaches_both_destinations_and_a_rerun_changes_nothing(
     )
     assert scene.holdings(fake.github) == {**first_bytes, bundle: b"bundle"}, (
         "the release must keep the bytes it published, whatever the rebuild holds"
+    )
+
+
+@pytest.mark.timeout(120)
+def test_the_sdist_never_carries_a_virtual_environment(tmp_path: pth.Path) -> None:
+    """A checkout's venv must not reach the sdist, or the build cannot finish.
+
+    CI creates ``.venv-coverage`` inside the checkout, and a venv's
+    ``bin/python`` is an absolute symlink. ``uv build`` builds the sdist first
+    and then unpacks it to build the wheel from it, and it refuses an archive
+    holding such a link -- so a venv inside the sdist fails the build rather
+    than merely enlarging it. Hatchling would otherwise include every file the
+    VCS does not ignore, so the exclusion is build configuration rather than an
+    ignore-file entry: the archive is the same whether or not git is present.
+    """
+    version = _declared_version()
+    project = tmp_path / "project"
+    project.mkdir()
+    for name in ("pyproject.toml", "README.md", "LICENSE"):
+        shutil.copyfile(ROOT / name, project / name)
+    shutil.copytree(
+        ROOT / "hecate",
+        project / "hecate",
+        ignore=shutil.ignore_patterns("__pycache__"),
+    )
+    interpreter = project / ".venv-coverage" / "bin" / "python"
+    interpreter.parent.mkdir(parents=True)
+    interpreter.symlink_to(sys.executable)
+
+    # The Makefile exports a relative `UV_CACHE_DIR`, which `uv` would resolve
+    # against this copy and then pack into the sdist, hiding the venv behind a
+    # second excluded name. Point the cache outside the project so the venv is
+    # the only thing the build could pick up.
+    built = _uv_build(
+        tmp_path / "dist",
+        project,
+        env={**os.environ, "UV_CACHE_DIR": str(tmp_path / "uv-cache")},
+    )
+
+    assert sorted(_built_files(built)) == [
+        f"hecate_enforce-{version}-py3-none-any.whl",
+        f"hecate_enforce-{version}.tar.gz",
+    ], "the copy must build exactly the distributions the release publishes"
+    with tarfile.open(built / f"hecate_enforce-{version}.tar.gz") as archive:
+        names = archive.getnames()
+    assert not [name for name in names if "/.venv" in name], (
+        f"the sdist must not carry the checkout's virtual environment: {names}"
+    )
+    assert any(name.endswith("/hecate/cli.py") for name in names), (
+        "the exclusion must not have emptied the archive"
+    )
+    assert not [name for name in names if "/.uv-cache" in name], (
+        "the build's own cache must stay outside the source distribution"
     )

@@ -587,10 +587,17 @@ and analysis tools (`crosshair-tool`, `hypothesis`, `pytest`, `pytest-bdd`,
 
 The build backend is `hatchling`, and `[tool.hatch.build.targets.wheel]`
 declares `packages = ["hecate"]`, so the wheel contains the flat package
-directly with no source layout. The distribution name is `hecate-enforce`,
-because the `hecate` name on PyPI belongs to an unrelated third-party library;
-the import package, the `hecate` console script, `python -m hecate`, and the
-`[tool.hecate]` namespace all remain `hecate`.
+directly with no source layout. `[tool.hatch.build.targets.sdist]` excludes
+virtual environments (`.venv*`, `venv*`) from the sdist. Hatchling otherwise
+includes every file the VCS does not ignore, and CI creates a `.venv-coverage`
+directory inside the checkout whose `bin/python` is an absolute symlink;
+`uv build` refuses an sdist holding such a link while unpacking it to build the
+wheel, so the archive would break the build. The exclusion is configuration,
+not an ignore-file entry, so it holds even where git is unavailable. The
+distribution name is `hecate-enforce`, because the `hecate` name on PyPI
+belongs to an unrelated third-party library; the import package, the `hecate`
+console script, `python -m hecate`, and the `[tool.hecate]` namespace all remain
+`hecate`.
 
 To build the sdist and wheel locally, run `make build-release`, which runs
 `uv build --out-dir dist`. A plain `uv build` builds the sdist first and then
@@ -1543,7 +1550,10 @@ directories, and pin the workflow's structure:
   tests builds the project with the workflow's own `uv build` and follows the
   real sdist and wheel to both destinations, so the names, checksums, and
   metadata the release reconciles are the package's own rather than
-  placeholders. It cannot cover the hosted runner's artefact actions, Trusted
+  placeholders. Another builds a copy of the project carrying a
+  `.venv-coverage` directory, as the coverage job's checkout does, and asserts
+  that `uv build` still succeeds and that the sdist holds no virtual
+  environment. It cannot cover the hosted runner's artefact actions, Trusted
   Publishing's OIDC exchange, or the real `gh` API; those need a tag run.
 - `test_release_assets.py` and `test_release_property.py` pin the planning,
   digest, and bundle decisions directly, including generated combinations of

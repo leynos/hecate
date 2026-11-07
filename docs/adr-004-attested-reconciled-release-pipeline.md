@@ -86,7 +86,12 @@ not declare.
   sdist first and the wheel from that sdist, so every release also proves the
   sdist is buildable, and both files are uploaded as the `wheels-pure`
   artefact. Hatchling's `packages = ["hecate"]` keeps the wheel's import
-  package named `hecate`.
+  package named `hecate`, and `[tool.hatch.build.targets.sdist]` excludes
+  virtual environments: CI creates `.venv-coverage` inside the checkout, and
+  the absolute `bin/python` symlink inside it makes the sdist unreadable to
+  `uv`, which unpacks the archive to build the wheel from it. The exclusion is
+  build configuration rather than an ignore-file entry, so the archive does not
+  depend on which files the VCS happens to ignore.
 - `attest` (`contents: read`, `id-token: write`, `attestations: write`; needs
   `check-version`, `build-wheels`) collects every wheel and exactly one sdist,
   refuses a run that produced none or more than one, and attests all of them
