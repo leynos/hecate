@@ -208,6 +208,7 @@ def stub_runner(
     """Build a command runner double answering version and query commands."""
 
     def run(command: cabc.Sequence[str]) -> str:
+        """Answer the ``--version`` probe, or return the stub report as JSON."""
         if "--version" in command:
             return f"{version}\n"
         return json.dumps(STUB_REPORT if report is None else report)

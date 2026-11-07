@@ -166,6 +166,7 @@ def _evaluate_wildcard(statement: ImportStatement, *, ctx: CheckContext) -> None
 
 
 def _names_for(statement: ImportStatement) -> tuple[str, ...]:
+    """Return the names a ``from`` import binds, or ``()`` for a plain import."""
     return statement.names if isinstance(statement, FromImport) else ()
 
 
@@ -179,6 +180,7 @@ def _named_targets(statement: ImportStatement) -> tuple[str, ...]:
 
 
 def _wildcard_target(statement: ImportStatement) -> str | None:
+    """Return the target of a ``from ... import *`` statement, else None."""
     if isinstance(statement, FromImport) and "*" in statement.names:
         return statement.target
     return None
@@ -200,6 +202,7 @@ def _find_unmatched_ignores(
     policy: ArchitecturePolicy,
     ignored: dict[tuple[str, str], IgnoredImportDiagnostic],
 ) -> tuple[str, ...]:
+    """Return sorted ``importer -> imported`` labels for ignores matching no edge."""
     matched = set(ignored)
     unmatched = [
         f"{ignored_import.importer} -> {ignored_import.imported}"

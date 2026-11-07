@@ -34,6 +34,7 @@ class TestLoadAllowEntry:
         before = pyproject.stat()
 
         def refuse(*_args: object, **_kwargs: object) -> None:
+            """Fail the test if the read-only loader ever writes."""
             msg = "the read-only loader must not write"
             raise AssertionError(msg)
 
@@ -189,6 +190,7 @@ class TestAppendAllowEntry:
         original_replace = Path.replace
 
         def fail_replace(_source: Path, _destination: Path) -> None:
+            """Raise OSError in place of ``Path.replace``."""
             msg = "replacement failed"
             raise OSError(msg)
 

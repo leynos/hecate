@@ -133,6 +133,7 @@ def _walk_source_paths(root: Path) -> cabc.Iterator[Path]:
     """
 
     def fail_with_context(error: OSError) -> typ.NoReturn:
+        """Raise DiscoveryError for a directory that cannot be listed."""
         msg = f"{error.filename}: cannot list directory: {error.strerror}"
         raise DiscoveryError(msg) from error
 
@@ -209,6 +210,7 @@ def _source_position(node: ast.Import | ast.ImportFrom) -> tuple[int, int]:
 def _collect_direct_imports(
     node: ast.Import, importer: str, source_path: Path
 ) -> tuple[DirectImport, ...]:
+    """Return one DirectImport per alias in an ``import`` statement."""
     return tuple(
         DirectImport(
             importer=importer,
@@ -227,6 +229,7 @@ def _collect_from_imports(
     is_package_init: bool,
     source_path: Path,
 ) -> tuple[FromImport, ...]:
+    """Return the ``from`` statement as a one-item tuple, or ``()`` if unresolved."""
     imported_module = resolve_import_from(
         module_name,
         is_package_init=is_package_init,

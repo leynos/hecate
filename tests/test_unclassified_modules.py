@@ -105,6 +105,7 @@ _UNCLASSIFIED_BY_MODE: dict[UnclassifiedModules, Severity | None] = {
 def _unclassified_by_module(
     result: ArchitectureCheckResult,
 ) -> dict[str, UnclassifiedModuleDiagnostic]:
+    """Index the unclassified-module diagnostics by module name."""
     return {diagnostic.module: diagnostic for diagnostic in result.unclassified_modules}
 
 
@@ -301,6 +302,7 @@ def test_unclassified_modules_are_deterministic_across_runs(tmp_path: Path) -> N
 def _violation_identity(
     result: ArchitectureCheckResult,
 ) -> list[tuple[str, str, str, int]]:
+    """Return the identity tuple of each violation, in result order."""
     return [violation.identity() for violation in result.violations]
 
 

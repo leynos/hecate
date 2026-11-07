@@ -179,6 +179,7 @@ def discover_config(path: Path | None = None) -> Path:
 
 
 def _has_hecate_tool_table(candidate: Path) -> bool:
+    """Return whether the TOML file at ``candidate`` has a ``tool.hecate`` table."""
     try:
         data = tomllib.loads(candidate.read_text(encoding="utf-8"))
     except tomllib.TOMLDecodeError as error:
@@ -191,6 +192,7 @@ def _has_hecate_tool_table(candidate: Path) -> bool:
 
 
 def _read_tool_config(path: Path) -> dict[str, object]:
+    """Return the ``tool.hecate`` table from the TOML file at ``path``."""
     if not path.is_file():
         msg = f"{path}: configuration file does not exist"
         raise ConfigError(msg)
@@ -246,6 +248,7 @@ def _parse_packages(
     package: str | None,
     root: Path | None,
 ) -> tuple[PackageRoot, ...]:
+    """Return the package roots from CLI overrides, package tables or root names."""
     cli_package = _parse_package_from_cli_args(package, root, path)
     if cli_package is not None:
         return cli_package
@@ -294,6 +297,7 @@ def _parse_groups(data: dict[str, object], path: Path) -> tuple[ModuleGroup, ...
 
 
 def _parse_ignores(data: dict[str, object], path: Path) -> tuple[IgnoredImport, ...]:
+    """Return the ``ignore_imports`` tables as validated ``IgnoredImport`` values."""
     ignores = _read_table_list(
         data.get("ignore_imports", []), key="tool.hecate.ignore_imports", path=path
     )
@@ -311,6 +315,7 @@ def _parse_ignores(data: dict[str, object], path: Path) -> tuple[IgnoredImport, 
 
 
 def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
+    """Raise ConfigError for the first rule the parsed policy breaks."""
     _validate_rule_id(policy.default_rule_id, path)
     group_names = [group.name for group in policy.groups]
     _check_duplicate_group_names(group_names, path)
@@ -324,6 +329,7 @@ def _validate_policy(policy: ArchitecturePolicy, path: Path) -> None:
 
 
 def _resolve_config_path(config_path: Path, configured_path: Path) -> Path:
+    """Return a relative ``configured_path`` resolved against the config directory."""
     if configured_path.is_absolute():
         return configured_path
     return config_path.parent / configured_path
@@ -345,6 +351,7 @@ def _validate_rule_id(rule_id: str, path: Path) -> None:
 
 
 def _validate_package_roots(packages: tuple[PackageRoot, ...], path: Path) -> None:
+    """Raise ConfigError unless there is a root and every root is a directory."""
     if not packages:
         msg = f"{path}: at least one package root is required"
         raise ConfigError(msg)
