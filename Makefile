@@ -143,7 +143,7 @@ check-fmt: build $(MDTABLEFIX) ## Verify formatting
 
 	$(MDTABLEFIX) --check $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 
-lint: lint-python skylos duplication ## Run linters
+lint: lint-python skylos duplication interrogate ## Run linters
 
 lint-python: build ## Run Python linters
 	$(UV_ENV) $(UV) run ruff check $(PYTHON_TARGETS)
@@ -173,10 +173,6 @@ interrogate: ## Enforce complete Python docstring coverage
 	    printf '%s\n' 'interrogate: undocumented definitions remain; see the MISSED rows above' >&2; \
 	    exit 1; \
 	  fi
-
-# `lint` runs the docstring gate; Make adds this prerequisite to the `lint`
-# rule above.
-lint: interrogate
 
 skylos: build ## Detect dead production code
 	$(SKYLOS) $(SKYLOS_PRODUCTION_TARGETS) --exclude $(SKYLOS_EXCLUDE_FOLDERS) \
