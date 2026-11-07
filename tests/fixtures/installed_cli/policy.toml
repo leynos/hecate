@@ -1,0 +1,9 @@
+# A minimal valid policy for the installed-wheel smoke check. The package root
+# is resolved from this file's directory, so `sample/` sits beside it.
+[tool.hecate]
+root_packages = ["sample"]
+
+[[tool.hecate.groups]]
+name = "sample"
+prefixes = ["sample"]
+allowed = ["sample"]
