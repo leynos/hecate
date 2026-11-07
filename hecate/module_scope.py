@@ -41,7 +41,7 @@ def module_level_statements(
 
 
 def _nested_module_statements(node: ast.stmt) -> cabc.Iterator[tuple[ast.stmt, bool]]:
-    """Yield every statement nested under ``node``, flagged as conditional."""
+    """Yield module-scope statements nested under ``node``, flagged as conditional."""
     if isinstance(node, _LOCAL_SCOPE_NODES):
         return
     for child in _direct_bodies(node):

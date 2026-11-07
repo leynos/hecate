@@ -166,7 +166,7 @@ def _evaluate_wildcard(statement: ImportStatement, *, ctx: CheckContext) -> None
 
 
 def _names_for(statement: ImportStatement) -> tuple[str, ...]:
-    """Return the names a ``from`` import binds, or ``()`` for a plain import."""
+    """Return the names listed by a ``from`` import, or ``()`` for a plain import."""
     return statement.names if isinstance(statement, FromImport) else ()
 
 

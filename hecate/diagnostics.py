@@ -85,7 +85,7 @@ class _ClassifiedEdge(typ.Protocol):
 
     @property
     def imported(self) -> str:
-        """Return the dotted name of the module being imported."""
+        """Return the dotted name of the import target or its resolved origin."""
 
     @property
     def line(self) -> int:
