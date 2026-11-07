@@ -276,6 +276,13 @@ def test_the_re_fetch_polls_past_a_cached_index(fake: FakeRelease) -> None:
     index_url = "https://pypi.org/simple/hecate-enforce/"
     indexes = [call for call in fake.calls("curl")[before:] if call[-1] == index_url]
     assert len(indexes) == 2, "a stale response, then the one that shows the upload"
+    assert (
+        "The PyPI index does not list every artefact yet (attempt 1); retrying."
+        in refetch.stderr
+    ), "a stale listing must say why the step is asking again"
+    assert "PyPI simple index read: HTTP 200 after 2 attempt(s)." in refetch.stdout, (
+        "the step must report the final status and attempt count"
+    )
     assert "::error" not in refetch.stderr, (
         "a cache that is merely behind must not paint an error annotation"
     )
@@ -349,6 +356,12 @@ def test_the_re_fetch_stays_bounded_when_the_index_never_catches_up(
     )
     assert "::error" in completed.stderr, (
         "the final gate must annotate, unlike the retried attempts"
+    )
+    assert completed.stderr.count("does not list every artefact yet") == 5, (
+        "every attempt but the last must say the listing is still behind"
+    )
+    assert "PyPI simple index read: HTTP 200 after 6 attempt(s)." in completed.stdout, (
+        "the step must report the final status and attempt count"
     )
     assert len(fake.calls("curl")) - before <= 6, "the poll must stay bounded"
 

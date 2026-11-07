@@ -167,8 +167,17 @@ def test_collection_refuses_an_unexpected_file(tmp_path: pth.Path) -> None:
 
 def _fetch_and_skip(
     tmp_path: pth.Path, statuses: str, published: tuple[str, ...] = ()
-) -> tuple[FakeRelease, subprocess.CompletedProcess[str], dict[str, str]]:
-    """Run the index fetch, then the skip step if the fetch succeeded."""
+) -> tuple[
+    FakeRelease,
+    subprocess.CompletedProcess[str],
+    subprocess.CompletedProcess[str],
+    dict[str, str],
+]:
+    """Run the index fetch, then the skip step if the fetch succeeded.
+
+    Both results are returned: the fetch's own output is where the retry and
+    attempt-count lines are written, and the skip step replaces it.
+    """
     fake = fake_release(tmp_path)
     link_scripts(tmp_path)
     _touch(tmp_path / "dist" / "publish", *_ARTEFACTS)
@@ -176,10 +185,11 @@ def _fetch_and_skip(
     (tmp_path / "github-state" / "files").mkdir(parents=True)
     (tmp_path / "github-state" / "assets.json").write_text('{"assets": []}', "utf-8")
     env = fake.env(FAKE_CURL_STATUSES=statuses)
-    completed = run_bash(step_script(*_INDEX_STEP), tmp_path, env)
-    if completed.returncode == 0:
+    index = run_bash(step_script(*_INDEX_STEP), tmp_path, env)
+    completed = index
+    if index.returncode == 0:
         completed = run_bash(step_script(*_SKIP_STEP), tmp_path, env)
-    return fake, completed, outputs(tmp_path / "github-output")
+    return fake, index, completed, outputs(tmp_path / "github-output")
 
 
 def _remaining(tmp_path: pth.Path) -> list[str]:
@@ -202,7 +212,7 @@ def test_artefacts_already_on_pypi_are_skipped_by_name(
     has_remaining: str,
 ) -> None:
     """Only unpublished names remain, and the step says whether any do."""
-    _, completed, written = _fetch_and_skip(tmp_path, "200", published)
+    _, _, completed, written = _fetch_and_skip(tmp_path, "200", published)
 
     assert completed.returncode == 0, completed.stderr
     assert _remaining(tmp_path) == remaining, "published names must be dropped"
@@ -218,7 +228,7 @@ def test_a_project_absent_from_pypi_reads_as_an_empty_index(
     tmp_path: pth.Path,
 ) -> None:
     """A 404 is a first release: nothing is skipped and every file uploads."""
-    _, completed, written = _fetch_and_skip(tmp_path, "404")
+    _, _, completed, written = _fetch_and_skip(tmp_path, "404")
 
     assert completed.returncode == 0, completed.stderr
     index = json.loads((tmp_path / "pypi-index.json").read_text(encoding="utf-8"))
@@ -232,13 +242,21 @@ def test_a_project_absent_from_pypi_reads_as_an_empty_index(
 
 
 def test_a_transient_failure_is_retried_and_counted(tmp_path: pth.Path) -> None:
-    """A 503 then a 429 then a 200 succeeds on the third attempt."""
-    fake, completed, written = _fetch_and_skip(tmp_path, "503,429,200")
+    """A 429, a 503 and a network error each retry, and the fourth read succeeds."""
+    fake, index, completed, written = _fetch_and_skip(tmp_path, "429,503,000,200")
 
     assert completed.returncode == 0, completed.stderr
-    assert written["attempts"] == "3", "the retry count must be reported"
+    assert written["attempts"] == "4", "the retry count must be reported"
     assert written["status"] == "200", "the retry must end on the successful status"
-    assert len(fake.calls("curl")) == 3, "each attempt must make exactly one request"
+    assert len(fake.calls("curl")) == 4, "each attempt must make exactly one request"
+    for attempt, status in enumerate(("429", "503", "000"), start=1):
+        assert (
+            f"PyPI simple index returned HTTP {status} on attempt {attempt}; retrying."
+            in index.stderr
+        ), f"attempt {attempt} must say which status it is retrying"
+    assert "PyPI simple index read: HTTP 200 after 4 attempt(s)." in index.stdout, (
+        "the step must report the final status and how many attempts it took"
+    )
 
 
 @pytest.mark.parametrize(
@@ -250,7 +268,7 @@ def test_a_failed_index_lookup_stops_the_upload(
     tmp_path: pth.Path, statuses: str, attempts: str
 ) -> None:
     """A persistent 5xx or network error, or any other 4xx, fails the job."""
-    fake, completed, written = _fetch_and_skip(tmp_path, statuses)
+    fake, index, completed, written = _fetch_and_skip(tmp_path, statuses)
 
     assert completed.returncode != 0, f"HTTP {statuses} must fail the lookup"
     assert f"PyPI simple index returned HTTP {statuses}." in completed.stderr, (
@@ -260,4 +278,11 @@ def test_a_failed_index_lookup_stops_the_upload(
         "the step must report the attempts and the final status"
     )
     assert len(fake.calls("curl")) == int(attempts), "the loop must stay bounded"
+    assert index.stderr.count("; retrying.") == int(attempts) - 1, (
+        "every attempt but the last must say it is retrying"
+    )
+    assert (
+        f"PyPI simple index read: HTTP {statuses} after {attempts} attempt(s)."
+        in index.stdout
+    ), "the step must report how the lookup ended"
     assert _remaining(tmp_path) == list(_ARTEFACTS), "nothing may be skipped"
