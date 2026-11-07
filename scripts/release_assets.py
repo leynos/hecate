@@ -204,6 +204,31 @@ class State:
         """Plan uploads for ``names`` against both destinations."""
         return plan(names, self.pypi, self.github)
 
+    def local_digests(self, names: cabc.Iterable[str]) -> dict[str, str]:
+        """Hash each named staged artefact.
+
+        Hashing reads the filesystem and is fallible, so this query is
+        explicit: the attestation policy receives the digests it returns
+        rather than reading files while it decides.
+
+        Parameters
+        ----------
+        names : collections.abc.Iterable[str]
+            The staged names, as returned by :meth:`names`.
+
+        Returns
+        -------
+        dict[str, str]
+            The SHA-256 hex digest of each named artefact.
+
+        Raises
+        ------
+        OSError
+            If an artefact cannot be read.
+
+        """
+        return {name: sha256_of(self.publish / name) for name in names}
+
 
 def carryover(state: State) -> list[str]:
     """Return the names whose GitHub bytes PyPI may need.
@@ -279,22 +304,36 @@ def _copy_pypi_gap(
             shutil.copyfile(publish / name, output / name)
 
 
-def canonical_digest(state: State, name: str) -> tuple[Source, str | None]:
+def canonical_digest(
+    name: str,
+    pypi_digests: cabc.Mapping[str, str],
+    github_digests: cabc.Mapping[str, str | None],
+    local_digests: cabc.Mapping[str, str],
+) -> tuple[Source, str | None]:
     """Return which source's bytes are canonical for ``name``, and their digest.
 
-    The digest is ``None`` only for a GitHub asset whose digest GitHub did not
-    report; this run's own bytes are always hashable.
+    The decision is a function of the three digest listings alone; reading the
+    staged files, and the :class:`State` that holds them, stays at the caller's
+    boundary. ``local_digests`` need only hold the names this run staged.
+
+    The digest is ``None`` for a GitHub asset whose digest GitHub did not
+    report, and for a name the chosen listing does not hold.
     """
-    source = _canonical_source(name, state.pypi, state.github)
+    source = _canonical_source(name, pypi_digests, github_digests)
     if source is Source.PYPI:
-        return source, state.pypi[name].sha256
+        return source, pypi_digests[name]
     if source is Source.GITHUB:
-        return source, state.github[name]
-    return source, sha256_of(state.publish / name)
+        return source, github_digests[name]
+    return source, local_digests.get(name)
 
 
-def attests_canonical_bytes(state: State, names: cabc.Iterable[str]) -> bool:
-    """Judge whether this run's bundle describes the bytes the release ships.
+def attests_shipped_bytes(
+    names: cabc.Iterable[str],
+    pypi_digests: cabc.Mapping[str, str],
+    github_digests: cabc.Mapping[str, str | None],
+    local_digests: cabc.Mapping[str, str],
+) -> bool:
+    """Judge, from digests alone, whether this run's bundle describes the release.
 
     A bundle attests the artefacts one run built. Reconciliation can instead
     publish bytes an earlier run built -- PyPI's, or an existing release
@@ -303,6 +342,43 @@ def attests_canonical_bytes(state: State, names: cabc.Iterable[str]) -> bool:
     Attaching this run's bundle then would put a provenance claim on the release
     that part of its own assets contradict, so the bundle is withheld unless
     every name's canonical bytes are the ones this run built and attested.
+
+    Parameters
+    ----------
+    names : collections.abc.Iterable[str]
+        The staged names, as returned by :meth:`State.names`.
+    pypi_digests : collections.abc.Mapping[str, str]
+        PyPI's SHA-256 hex digest for each name it holds.
+    github_digests : collections.abc.Mapping[str, str | None]
+        The GitHub Release's digest per asset, ``None`` when GitHub reports none.
+    local_digests : collections.abc.Mapping[str, str]
+        This run's SHA-256 hex digest for each staged name it hashed.
+
+    Returns
+    -------
+    bool
+        Whether every name's canonical bytes were built by this run. A name
+        whose canonical source reported no digest fails the check, because the
+        bundle cannot be shown to describe it.
+
+    """
+    for name in sorted(names):
+        source, expected = canonical_digest(
+            name, pypi_digests, github_digests, local_digests
+        )
+        if source is Source.LOCAL:
+            continue
+        if expected is None or local_digests.get(name) != expected:
+            return False
+    return True
+
+
+def attests_canonical_bytes(state: State, names: cabc.Iterable[str]) -> bool:
+    """Judge whether this run's bundle describes the bytes the release ships.
+
+    The filesystem read stays explicit: every staged name is hashed through
+    :meth:`State.local_digests`, and the decision itself is the pure
+    :func:`attests_shipped_bytes`. See that function for the rule.
 
     Parameters
     ----------
@@ -315,18 +391,21 @@ def attests_canonical_bytes(state: State, names: cabc.Iterable[str]) -> bool:
     Returns
     -------
     bool
-        Whether every name's canonical bytes were built by this run. A name
-        whose canonical source reported no digest fails the check, because the
-        bundle cannot be shown to describe it.
+        Whether every name's canonical bytes were built by this run.
+
+    Raises
+    ------
+    OSError
+        If a staged artefact cannot be read while its digest is taken.
 
     """
-    for name in sorted(names):
-        source, expected = canonical_digest(state, name)
-        if source is Source.LOCAL:
-            continue
-        if expected is None or sha256_of(state.publish / name) != expected:
-            return False
-    return True
+    staged = tuple(names)
+    return attests_shipped_bytes(
+        staged,
+        {name: file.sha256 for name, file in state.pypi.items()},
+        state.github,
+        state.local_digests(staged),
+    )
 
 
 def missing_from_index(
