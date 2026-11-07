@@ -1496,9 +1496,12 @@ interfaces the workflow and its tests share:
 - `State` holds the publish directory and both destinations' listings.
   `State.names()` is the one fallible read of the publish directory: it lists
   and validates the staged names and raises `ReleaseAssetError` for an unsafe
-  name or `OSError` when the directory cannot be read. `State.plan(names)` then
-  plans from those names, so the rest of the module never re-reads the
-  directory behind a caller's back.
+  name or `OSError` when the directory cannot be read. `State.plan(names)`,
+  `attests_canonical_bytes(state, names)`, and the verification helpers take
+  those names as input, and each command reads them once and passes the same
+  tuple to every decision it makes. One operation therefore never acts on two
+  different listings, and the rest of the module never re-reads the directory
+  behind a caller's back.
 
 `scripts/release_assets_cli.py` wires those interfaces to the workflow's steps:
 `carryover`, `stage-pypi`, `stage-github`, `check-fetched`, `index-expected`,
@@ -1525,12 +1528,16 @@ directories, and pin the workflow's structure:
   `test_release_reconciliation.py`, and `test_release_rerun.py` execute the
   actual step scripts and assert the reconciliation, digest checks, index
   polling, carried-asset digests, the required bundle, and re-run behaviour.
-- `test_release_end_to_end.py` runs the whole job sequence twice: the first run
-  publishes every name and un-drafts the release, and the second uploads
-  nothing and changes no bytes.
+- `test_release_end_to_end.py` runs the whole job sequence twice, handing each
+  job the `dist` directory the previous one uploaded and comparing the bytes
+  across every hand-off: the first run publishes every name and un-drafts the
+  release, and the second uploads nothing and changes no bytes. It cannot cover
+  the hosted runner's artefact actions, Trusted Publishing's OIDC exchange, or
+  the real `gh` API; those need a tag run.
 - `test_release_assets.py` and `test_release_property.py` pin the planning,
   digest, and bundle decisions directly, including generated combinations of
-  holdings.
+  holdings, an interrupted upload completed by the next run, and a rerun that
+  changes nothing.
 - `test_ci_wheel_build.py` checks the pull-request build's sdist and wheel
   cardinality, the archive metadata (both `PKG-INFO` and `METADATA` name
   `hecate-enforce` and declare `pyproject.toml`'s version), and the

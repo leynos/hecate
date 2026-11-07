@@ -182,6 +182,8 @@ class State:
         Reading the directory and refusing an unsafe name are both fallible, so
         this query is explicit about it: callers that plan or verify receive
         the names it returned rather than re-reading the directory themselves.
+        Each command reads once and passes the result to every decision it
+        makes, so one operation never sees two different listings.
 
         Returns
         -------
@@ -291,7 +293,7 @@ def canonical_digest(state: State, name: str) -> tuple[Source, str | None]:
     return source, sha256_of(state.publish / name)
 
 
-def attests_canonical_bytes(state: State) -> bool:
+def attests_canonical_bytes(state: State, names: cabc.Iterable[str]) -> bool:
     """Judge whether this run's bundle describes the bytes the release ships.
 
     A bundle attests the artefacts one run built. Reconciliation can instead
@@ -306,6 +308,9 @@ def attests_canonical_bytes(state: State) -> bool:
     ----------
     state : State
         The run's artefacts and both destinations' holdings.
+    names : collections.abc.Iterable[str]
+        The staged names, as returned by :meth:`State.names`. Taking them as
+        input keeps one command to one directory read.
 
     Returns
     -------
@@ -315,7 +320,7 @@ def attests_canonical_bytes(state: State) -> bool:
         bundle cannot be shown to describe it.
 
     """
-    for name in sorted(state.names()):
+    for name in sorted(names):
         source, expected = canonical_digest(state, name)
         if source is Source.LOCAL:
             continue
@@ -350,7 +355,9 @@ def missing_from_index(
     return sorted(set(expected) - set(listed))
 
 
-def _copy_unattached_bundles(bundles: Path, state: State, output: Path) -> None:
+def _copy_unattached_bundles(
+    bundles: Path, state: State, output: Path, names: cabc.Iterable[str]
+) -> None:
     """Copy the run's bundle into ``output`` when it attests what will ship.
 
     Standard error is deliberate: standard output is the caller's TSV protocol.
@@ -360,7 +367,7 @@ def _copy_unattached_bundles(bundles: Path, state: State, output: Path) -> None:
     )
     if not unattached:
         return
-    if not attests_canonical_bytes(state):
+    if not attests_canonical_bytes(state, names):
         print(
             "::notice::Not attaching this run's Sigstore bundle: the release "
             "ships bytes another run built, so the bundle would attest a "
@@ -391,11 +398,12 @@ def stage_github(state: State, bundles: Path, output: Path) -> list[tuple[str, s
         which the caller downloads and then checks with :func:`check_fetched`.
 
     """
-    lacking = sorted(state.plan(state.names()).github_uploads)
+    names = state.names()
+    lacking = sorted(state.plan(names).github_uploads)
     fetch = _pypi_fetch_list(lacking, state.pypi)
     output.mkdir(parents=True, exist_ok=True)
     _copy_pypi_gap(lacking, state.pypi, state.publish, output)
-    _copy_unattached_bundles(bundles, state, output)
+    _copy_unattached_bundles(bundles, state, output, names)
     return fetch
 
 
@@ -416,7 +424,8 @@ def check_fetched(state: State, output: Path) -> None:
         reports no digest for it.
 
     """
-    for name in sorted(state.plan(state.names()).github_uploads & set(state.pypi)):
+    names = state.names()
+    for name in sorted(state.plan(names).github_uploads & set(state.pypi)):
         check_digest(output / name, state.pypi[name].sha256)
 
 
@@ -440,9 +449,10 @@ def verify(state: State, bundles: Path) -> list[str]:
         One message per disagreement, empty when the destinations agree.
 
     """
+    names = state.names()
     pypi = {name: file.sha256 for name, file in state.pypi.items()}
-    problems = mismatches(state.names(), pypi, state.github)
-    if not attests_canonical_bytes(state):
+    problems = mismatches(names, pypi, state.github)
+    if not attests_canonical_bytes(state, names):
         return problems
     missing = sorted(
         bundle.name for bundle in bundles.iterdir() if bundle.name not in state.github
