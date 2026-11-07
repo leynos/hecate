@@ -132,14 +132,17 @@ def _touches_all(target: ast.expr) -> bool:
 
 
 def _assigns_all(targets: list[ast.expr]) -> bool:
+    """Return whether any assignment target is the name ``__all__``."""
     return any(_target_is_all(target) for target in targets)
 
 
 def _target_is_all(target: ast.expr) -> bool:
+    """Return whether ``target`` is the bare name ``__all__``."""
     return isinstance(target, ast.Name) and target.id == "__all__"
 
 
 def _literal_string_sequence(value: ast.expr) -> tuple[str, ...] | None:
+    """Return the names in a literal list or tuple of strings, else None."""
     if not isinstance(value, ast.List | ast.Tuple):
         return None
     names: list[str] = []

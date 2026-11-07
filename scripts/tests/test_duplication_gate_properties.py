@@ -302,6 +302,7 @@ def test_partition_and_normalization_survive_input_permutation(
             list[detector.Finding], list[detector.Finding], list[allowlist.AllowEntry]
         ],
     ) -> tuple[set[detector.Finding], set[detector.Finding], set[allowlist.AllowEntry]]:
+        """Convert each list in a partition triple to a set."""
         return (set(triple[0]), set(triple[1]), set(triple[2]))
 
     assert as_sets(ordered) == as_sets(shuffled), (

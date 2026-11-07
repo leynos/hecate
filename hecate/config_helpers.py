@@ -57,6 +57,7 @@ def _require[T](value: object, kind: type[T], message: str) -> T:
 
 
 def _validate_dotted_strings(values: tuple[str, ...], loc: _Loc) -> None:
+    """Raise ConfigError for the first value that is not a dotted identifier path."""
     for value in values:
         if _is_invalid_dotted_string(value):
             msg = f"{loc.path}: {loc.context} contains invalid dotted string {value!r}"
@@ -76,6 +77,7 @@ def _is_invalid_dotted_string(value: str) -> bool:
 def _read_mapping(
     data: dict[str, object], key: str, *, path: Path
 ) -> dict[str, object]:
+    """Return the table at ``key``, failing if it is absent or not a table."""
     msg = f"{path}: missing table {key}"
     return _require(data.get(key), dict, msg)
 
@@ -127,6 +129,7 @@ def _read_string(
     *,
     default: str | None = None,
 ) -> str:
+    """Return the non-blank string at ``key``, falling back to ``default``."""
     value = data.get(key, default)
     if not isinstance(value, str) or not value.strip():
         msg = f"{loc.path}: {loc.context}.{key} must be a non-empty string"
@@ -139,6 +142,7 @@ def _read_string_tuple(
     key: str,
     loc: _Loc,
 ) -> tuple[str, ...]:
+    """Return the non-empty string list at ``key`` as a tuple."""
     value = data.get(key)
     if not _is_non_empty_string_list(value):
         msg = f"{loc.path}: {loc.context}.{key} must be a non-empty string list"
@@ -167,10 +171,12 @@ def _read_optional_string_tuple(
 
 
 def _is_non_empty_string_list(value: object) -> bool:
+    """Return whether ``value`` is a non-empty list of non-blank strings."""
     return isinstance(value, list) and bool(value) and _all_non_blank_strings(value)
 
 
 def _is_string_list(value: object) -> bool:
+    """Return whether ``value`` is a list of non-blank strings, possibly empty."""
     return isinstance(value, list) and _all_non_blank_strings(value)
 
 
@@ -185,6 +191,7 @@ def _all_non_blank_strings(value: cabc.Sequence[object]) -> bool:
 
 
 def _read_bool(data: dict[str, object], key: str, *, default: bool, path: Path) -> bool:
+    """Return the boolean at ``key``, or ``default`` when the key is absent."""
     msg = f"{path}: tool.hecate.{key} must be a boolean"
     return _require(data.get(key, default), bool, msg)
 

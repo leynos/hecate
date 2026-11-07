@@ -68,6 +68,7 @@ def _double[T](result: T | Exception) -> cabc.Callable[..., T]:
     """
 
     def run(*_args: object, **_kwargs: object) -> T:
+        """Return ``result``, or raise it when it is an exception."""
         if isinstance(result, Exception):
             raise result
         return result
@@ -535,6 +536,7 @@ class TestRecordAllowEntry:
         recorded: list[tuple[Path, tuple[str, ...], str]] = []
 
         def writer(path: Path, *, keys: cabc.Sequence[str], reason: str) -> None:
+            """Record the path, keys and reason rather than writing the entry."""
             recorded.append((path, tuple(keys), reason))
 
         outcome = gate.record_allow_entry(
@@ -559,6 +561,7 @@ class TestRecordAllowEntry:
         calls: list[int] = []
 
         def detector_seam() -> list[detector.Finding]:
+            """Count the call and return the findings from the stub report."""
             calls.append(1)
             return detector.normalize_findings(STUB_REPORT)
 
@@ -579,6 +582,7 @@ class TestRecordAllowEntry:
         recorded: list[object] = []
 
         def writer(path: Path, *, keys: cabc.Sequence[str], reason: str) -> None:
+            """Record the path of any write, which this case must never reach."""
             recorded.append(path)
 
         with pytest.raises(gate.GateConfigError, match="covers no reported family"):
