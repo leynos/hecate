@@ -17,6 +17,7 @@ import typing as typ
 
 import pytest
 
+from . import release_scenario as scene
 from .ci_workflows import ROOT
 from .release_workflow import (
     FakeRelease,
@@ -286,3 +287,16 @@ def test_a_failed_index_lookup_stops_the_upload(
         in index.stdout
     ), "the step must report how the lookup ended"
     assert _remaining(tmp_path) == list(_ARTEFACTS), "nothing may be skipped"
+
+
+def test_pypi_downloads_retry_and_are_bounded(fake: FakeRelease) -> None:
+    """Every PyPI file download keeps the retry and timeout flags."""
+    scene.draft_and_publish_pypi(fake)
+    scene.publish_release(fake)
+
+    downloads = [call for call in fake.calls("curl") if "--fail" in call]
+    assert downloads, "the PyPI-only name must be fetched from PyPI"
+    for call in downloads:
+        joined = " ".join(call)
+        for flag in ("--retry 5", "--retry-all-errors", "--connect-timeout 10"):
+            assert flag in joined, f"a PyPI download must pass {flag}"

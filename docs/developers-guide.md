@@ -1497,12 +1497,20 @@ interfaces the workflow and its tests share:
 - `State` holds the publish directory and both destinations' listings.
   `State.names()` is the one fallible read of the publish directory: it lists
   and validates the staged names and raises `ReleaseAssetError` for an unsafe
-  name or `OSError` when the directory cannot be read. `State.plan(names)`,
+  name or `OSError` when the directory cannot be read. `State.local_digests()`
+  is the matching hash query: it returns the SHA-256 of each named staged file
+  and raises `OSError` when one cannot be read. `State.plan(names)`,
   `attests_canonical_bytes(state, names)`, and the verification helpers take
   those names as input, and each command reads them once and passes the same
   tuple to every decision it makes. One operation therefore never acts on two
   different listings, and the rest of the module never re-reads the directory
   behind a caller's back.
+- `canonical_digest(name, pypi, github, local)` and
+  `attests_shipped_bytes(names, pypi, github, local)` are the decisions
+  themselves, over the three digest mappings and nothing else. No directory is
+  read to answer them, so a test states any combination of digests directly;
+  `attests_canonical_bytes()` is only the boundary that hashes the staged files
+  and passes the result on.
 
 `scripts/release_assets_cli.py` wires those interfaces to the workflow's steps:
 `carryover`, `stage-pypi`, `stage-github`, `check-fetched`, `index-expected`,
@@ -1532,13 +1540,18 @@ directories, and pin the workflow's structure:
 - `test_release_end_to_end.py` runs the whole job sequence twice, handing each
   job the `dist` directory the previous one uploaded and comparing the bytes
   across every hand-off: the first run publishes every name and un-drafts the
-  release, and the second uploads nothing and changes no bytes. It cannot cover
-  the hosted runner's artefact actions, Trusted Publishing's OIDC exchange, or
-  the real `gh` API; those need a tag run.
+  release, and the second uploads nothing and changes no bytes. One of its
+  tests builds the project with the workflow's own `uv build` and follows the
+  real sdist and wheel to both destinations, so the names, checksums, and
+  metadata the release reconciles are the package's own rather than
+  placeholders. It cannot cover the hosted runner's artefact actions, Trusted
+  Publishing's OIDC exchange, or the real `gh` API; those need a tag run.
 - `test_release_assets.py` and `test_release_property.py` pin the planning,
   digest, and bundle decisions directly, including generated combinations of
   holdings, an interrupted upload completed by the next run, and a rerun that
-  changes nothing.
+  changes nothing. Every generated pass also runs `verify`, so the properties
+  assert that the names the destinations already disagreed on are exactly the
+  ones verification reports, and that agreeing destinations block nothing.
 - `test_ci_wheel_build.py` checks the pull-request build's sdist and wheel
   cardinality, the archive metadata (both `PKG-INFO` and `METADATA` name
   `hecate-enforce` and declare `pyproject.toml`'s version), and the

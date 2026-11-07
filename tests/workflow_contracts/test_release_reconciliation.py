@@ -130,6 +130,9 @@ def test_the_check_fails_when_the_destinations_disagree(fake: FakeRelease) -> No
     assert (fake.github / scene.BOTH).read_bytes() == (
         b"clobbered by an earlier workflow"
     ), "a failed check must not alter the release's bytes"
+    assert not [call for call in fake.calls("gh") if call[:2] == ["release", "edit"]], (
+        "a failed check must leave the release a draft"
+    )
 
 
 def test_bytes_that_do_not_match_the_index_are_never_uploaded(
@@ -385,16 +388,3 @@ def test_the_index_is_read_again_after_the_upload(fake: FakeRelease) -> None:
     assert {entry["filename"] for entry in listed["files"]} == set(scene.ARTEFACTS), (
         "the re-fetch must replace a pre-upload copy of the index"
     )
-
-
-def test_pypi_downloads_retry_and_are_bounded(fake: FakeRelease) -> None:
-    """Every PyPI file download keeps the retry and timeout flags."""
-    scene.draft_and_publish_pypi(fake)
-    scene.publish_release(fake)
-
-    downloads = [call for call in fake.calls("curl") if "--fail" in call]
-    assert downloads, "the PyPI-only name must be fetched from PyPI"
-    for call in downloads:
-        joined = " ".join(call)
-        for flag in ("--retry 5", "--retry-all-errors", "--connect-timeout 10"):
-            assert flag in joined, f"a PyPI download must pass {flag}"

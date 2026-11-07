@@ -96,29 +96,47 @@ def test_an_unreported_github_digest_attests_nothing(tmp_path: pth.Path) -> None
     )
 
 
-def test_the_canonical_digest_comes_from_the_source_the_plan_chose(
-    tmp_path: pth.Path,
-) -> None:
-    """Each name reports its plan's source and that source's digest."""
-    publish = _built(tmp_path / "publish", "a.whl", "b.whl", "c.whl")
-    state = _state(
-        publish,
-        pypi={"a.whl": "canonical"},
-        github={"b.whl": release_assets.sha256_of(publish / "b.whl")},
-    )
+def test_the_canonical_digest_comes_from_the_source_the_plan_chose() -> None:
+    """Each name reports its plan's source and that source's digest.
 
-    assert release_assets.canonical_digest(state, "a.whl") == (
+    The decision takes the digest listings and nothing else, so the policy is
+    exercised without creating a file or a directory.
+    """
+    pypi = {"a.whl": "aaa"}
+    github = {"b.whl": "bbb"}
+    local = {"a.whl": "aaa", "b.whl": "bbb", "c.whl": "ccc"}
+
+    assert release_assets.canonical_digest("a.whl", pypi, github, local) == (
         Source.PYPI,
-        release_assets.sha256_of(publish / "a.whl"),
+        "aaa",
     ), "a name PyPI holds must report PyPI's digest"
-    assert release_assets.canonical_digest(state, "b.whl") == (
+    assert release_assets.canonical_digest("b.whl", pypi, github, local) == (
         Source.GITHUB,
-        release_assets.sha256_of(publish / "b.whl"),
+        "bbb",
     ), "a name only GitHub holds must report GitHub's digest"
-    assert release_assets.canonical_digest(state, "c.whl") == (
+    assert release_assets.canonical_digest("c.whl", pypi, github, local) == (
         Source.LOCAL,
-        release_assets.sha256_of(publish / "c.whl"),
+        "ccc",
     ), "a name neither destination holds must report this run's digest"
+
+
+def test_the_attestation_policy_reads_only_the_digests_it_is_given() -> None:
+    """A bundle is judged from the listings, with no directory to read."""
+    names = ("a.whl", "b.whl")
+    local = {"a.whl": "aaa", "b.whl": "bbb"}
+
+    assert release_assets.attests_shipped_bytes(names, {}, {}, local), (
+        "a first release attests the bytes it ships"
+    )
+    assert release_assets.attests_shipped_bytes(
+        names, {"a.whl": "aaa"}, {"b.whl": "bbb"}, local
+    ), "a rebuild that matches both destinations is still attested"
+    assert not release_assets.attests_shipped_bytes(
+        names, {"a.whl": "zzz"}, {}, local
+    ), "a differing published digest must not be attested"
+    assert not release_assets.attests_shipped_bytes(
+        names, {}, {"b.whl": None}, local
+    ), "a published digest GitHub does not report must not be attested"
 
 
 @pytest.mark.parametrize("command", ["verify", "stage-github"])
@@ -175,6 +193,14 @@ def test_the_names_query_reports_a_missing_directory(tmp_path: pth.Path) -> None
     """A publish directory that cannot be read is an error, not an empty plan."""
     with pytest.raises(FileNotFoundError):
         State(tmp_path / "absent", {}, {}).names()
+
+
+def test_the_digest_query_reports_a_missing_artefact(tmp_path: pth.Path) -> None:
+    """Hashing a staged name that is not there fails at the query boundary."""
+    publish = _built(tmp_path / "publish", "safe.whl")
+
+    with pytest.raises(FileNotFoundError):
+        State(publish, {}, {}).local_digests(("safe.whl", "absent.whl"))
 
 
 @pytest.mark.parametrize(

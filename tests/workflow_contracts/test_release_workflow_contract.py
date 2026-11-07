@@ -236,6 +236,17 @@ def test_the_release_is_published_only_after_pypi() -> None:
         "digest check sees what the upload published, and both are compared "
         "before the release"
     )
+    # GitHub stops a job at its first failing step unless that step carries an
+    # `if`. Plain sequencing therefore gates publication on the digest check;
+    # any condition here could skip the check and still publish.
+    for name in (
+        "Check both destinations hold the same bytes",
+        "Publish the GitHub Release",
+    ):
+        assert "if" not in step("publish-release", name), (
+            f"{name!r} must run unconditionally, or a conditional could bypass "
+            "the digest check and publish a release the check never inspected"
+        )
     assert "--draft=false" in step_script(
         "publish-release", "Publish the GitHub Release"
     ), "publication must un-draft the release"

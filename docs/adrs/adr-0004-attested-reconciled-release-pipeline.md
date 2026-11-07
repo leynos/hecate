@@ -137,14 +137,19 @@ workflow's steps keep no filename knowledge of their own. There is no
 `scripts/release_assets_cli.py` wraps this library in the `argparse` interface
 `release.yml` calls; the library itself declares no command line.
 
-Reading the publish directory and validating its names are both fallible, so
-`State.names()` exposes that read explicitly: it returns the staged names or
-raises, and the pure `plan()`, `attests_canonical_bytes()`, and the
-verification helpers take those names as input. Each command reads the names
+Reading the publish directory, validating its names, and hashing its files are
+all fallible, so each is an explicit query: `State.names()` returns the staged
+names or raises, and `State.local_digests()` returns the SHA-256 of each named
+file or raises. The decisions themselves are pure functions of the listings
+they are given: `plan()` chooses the canonical source, `canonical_digest()`
+reports that source's digest, and `attests_shipped_bytes()` judges the bundle
+from the three digest mappings alone. `attests_canonical_bytes()` is the thin
+boundary that hashes the staged files and hands the result to that policy, so
+the rule can be exercised without a filesystem. Each command reads the names
 once and passes the same tuple to every decision it makes, so one operation
 cannot act on two different listings. A decision therefore never lists the
-directory on a caller's behalf, and a filesystem failure surfaces where it
-happened rather than as an apparently empty plan.
+directory on a caller's behalf, and a listing or hashing failure surfaces where
+it happened rather than as an apparently empty plan.
 
 ### No-overwrite verification and manual recovery
 
@@ -333,7 +338,9 @@ matches `pyproject.toml` exactly.
   `test_release_rerun.py`, and `test_release_workflow_contract.py`, which run
   the scripts against scratch directories and recording `gh` and `curl`
   stand-ins, and pin the job scopes, environment, concurrency, ordering, and
-  pinned actions.
+  pinned actions. `test_release_end_to_end.py` runs the job sequence twice and,
+  in one case, from a real `uv build`, so the bytes carried through every
+  hand-off are the package's own.
 - The PyPI Simple index is treated as the source of truth for what PyPI already
   holds; an index outage that returns a non-404, non-2xx status fails the phase
   rather than guessing, which is deliberate but means a PyPI-side incident can

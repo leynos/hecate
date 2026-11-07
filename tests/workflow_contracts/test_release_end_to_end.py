@@ -27,11 +27,17 @@ The job order and the permission scopes are pinned separately by
 
 from __future__ import annotations
 
+import dataclasses as dc
+import pathlib as pth
+import shutil
+import subprocess  # noqa: S404 - the test runs the build the workflow runs.
 import sys
+import tomllib
 
 import pytest
 
 from . import release_scenario as scene
+from .ci_workflows import ROOT
 from .release_workflow import FakeRelease, run_version_check
 
 pytestmark = pytest.mark.skipif(
@@ -40,33 +46,50 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _release_once(fake: FakeRelease, run: str, *, draft: bool) -> bool:
+@dc.dataclass(frozen=True, slots=True)
+class _Build:
+    """One build's ``release-dist`` artefact, and the tag that names it."""
+
+    version: str
+    tag: str
+    dist: pth.Path
+    expected: dict[str, bytes]
+
+
+def _release_once(fake: FakeRelease, run: str, *, draft: bool, build: _Build) -> bool:
     """Run the workflow's jobs in dependency order for one tag push.
+
+    ``build`` is the ``release-dist`` artefact the build job uploads and the
+    bytes it holds, so a caller can supply a synthetic build or a real one.
 
     Returns whether ``publish-pypi`` told the workflow that artefacts remained,
     which is the condition its upload step reads.
     """
-    version = scene.TAG.removeprefix("v")
     check = fake.root / f"check-version-{run}"
     check.mkdir()
-    completed, stated = run_version_check(check, version, version)
+    completed, stated = run_version_check(check, build.version, build.version)
     assert completed.returncode == 0, completed.stderr
-    assert stated["prerelease"] == "false", f"{version} is not a pre-release"
+    assert stated["prerelease"] == "false", f"{build.version} is not a pre-release"
 
     # The build job uploads `release-dist`; every later job downloads it and
     # works from those bytes alone.
-    dist = scene.job_directory(fake, "build", label=f"build-{run}")[0] / "dist"
-    expected = {name: scene.local(name) for name in scene.ARTEFACTS}
-
     snapshot = scene.snapshot_release(
-        fake, label=f"draft-release-{run}", create=True, dist_from=dist
+        fake,
+        create=True,
+        staged=scene.Job(
+            label=f"draft-release-{run}", dist_from=build.dist, tag=build.tag
+        ),
     )
-    assert scene.holdings(snapshot / "dist" / "publish") == expected, (
+    assert scene.holdings(snapshot / "dist" / "publish") == build.expected, (
         "draft-release must receive the build job's artefacts unchanged"
     )
 
     remaining = scene.publish_pypi_from_snapshot(
-        fake, snapshot, label=f"publish-pypi-{run}", dist_from=dist
+        fake,
+        snapshot,
+        staged=scene.Job(
+            label=f"publish-pypi-{run}", dist_from=build.dist, tag=build.tag
+        ),
     )
 
     published = scene.publish_release(
@@ -75,13 +98,83 @@ def _release_once(fake: FakeRelease, run: str, *, draft: bool) -> bool:
             label=f"publish-release-{run}",
             draft=draft,
             publish=True,
-            dist_from=dist,
+            dist_from=build.dist,
+            tag=build.tag,
         ),
     )
-    assert scene.holdings(published / "dist" / "publish") == expected, (
+    assert scene.holdings(published / "dist" / "publish") == build.expected, (
         "publish-release must receive the build job's artefacts unchanged"
     )
     return remaining
+
+
+def _synthetic_release_once(fake: FakeRelease, run: str, *, draft: bool) -> bool:
+    """Drive one tag push against a synthetic build the workflow never made."""
+    dist = scene.job_directory(fake, "build", scene.Job(label=f"build-{run}"))[0]
+    return _release_once(
+        fake,
+        run,
+        draft=draft,
+        build=_Build(
+            version=scene.TAG.removeprefix("v"),
+            tag=scene.TAG,
+            dist=dist / "dist",
+            expected={name: scene.local(name) for name in scene.ARTEFACTS},
+        ),
+    )
+
+
+def _declared_version() -> str:
+    """Return the version ``pyproject.toml`` declares."""
+    document = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    return str(document["project"]["version"])
+
+
+def _uv_build(destination: pth.Path) -> pth.Path:
+    """Build the project with the workflow's own ``uv build`` command."""
+    uv = shutil.which("uv")
+    assert uv is not None, "the test suite runs under uv, so the build must find it"
+    completed = subprocess.run(  # noqa: S603 - the resolved build command runs in the repository root.
+        [uv, "build", "--out-dir", str(destination)],
+        capture_output=True,
+        check=False,
+        cwd=ROOT,
+        text=True,
+    )
+    assert completed.returncode == 0, (
+        "`uv build` must succeed for the release test to mean anything:\n"
+        f"{completed.stderr}"
+    )
+    return destination
+
+
+def _built_files(output: pth.Path) -> dict[str, bytes]:
+    """Return the sdist and wheel ``uv build`` wrote, keyed by name.
+
+    ``uv build`` also drops a ``.gitignore`` in its output directory; the
+    workflow stages only the distributions, so this does too.
+    """
+    return {
+        path.name: path.read_bytes()
+        for path in output.iterdir()
+        if path.suffix in {".whl", ".gz"}
+    }
+
+
+def _release_dist(output: pth.Path, version: str, dist: pth.Path) -> pth.Path:
+    """Shape one build's output as the ``release-dist`` artefact.
+
+    The build job leaves the sdist and wheel under ``dist/publish`` and the
+    attestation under ``dist/attestations``; this mirrors that layout from a
+    real build, so every later job reads the files ``uv build`` wrote.
+    """
+    (dist / "publish").mkdir(parents=True)
+    for name, content in _built_files(output).items():
+        (dist / "publish" / name).write_bytes(content)
+    (dist / "attestations").mkdir()
+    bundle = f"hecate-enforce-v{version}.sigstore.json"
+    (dist / "attestations" / bundle).write_bytes(b"bundle")
+    return dist
 
 
 def test_a_complete_release_publishes_and_a_rerun_uploads_nothing(
@@ -92,7 +185,7 @@ def test_a_complete_release_publishes_and_a_rerun_uploads_nothing(
         (fake.pypi / name).unlink(missing_ok=True)
         (fake.github / name).unlink(missing_ok=True)
 
-    assert _release_once(fake, "first", draft=True), (
+    assert _synthetic_release_once(fake, "first", draft=True), (
         "a first release must tell the workflow to upload"
     )
 
@@ -112,7 +205,7 @@ def test_a_complete_release_publishes_and_a_rerun_uploads_nothing(
     before = len([c for c in fake.calls("gh") if c[:2] == ["release", "upload"]])
     published = scene.holdings(fake.github)
 
-    assert not _release_once(fake, "rerun", draft=False), (
+    assert not _synthetic_release_once(fake, "rerun", draft=False), (
         "a rerun must tell the workflow that no artefact remains"
     )
 
@@ -122,3 +215,74 @@ def test_a_complete_release_publishes_and_a_rerun_uploads_nothing(
         "a rerun must not change any asset's bytes"
     )
     assert scene.holdings(fake.pypi) == expected, "PyPI must be left untouched"
+
+
+@pytest.mark.timeout(300)
+def test_a_real_build_reaches_both_destinations_and_a_rerun_changes_nothing(
+    fake: FakeRelease, tmp_path: pth.Path
+) -> None:
+    """The bytes ``uv build`` writes are the bytes both destinations hold.
+
+    The synthetic run above proves the workflow's paths carry *some* bytes.
+    This one builds the project with the same ``uv build`` the workflow runs,
+    so the names, checksums, and metadata the release reconciles are the ones
+    the package actually has, and a second real build -- which need not be
+    byte-identical -- must still leave both destinations untouched.
+    """
+    version = _declared_version()
+    tag = f"v{version}"
+    bundle = f"hecate-enforce-{tag}.sigstore.json"
+    for name in (*scene.ARTEFACTS, scene.BUNDLE):
+        (fake.pypi / name).unlink(missing_ok=True)
+        (fake.github / name).unlink(missing_ok=True)
+
+    first = _uv_build(tmp_path / "first-build")
+    first_bytes = _built_files(first)
+    assert len(first_bytes) == 2, (
+        f"`uv build` must produce one sdist and one wheel, not {sorted(first_bytes)}"
+    )
+
+    assert _release_once(
+        fake,
+        "first",
+        draft=True,
+        build=_Build(
+            version=version,
+            tag=tag,
+            dist=_release_dist(first, version, tmp_path / "first-dist"),
+            expected=first_bytes,
+        ),
+    ), "a first release must tell the workflow to upload"
+
+    assert scene.holdings(fake.pypi) == first_bytes, (
+        "PyPI must hold exactly the bytes `uv build` produced"
+    )
+    assert scene.holdings(fake.github) == {**first_bytes, bundle: b"bundle"}, (
+        "the release must ship the built bytes plus the bundle it attests"
+    )
+
+    uploads = len([c for c in fake.calls("gh") if c[:2] == ["release", "upload"]])
+    second = _uv_build(tmp_path / "second-build")
+    second_bytes = _built_files(second)
+
+    assert not _release_once(
+        fake,
+        "rerun",
+        draft=False,
+        build=_Build(
+            version=version,
+            tag=tag,
+            dist=_release_dist(second, version, tmp_path / "second-dist"),
+            expected=second_bytes,
+        ),
+    ), "a rerun must tell the workflow that no artefact remains"
+
+    assert len([c for c in fake.calls("gh") if c[:2] == ["release", "upload"]]) == (
+        uploads
+    ), "a rerun of a published release must upload nothing"
+    assert scene.holdings(fake.pypi) == first_bytes, (
+        "PyPI's immutable bytes must survive a rebuild"
+    )
+    assert scene.holdings(fake.github) == {**first_bytes, bundle: b"bundle"}, (
+        "the release must keep the bytes it published, whatever the rebuild holds"
+    )

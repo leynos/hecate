@@ -175,6 +175,23 @@ class _Pass:
     names: tuple[str, ...] = NAMES
 
 
+@dc.dataclass(frozen=True, slots=True)
+class _Outcome:
+    """What a modelled pass left behind, and what ``verify`` made of it.
+
+    ``problems`` is ``None`` when the pass stopped before verification: the
+    workflow runs ``publish-release`` only after a successful PyPI upload.
+    """
+
+    destinations: _Destinations
+    problems: list[str] | None
+
+
+def _reported_names(problems: cabc.Iterable[str]) -> set[str]:
+    """Return the name each of ``verify``'s problem messages begins with."""
+    return {problem.split()[0] for problem in problems}
+
+
 def _bundles(run_root: pth.Path) -> pth.Path:
     """Write this run's bundle and return the directory holding it."""
     bundles = run_root / "bundles"
@@ -214,8 +231,8 @@ def _publish_pypi(
 
 def _publish_release(
     run_root: pth.Path, dist: pth.Path, bundles: pth.Path, destinations: _Destinations
-) -> _Destinations:
-    """Stage, fetch, check, and model the GitHub Release upload."""
+) -> _Outcome:
+    """Stage, fetch, check, and model the GitHub Release upload, then verify."""
     publish = shutil.copytree(dist, run_root / "publish-release")
     state = _state(publish, destinations)
     output = run_root / "out"
@@ -227,7 +244,10 @@ def _publish_release(
     for path in sorted(output.iterdir()):
         assert path.name not in destinations.github, "the release never overwrites"
         destinations.github[path.name] = path.read_bytes()
-    return destinations
+    # Verification reads both destinations as they stand now, exactly as the
+    # workflow's digest check does after it re-fetches the index and assets.
+    verified = _state(publish, destinations)
+    return _Outcome(destinations, release_assets.verify(verified, bundles))
 
 
 def _release_pass(
@@ -235,7 +255,7 @@ def _release_pass(
     options: _Pass,
     destinations: _Destinations,
     upload: cabc.Collection[str] | None = None,
-) -> _Destinations:
+) -> _Outcome:
     """Run one release pass against ``destinations`` and return the result.
 
     Each job starts from a fresh copy of the build's ``dist``, as the
@@ -250,7 +270,7 @@ def _release_pass(
 
     after_pypi, interrupted = _publish_pypi(run_root, dist, destinations, upload)
     if interrupted:
-        return after_pypi
+        return _Outcome(after_pypi, None)
     return _publish_release(run_root, dist, bundles, after_pypi)
 
 
@@ -286,21 +306,27 @@ def test_an_interrupted_upload_is_completed_by_the_next_run(
     partial = _release_pass(
         tmp_path, _Pass("first", "first build"), first, upload=uploaded
     )
-    _assert_preserved(before, partial)
+    _assert_preserved(before, partial.destinations)
 
-    final = _release_pass(tmp_path, _Pass("rerun", "second build"), partial)
-    _assert_preserved(before, final)
+    final = _release_pass(
+        tmp_path, _Pass("rerun", "second build"), partial.destinations
+    )
+    _assert_preserved(before, final.destinations)
     for name in NAMES:
-        assert name in final.pypi, f"{name} must reach PyPI"
-        assert name in final.github, f"{name} must reach the release"
+        assert name in final.destinations.pypi, f"{name} must reach PyPI"
+        assert name in final.destinations.github, f"{name} must reach the release"
         if name in on_pypi and name in on_github:
             # Both destinations already held it; reconciliation fills gaps and
             # never rewrites a published name, so a pre-existing disagreement
             # survives for `verify` to report.
             continue
-        assert final.pypi[name] == final.github[name], (
+        assert final.destinations.pypi[name] == final.destinations.github[name], (
             f"{name} must hold the same bytes on both destinations"
         )
+    assert final.problems is not None, "a completed pass reaches verification"
+    assert _reported_names(final.problems) == on_pypi & on_github, (
+        "verify must report exactly the names the destinations already disagreed on"
+    )
 
 
 @given(
@@ -331,9 +357,10 @@ def test_the_bundle_reaches_the_release_only_when_it_attests_what_ships(
         ),
     )
 
-    assert ("run.sigstore.json" in final.github) is not (differing & published), (
-        "the bundle must ride along exactly when it describes every shipped byte"
-    )
+    assert final.problems == [], "agreeing destinations must not block publication"
+    assert ("run.sigstore.json" in final.destinations.github) is not (
+        differing & published
+    ), "the bundle must ride along exactly when it describes every shipped byte"
 
 
 @given(
@@ -345,14 +372,26 @@ def test_a_rerun_after_a_complete_release_changes_nothing(
     tmp_path: pth.Path, on_pypi: set[str], on_github: set[str]
 ) -> None:
     """Once every name is on both destinations, a rebuild uploads nothing."""
-    first = _Destinations(
+    initial = _Destinations(
         dict.fromkeys(on_pypi, b"earlier pypi"),
         dict.fromkeys(on_github, b"earlier github"),
     )
-    complete = _release_pass(tmp_path, _Pass("first", "first build"), first)
-    before = _copy(complete)
+    complete = _release_pass(tmp_path, _Pass("first", "first build"), initial)
+    before = _copy(complete.destinations)
+    assert complete.problems is not None
 
-    rerun = _release_pass(tmp_path, _Pass("rerun", "second build"), complete)
+    rerun = _release_pass(
+        tmp_path, _Pass("rerun", "second build"), complete.destinations
+    )
+    assert rerun.problems is not None
 
-    assert rerun.pypi == before.pypi, "a rerun must not upload to PyPI"
-    assert rerun.github == before.github, "a rerun must not upload to the release"
+    assert rerun.destinations.pypi == before.pypi, "a rerun must not upload to PyPI"
+    assert rerun.destinations.github == before.github, (
+        "a rerun must not upload to the release"
+    )
+    assert rerun.problems == complete.problems, (
+        "a rerun must not change what verification reports"
+    )
+    assert _reported_names(rerun.problems) == on_pypi & on_github, (
+        "verify must report exactly the pre-existing disagreements"
+    )
