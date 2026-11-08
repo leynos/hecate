@@ -172,6 +172,31 @@ class State:
 
         ``assets`` is optional because one command reads the PyPI index alone;
         a caller that needs the release's holdings passes the listing.
+
+        Parameters
+        ----------
+        publish : Path
+            The directory holding this run's staged artefacts.
+        index : Path | None
+            A saved PyPI Simple index response, or ``None`` when the command
+            does not read PyPI.
+        assets : Path | None
+            A saved ``gh release view --json assets`` response, or ``None``
+            when the command does not read the release.
+
+        Returns
+        -------
+        State
+            The staged directory and each destination's holdings; an absent
+            listing leaves that destination empty.
+
+        Raises
+        ------
+        OSError
+            If a listing that was given cannot be read.
+        KeyError
+            If a given listing is malformed, as ``read_pypi_index`` documents.
+
         """
         pypi = read_pypi_index(index) if index is not None else {}
         return cls(publish, pypi, read_github_assets(assets) if assets else {})
@@ -201,7 +226,20 @@ class State:
         return tuple(local_names(self.publish))
 
     def plan(self, names: cabc.Iterable[str]) -> Plan:
-        """Plan uploads for ``names`` against both destinations."""
+        """Plan uploads for ``names`` against both destinations.
+
+        Parameters
+        ----------
+        names : collections.abc.Iterable[str]
+            The staged names, as returned by :meth:`names`.
+
+        Returns
+        -------
+        Plan
+            Each name's canonical source and the names each destination still
+            lacks.
+
+        """
         return plan(names, self.pypi, self.github)
 
     def local_digests(self, names: cabc.Iterable[str]) -> dict[str, str]:

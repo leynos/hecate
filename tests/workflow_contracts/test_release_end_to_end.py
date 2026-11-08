@@ -110,20 +110,20 @@ def _release_once(fake: FakeRelease, run: str, *, draft: bool, build: _Build) ->
     return remaining
 
 
+def _synthetic_build(fake: FakeRelease, run: str) -> _Build:
+    """Return a build the workflow never made, for one release run."""
+    dist = scene.job_directory(fake, "build", scene.Job(label=f"build-{run}"))[0]
+    return _Build(
+        version=scene.TAG.removeprefix("v"),
+        tag=scene.TAG,
+        dist=dist / "dist",
+        expected={name: scene.local(name) for name in scene.ARTEFACTS},
+    )
+
+
 def _synthetic_release_once(fake: FakeRelease, run: str, *, draft: bool) -> bool:
     """Drive one tag push against a synthetic build the workflow never made."""
-    dist = scene.job_directory(fake, "build", scene.Job(label=f"build-{run}"))[0]
-    return _release_once(
-        fake,
-        run,
-        draft=draft,
-        build=_Build(
-            version=scene.TAG.removeprefix("v"),
-            tag=scene.TAG,
-            dist=dist / "dist",
-            expected={name: scene.local(name) for name in scene.ARTEFACTS},
-        ),
-    )
+    return _release_once(fake, run, draft=draft, build=_synthetic_build(fake, run))
 
 
 def _declared_version() -> str:
@@ -228,6 +228,45 @@ def test_a_complete_release_publishes_and_a_rerun_uploads_nothing(
         "a rerun must not change any asset's bytes"
     )
     assert scene.holdings(fake.pypi) == expected, "PyPI must be left untouched"
+
+
+def test_a_conflicting_destination_keeps_the_release_a_draft(
+    fake: FakeRelease,
+) -> None:
+    """A digest conflict stops publication, and a rerun cannot publish either.
+
+    The digest check is what stands between the upload and a visible release,
+    so this drives the sequence as GitHub does: every step up to the check
+    runs, the check fails, and the publish step is never reached -- in this
+    run or the next.
+    """
+    (fake.pypi / scene.BOTH).write_bytes(b"PyPI's bytes")
+    (fake.github / scene.BOTH).write_bytes(b"the release's bytes")
+
+    first = _synthetic_build(fake, "first")
+    assert not scene.publish_after_check(
+        fake, "first", draft=True, dist_from=first.dist
+    ), "a digest conflict must stop the run before it publishes"
+    assert scene.publication_edits(fake) == [], (
+        "a failed check must leave the release a draft"
+    )
+
+    # A rerun rebuilds every name, but reconciliation never overwrites either
+    # destination, so the two conflicting copies remain and the check fails
+    # again.
+    rerun = _synthetic_build(fake, "rerun")
+    assert not scene.publish_after_check(
+        fake, "rerun", draft=True, dist_from=rerun.dist
+    ), "a rerun must not publish a release the check cannot pass"
+    assert scene.publication_edits(fake) == [], (
+        "a rerun must still leave the release a draft"
+    )
+    assert fake.pypi.joinpath(scene.BOTH).read_bytes() == b"PyPI's bytes", (
+        "a failed check must not rewrite PyPI's bytes"
+    )
+    assert fake.github.joinpath(scene.BOTH).read_bytes() == b"the release's bytes", (
+        "a failed check must not rewrite the release's bytes"
+    )
 
 
 @pytest.mark.timeout(300)

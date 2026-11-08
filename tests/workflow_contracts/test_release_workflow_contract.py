@@ -259,6 +259,32 @@ def test_the_release_is_published_only_after_pypi() -> None:
     ), "publication must un-draft the release"
 
 
+def test_no_scope_overrides_the_shell_or_directory_of_a_step() -> None:
+    """A gate must run the script the contract inspected, where it assumes.
+
+    ``shell`` and ``working-directory`` change how and where a ``run`` script
+    executes, at workflow, job or step scope. None is needed here, so any
+    override would silently put a gate outside the arrangement the other
+    contract tests describe.
+    """
+    document = workflow_document(WORKFLOW)
+    defaults = typ.cast("dict[str, object]", document.get("defaults") or {})
+    assert "run" not in defaults, (
+        "a workflow-level run default could change how every gate executes"
+    )
+    for job_name in jobs(WORKFLOW):
+        assert "defaults" not in _job(job_name), (
+            f"{job_name} must not set run defaults that change how its gates run"
+        )
+        for declared in _declared_steps(job_name):
+            for override in ("shell", "working-directory"):
+                assert override not in declared, (
+                    f"{declared.get('name')!r} must not set {override!r}, or the "
+                    "gate could run under a different shell or directory than the "
+                    "contract assumes"
+                )
+
+
 def test_the_attestation_bundle_is_named_by_the_tag() -> None:
     """A per-run bundle name would add an asset on every re-run.
 

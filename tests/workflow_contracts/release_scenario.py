@@ -230,6 +230,58 @@ def publish_release(fake: FakeRelease, run: ReleaseRun | None = None) -> pth.Pat
     return cwd
 
 
+def publish_after_check(
+    fake: FakeRelease,
+    run: str,
+    *,
+    draft: bool,
+    dist_from: pth.Path,
+) -> bool:
+    """Run ``publish-release`` as GitHub does: the check gates publication.
+
+    Every step before the digest check runs, and the publish step runs only
+    when the check exits zero, because GitHub stops a job at its first failing
+    step. Returns whether the release was published.
+    """
+    snapshot = snapshot_release(
+        fake,
+        create=True,
+        staged=Job(label=f"draft-release-{run}", dist_from=dist_from, tag=TAG),
+    )
+    publish_pypi_from_snapshot(
+        fake,
+        snapshot,
+        staged=Job(label=f"publish-pypi-{run}", dist_from=dist_from, tag=TAG),
+    )
+    cwd = publish_release(
+        fake,
+        ReleaseRun(
+            label=f"publish-release-{run}",
+            draft=draft,
+            verify=False,
+            dist_from=dist_from,
+            tag=TAG,
+        ),
+    )
+    env = fake.env(GITHUB_REF_NAME=TAG, GITHUB_OUTPUT=str(cwd / "output"))
+    checked = run_step(
+        "publish-release", "Check both destinations hold the same bytes", cwd, env
+    )
+    if checked.returncode != 0:
+        return False
+    run_required("publish-release", "Publish the GitHub Release", cwd, env)
+    return True
+
+
+def publication_edits(fake: FakeRelease) -> list[list[str]]:
+    """Return the ``gh release edit`` calls that could make a release visible."""
+    return [
+        call
+        for call in fake.calls("gh")
+        if call[:2] == ["release", "edit"] and "--draft=false" in call
+    ]
+
+
 def holdings(directory: pth.Path) -> dict[str, bytes]:
     """Return each file's bytes in one destination."""
     return {path.name: path.read_bytes() for path in directory.iterdir()}

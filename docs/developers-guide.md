@@ -1442,7 +1442,9 @@ once the repository settings below exist.
 
 ### What the workflow does
 
-Six jobs run in order, each with only the permissions it needs:
+Six jobs run in dependency order, each with only the permissions it needs.
+`check-version` and `build-wheels` start together, so the build lane never
+queues behind the version check; `attest` waits for both.
 
 - `check-version` compares the tag with `pyproject.toml` and reports whether
   the version is a pre-release.
