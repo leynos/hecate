@@ -21,6 +21,7 @@ text.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess  # ruff: ignore[S404]  # Runs a pinned executable, no shell.
 from pathlib import Path
@@ -71,6 +72,29 @@ def _uv() -> str:
     return executable
 
 
+def _uv_env() -> dict[str, str]:
+    """Return the environment to run uv in, isolated from the caller's.
+
+    ``UV_PROJECT_ENVIRONMENT`` names the environment ``uv sync`` targets, and
+    ``uv sync`` removes packages the project does not declare. Inheriting a
+    caller's value would point the probe at a real virtualenv and uninstall
+    what is in it, so the variable is dropped. Everything else is passed
+    through: the probes still need ``PATH`` to find ``uv``, and ``UV_CACHE_DIR``
+    and friends should keep behaving as the caller configured them.
+
+    Returns
+    -------
+    dict[str, str]
+        The caller's environment without ``UV_PROJECT_ENVIRONMENT``.
+
+    """
+    return {
+        key: value
+        for key, value in os.environ.items()
+        if key != "UV_PROJECT_ENVIRONMENT"
+    }
+
+
 def _uv_run(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Run ``uv`` against ``project`` with output captured.
 
@@ -92,6 +116,7 @@ def _uv_run(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
         capture_output=True,
         check=False,
         cwd=project,
+        env=_uv_env(),
         text=True,
     )
 
@@ -230,7 +255,8 @@ class TestTheBuildTarget:
         # The recipe defaults the variable to `command -v uv` already; naming
         # the resolved path keeps the probe on the same binary this module
         # measured, rather than on whatever a caller's environment shadows it
-        # with.
+        # with. `env` drops the variables that would redirect the sync out of
+        # the throwaway project, which make would otherwise pass through.
         argv = [
             "make",
             "-C",
@@ -244,6 +270,7 @@ class TestTheBuildTarget:
             argv,
             capture_output=True,
             check=False,
+            env=_uv_env(),
             text=True,
         )
 
@@ -274,6 +301,69 @@ class TestTheBuildTarget:
             "the refused `make build` rewrote the lockfile anyway, so the "
             "failure is reported after the unreviewed resolution has already "
             "been written"
+        )
+
+
+class TestEnvironmentIsolation:
+    """A sync must land in the throwaway project, whatever the caller exports.
+
+    ``UV_PROJECT_ENVIRONMENT`` names the environment ``uv sync`` targets, so a
+    caller who exported it — to keep a shared venv out of a checkout, say —
+    would have these probes sync into *that* environment instead. Because
+    ``uv sync`` also removes what the project does not declare, and the
+    throwaway project declares nothing, the effect on a real venv is that its
+    packages are uninstalled. The probe is supposed to touch only ``tmp_path``,
+    so it has to drop the variable rather than inherit it.
+    """
+
+    def _name_outside(self, tmp_path: Path) -> Path:
+        """Create an environment for the ambient variable to point at.
+
+        It is made by ``uv`` itself so it is a real venv rather than an empty
+        directory, which is what lets the assertions below say the probe left
+        a working environment alone rather than that it created a folder.
+        """
+        named = tmp_path / "elsewhere"
+        completed = _uv_run(tmp_path, "venv", str(named))
+        assert completed.returncode == 0, (
+            f"could not create the named environment: {completed.stderr}"
+        )
+        return named
+
+    def test_a_named_project_environment_is_not_targeted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ambient variable must not redirect the probe's sync."""
+        project, _ = _locked_project(tmp_path, _PROJECT)
+        named = self._name_outside(tmp_path)
+        monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(named))
+
+        completed = _uv_run(project, "sync", "--locked", "--offline")
+        assert completed.returncode == 0, (
+            f"the sync failed for an unrelated reason: {completed.stderr}"
+        )
+        assert (project / ".venv").is_dir(), (
+            "the sync did not create the throwaway project's own environment, "
+            "so it was redirected by the inherited UV_PROJECT_ENVIRONMENT and "
+            f"wrote into {named} instead"
+        )
+
+    def test_the_build_target_is_not_redirected_either(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The recipe inherits the same environment, so it needs the same guard."""
+        project, _ = _locked_project(tmp_path, _PROJECT)
+        named = self._name_outside(tmp_path)
+        monkeypatch.setenv("UV_PROJECT_ENVIRONMENT", str(named))
+
+        completed = TestTheBuildTarget()._make(project, "build")
+        assert completed.returncode == 0, (
+            f"`make build` failed for an unrelated reason: {completed.stderr}"
+        )
+        assert (project / ".venv").is_dir(), (
+            "`make build` synced into the inherited UV_PROJECT_ENVIRONMENT "
+            f"rather than the throwaway project, so a caller with that "
+            f"variable exported would have had {named} rewritten"
         )
 
 

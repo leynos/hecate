@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import re
 import tomllib
+import typing as typ
 
 from .reading import REPO_ROOT, RuffPolicyError
+
+if typ.TYPE_CHECKING:
+    from pathlib import Path
 
 
 def locked_ruff_version(lock_text: str) -> str:
@@ -54,6 +58,40 @@ def locked_ruff_version(lock_text: str) -> str:
     return versions[0]
 
 
+def _read(path: Path) -> str:
+    """Return one repository file's text, or say which file could not be read.
+
+    The read is a boundary of its own so the parsers can be functions of text.
+    A parser that opened its own file could only be exercised against the real
+    one, which means a case could not show what it does with a continuation or
+    a missing goal without the repository being edited to contain one.
+
+    Parameters
+    ----------
+    path : Path
+        The file to read.
+
+    Returns
+    -------
+    str
+        The file's text, decoded as UTF-8.
+
+    Raises
+    ------
+    RuffPolicyError
+        If the file cannot be read. ``FileNotFoundError`` is an ``OSError``,
+        so an absent file surfaces as the same policy error a partial checkout
+        raises everywhere else rather than as a raw exception no contract here
+        handles.
+
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        message = f"cannot read {path}: {error}"
+        raise RuffPolicyError(message) from error
+
+
 def lock_text() -> str:
     """Return the committed ``uv.lock`` source.
 
@@ -63,7 +101,7 @@ def lock_text() -> str:
         The lockfile's text, unwritten by this reader.
 
     """
-    return (REPO_ROOT / "uv.lock").read_text(encoding="utf-8")
+    return _read(REPO_ROOT / "uv.lock")
 
 
 def makefile_text() -> str:
@@ -75,14 +113,21 @@ def makefile_text() -> str:
         The Makefile's text, which the goals are read out of.
 
     """
-    return (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+    return _read(REPO_ROOT / "Makefile")
 
 
-def goal_body(goal: str) -> str:
-    """Return a Makefile goal's recipe with continuations joined.
+def recipe_text(makefile: str, goal: str) -> str:
+    """Return a goal's recipe with continuations joined.
+
+    The Makefile is a parameter rather than a file this reads, so a case can
+    hold the reader to a recipe spelled in the case itself. The repository's
+    own target is then one caller among others, and a change to the parser
+    cannot be validated only against the one file it happens to agree with.
 
     Parameters
     ----------
+    makefile : str
+        The Makefile source to read the recipe out of.
     goal : str
         The goal's name, as written before the colon.
 
@@ -100,7 +145,7 @@ def goal_body(goal: str) -> str:
     """
     match = re.search(
         rf"^{re.escape(goal)}:.*?\n((?:[ \t].*\n|[ \t].*)+)",
-        makefile_text(),
+        makefile,
         flags=re.MULTILINE,
     )
     if match is None:

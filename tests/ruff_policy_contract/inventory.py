@@ -114,7 +114,7 @@ def inventory_text() -> str:
     return INVENTORY_PATH.read_text(encoding="utf-8")
 
 
-def inventory_header() -> tuple[str, str]:
+def inventory_header(text: str) -> tuple[str, str]:
     """Return the recorded Ruff version and sample-file name from the header.
 
     The inventory is only meaningful for the binary that produced it, so the
@@ -122,6 +122,17 @@ def inventory_header() -> tuple[str, str]:
     version. A comment-free header is a contract violation rather than a
     default, because an inventory that cannot say what produced it cannot be
     reviewed.
+
+    The text is a parameter for the same reason it is in every reader here: a
+    parser of a string can be held to a header this repository does not carry,
+    which is the only way to show what it does with a missing field. Reading
+    the file is :func:`inventory_text`'s job, and keeping the two apart is what
+    lets a failure say whether the file or the header was at fault.
+
+    Parameters
+    ----------
+    text : str
+        The inventory source to read the header from.
 
     Returns
     -------
@@ -136,7 +147,7 @@ def inventory_header() -> tuple[str, str]:
     """
     version: str | None = None
     sample: str | None = None
-    for line in inventory_text().splitlines():
+    for line in text.splitlines():
         if match := re.match(r"#\s*ruff-version:\s*(\S+)\s*$", line):
             version = match.group(1)
         elif match := re.match(r"#\s*sample:\s*(\S+)\s*$", line):
