@@ -1461,3 +1461,60 @@ the one claim the case can actually make: the binary was present and answered.
 A resolved thread is not evidence that the point was addressed, so this
 revision exists to record that the confirmation above was read rather than
 counted.
+
+Revision 14: the third formal review's four findings, at `f4ec916`. Two were
+inline; two arrived as pre-merge checks. All four were real, and the two that
+mattered most were both cases of a test agreeing with its subject rather than
+measuring it.
+
+The first inline finding was a silence. `reported` indexed the decoded report
+with `diagnostic["code"]` and `diagnostic["location"]["row"]` and nothing else,
+so a report carrying `{"code": null}` or a string `row` decoded, indexed, and
+returned: the reader handed back a pair whose members were not the types every
+caller compares. The effect was to turn a malformed report into an ordinary
+"this code is not in the expected set" result, which is the one outcome the
+whole package exists to distinguish from a real absence. `reported` now also
+refuses a report that is not a JSON array — a bare object would iterate as its
+keys and a `null` or number would raise a raw `TypeError` from the loop header
+— and per-entry work moved into `_code_and_row`, which checks each field where
+it is read. The four new cases in `test_ruff_run.py` were written first and all
+eight rows of the two tables failed against the old reader with exactly the
+predicted symptom.
+
+Three of the checks on that helper were themselves findings. Pylint refused the
+combined type test at three boolean operators, and `ty` refused to index a
+`dict` after `isinstance` narrowing, so the check is now three separate
+questions in sequence: code, then location, then row. That is more readable
+than the tuple guard it replaced, and the `bool` exclusion that the docstring
+explains is stated once, in the one place that asks the question.
+
+The second inline finding was the pair-isolation hazard in the build probe.
+`uv sync` removes packages the project does not declare and targets whatever
+`UV_PROJECT_ENVIRONMENT` names, so a developer with that variable exported had
+their real virtualenv uninstalled when the probe ran. This was reproduced in a
+scratch directory before anything was changed: with the variable set, `uv sync`
+printed `Creating virtual environment at: <named path>` and left no `.venv` in
+the project at all. `_uv_env` now drops that one variable and passes everything
+else through, because the probes still need `PATH` to find `uv`. Two cases hold
+it, one for `_uv_run` and one for the `build` target, since the recipe reaches
+`uv` by a different route.
+
+The pre-merge checks made the two smaller points. The readers in
+`provenance.py` and `inventory.py` still read their own files, which meant a
+case could not show what the parser does with a continuation or a missing goal
+without the repository being edited to carry one; both now take their source as
+a parameter, with `_read` and `inventory_text` as the only file boundaries.
+`inventory_header` had the same shape and the same fix. The Property / Proof
+row then asked for confidence the new walk did not have: `directories_between`
+was covered by three hand-written shapes and no relation.
+`TestDirectoryDiscoveryProperties` now states the contract over generated path
+trees — the result is exactly the distinct ancestors strictly below the root,
+sorted — and was mutation-tested twice against `discovery.py`, once to make it
+report the root and once to drop the sort, with both caught.
+
+The lesson worth keeping is about where a test can quietly stop measuring. The
+reader agreed with every report the repository produced because those reports
+were well-formed; the probe agreed with the Makefile because the test imposed
+the agreement; the walk agreed with three examples that were chosen by the same
+person who wrote the walk. None of these failed, which is exactly why the
+pre-existing suite reported 772 passing tests while all four defects were live.

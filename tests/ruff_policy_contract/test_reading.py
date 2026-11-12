@@ -18,6 +18,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from .discovery import (
     declares_ruff_settings,
@@ -264,3 +266,51 @@ class TestRuffSectionReader:
             RuffPolicyError, match=r"tool\.ruff\.lint\.select is not defined"
         ):
             ruff_section(document, "lint", "select")
+
+
+class TestDirectoryDiscoveryProperties:
+    """The named cases above, generalised over generated path trees.
+
+    Those cases spell three shapes out. The walk's contract is a relation, not
+    a shape: for *any* set of files under a root, the result must be exactly the
+    distinct ancestors strictly below the root. Generated trees reach depths,
+    shared ancestors, duplicates and orderings that three hand-written cases
+    would have to enumerate, and the relation is cheap to state.
+    """
+
+    @given(
+        st.lists(
+            st.lists(st.sampled_from(("a", "b", "c")), min_size=0, max_size=3),
+            min_size=0,
+            max_size=5,
+        )
+    )
+    @settings(max_examples=200)
+    def test_the_result_is_the_sorted_distinct_ancestors_below_the_root(
+        self, spec: tuple[tuple[str, ...], ...]
+    ) -> None:
+        """Exactly the distinct ancestors below the root, sorted, and nothing else.
+
+        The expected set is computed from the specification rather than from
+        the function, so this cannot pass by restating the implementation. The
+        root is excluded by construction, which is the other half of the
+        contract: its configuration is the one the inventory records.
+        """
+        root = Path("/virtual/root")
+        files = [root.joinpath(*segments, "module.py") for segments in spec]
+        # Depths run from one to the file's own directory: depth zero is the
+        # root, which is never reported, and a file sitting directly in the
+        # root therefore contributes nothing.
+        expected = {
+            root.joinpath(*segments[:depth])
+            for segments in spec
+            for depth in range(1, len(segments) + 1)
+        }
+        got = directories_between(root, files)
+        assert set(got) == expected, (
+            "the walk did not report the ancestors below the root; a missing "
+            f"directory means a governing config is skipped: {got} vs {expected}"
+        )
+        assert list(got) == sorted(got), "the directories were not sorted"
+        assert len(got) == len(set(got)), "a directory was reported twice"
+        assert root not in got, "the root's own directory was reported"

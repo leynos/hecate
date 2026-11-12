@@ -121,7 +121,7 @@ class TestEnabledRuleInventory:
 
     def test_inventory_records_the_binary_that_produced_it(self) -> None:
         """An inventory is only reviewable against the version it describes."""
-        recorded, sample = inventory_header()
+        recorded, sample = inventory_header(inventory_text())
         assert recorded == installed_ruff_version(), (
             f"the inventory was produced by Ruff {recorded} but the gate runs "
             f"{installed_ruff_version()}; regenerate it and review the delta"

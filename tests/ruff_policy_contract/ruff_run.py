@@ -125,8 +125,9 @@ def reported(report: str) -> list[tuple[str, int]]:
     Raises
     ------
     RuffPolicyError
-        If the report will not decode, or a diagnostic has no readable code and
-        location. The message names the entry that could not be read.
+        If the report will not decode, is not a JSON array, or a diagnostic has
+        no readable code and location. The message names the entry that could
+        not be read where there is one.
 
     """
     try:
@@ -134,14 +135,78 @@ def reported(report: str) -> list[tuple[str, int]]:
     except json.JSONDecodeError as error:
         message = f"Ruff's report is not one this reader understands: {error}"
         raise RuffPolicyError(message) from error
+    if not isinstance(diagnostics, list):
+        message = (
+            "Ruff's report is not one this reader understands: expected a "
+            f"JSON array, got {type(diagnostics).__name__}"
+        )
+        raise RuffPolicyError(message)
     pairs: list[tuple[str, int]] = []
     for diagnostic in diagnostics:
         try:
-            pairs.append((diagnostic["code"], diagnostic["location"]["row"]))
-        except (KeyError, TypeError) as error:
+            pairs.append(_code_and_row(diagnostic))
+        except TypeError as error:
             message = (
                 "Ruff reported a diagnostic with no readable code and "
                 f"location: {diagnostic!r}"
             )
             raise RuffPolicyError(message) from error
     return pairs
+
+
+def _code_and_row(diagnostic: object) -> tuple[str, int]:
+    """Return one diagnostic's code and row, refusing a wrong-typed field.
+
+    Indexing alone is not enough to read a diagnostic. A JSON report can carry
+    ``null`` for ``code`` or a string where ``row`` should be, and both index
+    successfully: the reader would hand a caller a pair whose members are not
+    the types every caller compares, so a malformed report would read as "a
+    code that is not in the expected set" rather than as a failure.
+
+    Each field is checked where it is read rather than in one combined test.
+    ``location`` has to be narrowed before it can be subscripted at all, and
+    a single expression checking the code, the location and the row is longer
+    than the project's boolean-expression limit.
+
+    ``bool`` is excluded from ``int`` deliberately. ``True`` is an ``int`` to
+    ``isinstance``, but a report that spells a row as a boolean is one Ruff
+    does not emit, and accepting it would put ``True`` where a line number
+    belongs.
+
+    The raised ``TypeError`` carries the diagnostic, so the caller's single
+    handler names the entry it could not read without this function having to
+    build the same message twice.
+
+    Parameters
+    ----------
+    diagnostic : object
+        One entry of a decoded Ruff report.
+
+    Returns
+    -------
+    tuple[str, int]
+        The diagnostic's code and its one-based line.
+
+    Raises
+    ------
+    TypeError
+        If the entry is not a mapping, or its ``code``, ``location`` or
+        ``row`` is missing or of the wrong type.
+
+    """
+    if not isinstance(diagnostic, dict):
+        message = f"not a diagnostic object: {diagnostic!r}"
+        raise TypeError(message)
+    code = diagnostic.get("code")
+    if not isinstance(code, str):
+        message = f"diagnostic code is not a string: {diagnostic!r}"
+        raise TypeError(message)
+    location = diagnostic.get("location")
+    if not isinstance(location, dict):
+        message = f"diagnostic has no location object: {diagnostic!r}"
+        raise TypeError(message)
+    row = location.get("row")
+    if not isinstance(row, int) or isinstance(row, bool):
+        message = f"diagnostic row is not an integer line: {diagnostic!r}"
+        raise TypeError(message)
+    return code, row

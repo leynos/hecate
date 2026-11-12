@@ -107,3 +107,69 @@ class TestNoFilesystemContact:
             "a truncated report should surface as a policy error saying the "
             f"report was not readable: {raised.value!r}"
         )
+
+
+class TestShapesThatDecodeButAreNotReports:
+    """Valid JSON that is not a report must not be iterated as one.
+
+    JSON decoding succeeds on a surprising amount of text that says nothing
+    about diagnostics. Each of these is a report shape Ruff does not emit, so
+    the reader has to refuse it; what it must not do is fall through to an
+    exception the caller does not handle, or — worse — return a pair whose
+    fields are not the types every caller indexes and compares.
+    """
+
+    @pytest.mark.parametrize(
+        ("report", "description"),
+        [
+            ('{"code": "S404"}', "an object whose keys would iterate as codes"),
+            ("null", "a JSON null, which is not iterable at all"),
+            ("7", "a number, which is not iterable at all"),
+        ],
+    )
+    def test_a_report_that_is_not_a_list_is_refused(
+        self, report: str, description: str
+    ) -> None:
+        """A non-list decodes cleanly and then cannot be a diagnostic list.
+
+        An object is the trap: iterating it yields its keys, which are
+        strings, so the old reader reported a "diagnostic" it had invented
+        rather than a report it could not read. A null or a number raises out
+        of the loop entirely, escaping the ``RuffPolicyError`` contract the
+        docstring states.
+        """
+        with pytest.raises(RuffPolicyError) as raised:
+            reported(report)
+        assert "expected a JSON array" in str(raised.value), (
+            f"{description} was not refused as a report shape, so a caller "
+            f"sees an error about a diagnostic that does not exist: "
+            f"{raised.value!r}"
+        )
+
+    @pytest.mark.parametrize(
+        ("diagnostic", "description"),
+        [
+            ('{"code": null, "location": {"row": 3}}', "a null code"),
+            ('{"code": 404, "location": {"row": 3}}', "a numeric code"),
+            ('{"code": "S404", "location": {"row": "3"}}', "a string row"),
+            ('{"code": "S404", "location": {"row": 3.5}}', "a fractional row"),
+            ('{"code": "S404", "location": {"row": true}}', "a boolean row"),
+        ],
+    )
+    def test_a_diagnostic_with_unreadable_fields_is_refused(
+        self, diagnostic: str, description: str
+    ) -> None:
+        """A wrong-typed field must fail here, not in a caller's comparison.
+
+        Every caller compares codes against a set and rows against numbers, so
+        a ``None`` code does not raise — it silently reads as "a code that is
+        not in the expected set", which turns a malformed report into a
+        passing negative control. ``isinstance`` is what rejects these, not
+        indexing: each of them indexes fine.
+        """
+        with pytest.raises(RuffPolicyError) as raised:
+            reported(f"[{diagnostic}]")
+        assert "readable code and location" in str(raised.value), (
+            f"{description} passed through as a diagnostic, so callers "
+            f"compare a value of the wrong type: {raised.value!r}"
+        )

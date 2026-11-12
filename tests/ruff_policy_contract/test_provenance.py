@@ -16,9 +16,17 @@ points at.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
-from .provenance import goal_body, lock_text, locked_ruff_version
+from . import provenance
+from .provenance import (
+    lock_text,
+    locked_ruff_version,
+    makefile_text,
+    recipe_text,
+)
 from .reading import (
     REPO_ROOT,
     RuffPolicyError,
@@ -57,7 +65,7 @@ class TestLockedBinary:
 
     def test_the_build_goal_refuses_to_re_resolve(self) -> None:
         """Without ``--locked``, ``make build`` may change the gate's Ruff."""
-        recipe = goal_body("build").split()
+        recipe = recipe_text(makefile_text(), "build").split()
         assert "--locked" in recipe, (
             "the build target must run `uv sync --locked` so a lockfile that "
             "no longer matches the resolution fails instead of silently "
@@ -65,22 +73,59 @@ class TestLockedBinary:
         )
 
 
-class TestGoalReader:
-    """The Makefile reader the build check depends on."""
+class TestRecipeReader:
+    """The Makefile reader the build check depends on, held to literal text.
+
+    The cases drive it with a Makefile spelled here rather than with the
+    repository's own. That is the point of the separation: a reader whose only
+    input is the real file cannot be shown what it does with a continuation, a
+    tab-indented command or a missing goal without the repository being edited,
+    and a case that needed that would be measuring the Makefile instead of the
+    reader.
+    """
+
+    _MAKEFILE = (
+        "build:\n\tuv sync --locked \\\n\t\t--group dev\n\ntest:\n\tuv run pytest\n"
+    )
 
     def test_reads_the_recipe_with_continuations_joined(self) -> None:
         """The sync flags must survive the reader, not just the goal name.
 
-        The interpreter is spelled ``$(UV)`` in the recipe, so the fragment
-        asserted is the flag sequence rather than the whole command line.
+        The interpreter is spelled ``$(UV)`` in the repository's recipe, so the
+        fragment asserted there is the flag sequence rather than the whole
+        command line. Here the continuation is the thing under test.
         """
-        assert "sync --locked --group dev" in goal_body("build"), (
-            "the `build` recipe does not contain `sync --locked --group dev`; "
-            "either `goal_body` dropped a flag while joining continuations, "
-            "or the `build` recipe changed its `uv sync` flags"
+        assert recipe_text(self._MAKEFILE, "build") == (
+            "uv sync --locked --group dev"
+        ), (
+            "the reader did not join the continuation, so a flag on the second "
+            "line of a recipe would be invisible to every caller"
+        )
+
+    def test_stops_at_the_next_goal(self) -> None:
+        """A reader that ran on would report another goal's commands as this one's."""
+        assert "pytest" not in recipe_text(self._MAKEFILE, "build"), (
+            "the reader continued past the end of the `build` recipe and "
+            "picked up the next goal's commands"
         )
 
     def test_rejects_a_goal_that_has_no_recipe(self) -> None:
         """A renamed target must fail, not compare an empty recipe as clean."""
         with pytest.raises(RuffPolicyError, match="no recipe"):
-            goal_body("no-such-goal-exists")
+            recipe_text(self._MAKEFILE, "no-such-goal-exists")
+
+    def test_a_missing_file_is_reported_as_unreadable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The read boundary is separate from the parse, so it fails separately.
+
+        The reader above cannot reach this: it never touches a path. This is the
+        other half of the pre-merge ask — the file's absence surfaces here, as
+        a policy error naming the file, rather than escaping as a raw
+        ``FileNotFoundError`` that no contract here handles.
+        """
+        missing = tmp_path / "absent-Makefile"
+        monkeypatch.setattr(provenance, "REPO_ROOT", tmp_path)
+        with pytest.raises(RuffPolicyError, match="cannot read"):
+            provenance.makefile_text()
+        assert not missing.exists()
