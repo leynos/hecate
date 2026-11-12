@@ -15,12 +15,14 @@ inventory comparison vacuous.
 
 from __future__ import annotations
 
+import tomllib
 from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from . import inventory, reading
 from .discovery import (
     declares_ruff_settings,
     directories_between,
@@ -314,3 +316,73 @@ class TestDirectoryDiscoveryProperties:
         assert list(got) == sorted(got), "the directories were not sorted"
         assert len(got) == len(set(got)), "a directory was reported twice"
         assert root not in got, "the root's own directory was reported"
+
+
+class TestFileReadsFailAsPolicyErrors:
+    """Every reader that opens a file reports its absence the same way.
+
+    A partial checkout is the case that matters. Each module guards its
+    contracts with ``repository_files_present`` so a sandbox can skip them, but
+    that guard is a ``skipif`` and a reader called from anywhere else still
+    opens the file. If one reader raises ``FileNotFoundError`` and another
+    ``RuffPolicyError``, a caller cannot catch them together, and the raw
+    exception escapes a suite whose whole purpose is to report policy drift.
+
+    Each case points the module at a directory holding no file, which is what a
+    checkout missing the file looks like from the reader's side.
+    """
+
+    @staticmethod
+    def _missing(tmp_path: Path) -> Path:
+        return tmp_path / "absent"
+
+    def test_the_inventory_read_is_a_policy_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The inventory is where a partial checkout fails first."""
+        missing = self._missing(tmp_path)
+        monkeypatch.setattr(inventory, "INVENTORY_PATH", missing)
+        with pytest.raises(RuffPolicyError, match="cannot read"):
+            inventory.inventory_text()
+        assert not missing.exists()
+
+    def test_the_pyproject_read_is_a_policy_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The configuration reader is the other file every contract needs."""
+        missing = self._missing(tmp_path)
+        monkeypatch.setattr(reading, "PYPROJECT_PATH", missing)
+        with pytest.raises(RuffPolicyError, match="cannot read"):
+            reading.pyproject_text()
+        assert not missing.exists()
+
+    def test_the_pyproject_document_read_is_a_policy_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The parsed reader must not leak an ``OSError`` through the parser.
+
+        Routing the document through ``read_text`` is what makes this the same
+        error as ``pyproject_text``; a decode failure is deliberately a
+        different one, and is asserted below so the two cannot be conflated.
+        """
+        missing = self._missing(tmp_path)
+        monkeypatch.setattr(reading, "PYPROJECT_PATH", missing)
+        with pytest.raises(RuffPolicyError, match="cannot read"):
+            reading.pyproject_document()
+        assert not missing.exists()
+
+    def test_a_malformed_pyproject_is_still_a_decode_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A file that is present but not TOML is a different failure.
+
+        The wrapping above must not swallow this. A malformed document is a
+        defect in the file, and ``TOMLDecodeError`` names it; folding it into
+        ``RuffPolicyError`` would make "the file is missing" and "the file is
+        wrong" indistinguishable to a reader debugging a failure.
+        """
+        broken = tmp_path / "pyproject.toml"
+        broken.write_text("[tool.ruff\n", encoding="utf-8")
+        monkeypatch.setattr(reading, "PYPROJECT_PATH", broken)
+        with pytest.raises(tomllib.TOMLDecodeError):
+            reading.pyproject_document()

@@ -1547,3 +1547,42 @@ The general lesson is that a refactor justified by a lint finding can itself
 introduce a health regression, and the health gate is a separate signal from
 lint, format and types. All three of those passed on the version CodeScene
 rejected.
+
+Revision 16: the fourth formal review's pre-merge Unit Architecture check on
+`c18afda`, which failed with five points and all five were valid. The heading
+said Unit Architecture; the finding was consistency of the read boundary.
+
+Revisions 14 and 15 separated each parser from the file that holds its text,
+but only in `provenance.py`. `inventory_text` and the two pyproject readers
+still opened their own files and still raised a raw `OSError`, so a partial
+checkout raised `FileNotFoundError` out of two modules and `RuffPolicyError`
+out of the third. The fix is one `read_text` in `reading.py`, which is the root
+of the package's import graph, with `inventory.py` and `provenance.py` calling
+it. `provenance._read` is gone rather than duplicated, and `pyproject_document`
+parses `pyproject_text` instead of opening the file a second time.
+
+The decode path stays separate on purpose, and a fourth case asserts it. A file
+that is present but malformed is a defect in the file, not a missing one, so
+`TOMLDecodeError` is left unwrapped; folding it into `RuffPolicyError` would
+make "missing" and "wrong" indistinguishable. Three new cases point each reader
+at a directory holding no file and assert `cannot read`. All three raise
+`FileNotFoundError` against the pre-fix modules, which was checked by restoring
+the old three modules and running the new cases before the fix.
+
+That surfacing straight away hit the module-length cap: `reading.py` grew to
+406 lines against a 400 limit. This is the one place the batch needed judgement
+rather than a rule. Splitting `read_text` into its own module was
+disproportionate — nine importers name `RuffPolicyError`, and moving it is a
+separate refactor nothing here needs. Moving the process-running readers into
+`ruff_run.py` is genuinely the right long-term home, since that module's own
+docstring calls itself "the one function that writes a file and starts a
+process", but it changes what every caller imports. So the file was brought
+under the cap by tightening the prose the new paragraph had made redundant in
+`repository_files_present`, which restated its own Parameters section. It sits
+at 399 lines.
+
+The fourth point was a stale reference: `test_provenance.py`'s comment named
+`goal_body`, which had been renamed to `recipe_text` two revisions earlier and
+no longer existed. It now names `makefile_text` as well, and says the failure
+is a `RuffPolicyError` rather than a `FileNotFoundError`, which the new read
+boundary makes true.

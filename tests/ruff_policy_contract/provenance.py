@@ -12,12 +12,8 @@ from __future__ import annotations
 
 import re
 import tomllib
-import typing as typ
 
-from .reading import REPO_ROOT, RuffPolicyError
-
-if typ.TYPE_CHECKING:
-    from pathlib import Path
+from .reading import REPO_ROOT, RuffPolicyError, read_text
 
 
 def locked_ruff_version(lock_text: str) -> str:
@@ -58,50 +54,26 @@ def locked_ruff_version(lock_text: str) -> str:
     return versions[0]
 
 
-def _read(path: Path) -> str:
-    """Return one repository file's text, or say which file could not be read.
+def lock_text() -> str:
+    """Return the committed ``uv.lock`` source.
 
     The read is a boundary of its own so the parsers can be functions of text.
     A parser that opened its own file could only be exercised against the real
     one, which means a case could not show what it does with a continuation or
     a missing goal without the repository being edited to contain one.
 
-    Parameters
-    ----------
-    path : Path
-        The file to read.
-
-    Returns
-    -------
-    str
-        The file's text, decoded as UTF-8.
-
-    Raises
-    ------
-    RuffPolicyError
-        If the file cannot be read. ``FileNotFoundError`` is an ``OSError``,
-        so an absent file surfaces as the same policy error a partial checkout
-        raises everywhere else rather than as a raw exception no contract here
-        handles.
-
-    """
-    try:
-        return path.read_text(encoding="utf-8")
-    except OSError as error:
-        message = f"cannot read {path}: {error}"
-        raise RuffPolicyError(message) from error
-
-
-def lock_text() -> str:
-    """Return the committed ``uv.lock`` source.
-
     Returns
     -------
     str
         The lockfile's text, unwritten by this reader.
 
+    Raises
+    ------
+    RuffPolicyError
+        If the file cannot be read.
+
     """
-    return _read(REPO_ROOT / "uv.lock")
+    return read_text(REPO_ROOT / "uv.lock")
 
 
 def makefile_text() -> str:
@@ -112,8 +84,13 @@ def makefile_text() -> str:
     str
         The Makefile's text, which the goals are read out of.
 
+    Raises
+    ------
+    RuffPolicyError
+        If the file cannot be read.
+
     """
-    return _read(REPO_ROOT / "Makefile")
+    return read_text(REPO_ROOT / "Makefile")
 
 
 def recipe_text(makefile: str, goal: str) -> str:

@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from .reading import RuffPolicyError, is_rule_code
+from .reading import RuffPolicyError, is_rule_code, read_text
 
 #: The reviewed inventory, beside this module so a checkout carries it.
 INVENTORY_PATH = Path(__file__).resolve().parent / "enabled_rules.txt"
@@ -110,8 +110,16 @@ def inventory_text() -> str:
     str
         The inventory file's text, header comments included.
 
+    Raises
+    ------
+    RuffPolicyError
+        If the file cannot be read. The read goes through
+        :func:`reading.read_text` so a partial checkout raises the same policy
+        error every other reader raises, rather than a raw ``FileNotFoundError``
+        a caller would have to know to catch.
+
     """
-    return INVENTORY_PATH.read_text(encoding="utf-8")
+    return read_text(INVENTORY_PATH)
 
 
 def inventory_header(text: str) -> tuple[str, str]:
