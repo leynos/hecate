@@ -88,12 +88,10 @@ def repository_files_present(*required_paths: Path) -> bool:
     unrelated I/O error.
 
     Every contract reads the configuration and the sampled module, so those
-    are always checked. A contract that also reads something else — the
-    lockfile and the Makefile for provenance, the committed inventory for the
-    rule set — must name it here. Its readers raise rather than return
-    nothing, which is right for a complete checkout and is exactly the wrong
-    answer for a partial one: the module would report an I/O error instead of
-    skipping, and a skip reason would blame the shared files.
+    are always checked; a contract that reads anything else must name it here.
+    Its readers raise rather than return nothing, which is right for a
+    complete checkout and the wrong answer for a partial one: the module would
+    report an I/O error instead of skipping.
 
     Parameters
     ----------
@@ -111,6 +109,39 @@ def repository_files_present(*required_paths: Path) -> bool:
     return all(path.exists() for path in (*shared, *required_paths))
 
 
+def read_text(path: Path) -> str:
+    """Return one repository file's text, or say which file could not be read.
+
+    Every reader that opens a file goes through this function so a missing or
+    unreadable file surfaces as one exception type. Without it a partial
+    checkout raises ``FileNotFoundError``, an ``OSError`` no contract here
+    handles, out of one reader and ``RuffPolicyError`` out of another.
+
+    Parameters
+    ----------
+    path : Path
+        The file to read.
+
+    Returns
+    -------
+    str
+        The file's text, decoded as UTF-8.
+
+    Raises
+    ------
+    RuffPolicyError
+        If the file cannot be read. ``FileNotFoundError`` is an ``OSError``,
+        so an absent file surfaces as the same policy error a malformed one
+        raises rather than as a raw exception.
+
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError as error:
+        message = f"cannot read {path}: {error}"
+        raise RuffPolicyError(message) from error
+
+
 def pyproject_text() -> str:
     """Return the repository's ``pyproject.toml`` source.
 
@@ -119,8 +150,12 @@ def pyproject_text() -> str:
     str
         The file's text, which the behaviour fixtures copy and edit.
 
+    Raises
+    ------
+    RuffPolicyError
+        If the file cannot be read.
     """
-    return PYPROJECT_PATH.read_text(encoding="utf-8")
+    return read_text(PYPROJECT_PATH)
 
 
 def pyproject_document() -> cabc.Mapping[str, object]:
@@ -131,10 +166,18 @@ def pyproject_document() -> cabc.Mapping[str, object]:
     cabc.Mapping[str, object]
         The parsed document, read-only so no case can edit it in place.
 
+    Raises
+    ------
+    RuffPolicyError
+        If the file cannot be read, as :func:`read_text` reports it.
+    tomllib.TOMLDecodeError
+        If the file is not valid TOML. Left unwrapped deliberately: a badly
+        formed document is a defect in the file, not in this reader, and
+        folding it into ``RuffPolicyError`` would make "missing" and "wrong"
+        indistinguishable when someone debugs a failure.
+
     """
-    with PYPROJECT_PATH.open("rb") as handle:
-        document: dict[str, object] = tomllib.load(handle)
-    return document
+    return tomllib.loads(pyproject_text())
 
 
 def ruff_section(document: cabc.Mapping[str, object], *keys: str) -> object:

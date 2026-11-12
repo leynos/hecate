@@ -37,7 +37,7 @@ from .reading import (
 #: The files this module reads beyond the ones every contract needs. The
 #: shared predicate only covers the configuration and the sampled module, so
 #: naming these here is what makes a partial checkout skip instead of raising
-#: ``FileNotFoundError`` out of ``lock_text`` or ``goal_body``.
+#: ``RuffPolicyError`` out of ``lock_text`` or ``makefile_text``.
 REQUIRED_FILES = (REPO_ROOT / "uv.lock", REPO_ROOT / "Makefile")
 
 pytestmark = pytest.mark.skipif(
