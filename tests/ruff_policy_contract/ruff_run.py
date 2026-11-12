@@ -31,6 +31,7 @@ import typing as typ
 from .reading import RuffPolicyError
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
     from pathlib import Path
 
 #: The fixture's file name. One name keeps the written module recognizable in
@@ -163,19 +164,16 @@ def _code_and_row(diagnostic: object) -> tuple[str, int]:
     the types every caller compares, so a malformed report would read as "a
     code that is not in the expected set" rather than as a failure.
 
-    Each field is checked where it is read rather than in one combined test.
-    ``location`` has to be narrowed before it can be subscripted at all, and
-    a single expression checking the code, the location and the row is longer
-    than the project's boolean-expression limit.
-
-    ``bool`` is excluded from ``int`` deliberately. ``True`` is an ``int`` to
-    ``isinstance``, but a report that spells a row as a boolean is one Ruff
-    does not emit, and accepting it would put ``True`` where a line number
-    belongs.
-
+    ``location`` has to be narrowed before it can be subscripted at all, so the
+    two fields are read by separate helpers rather than in one combined test.
     The raised ``TypeError`` carries the diagnostic, so the caller's single
     handler names the entry it could not read without this function having to
     build the same message twice.
+
+    The helpers take ``Mapping[Any, object]`` because a decoded JSON object's
+    key type is not narrowed by ``isinstance(..., dict)``; ``Any`` is the one
+    annotation that accepts it. The values stay ``object``, which is what the
+    per-field checks below exist to narrow.
 
     Parameters
     ----------
@@ -197,16 +195,66 @@ def _code_and_row(diagnostic: object) -> tuple[str, int]:
     if not isinstance(diagnostic, dict):
         message = f"not a diagnostic object: {diagnostic!r}"
         raise TypeError(message)
+    return _code_of(diagnostic), _row_of(diagnostic)
+
+
+def _code_of(diagnostic: cabc.Mapping[typ.Any, object]) -> str:
+    """Return the diagnostic's code, or refuse it as unreadable.
+
+    Parameters
+    ----------
+    diagnostic : cabc.Mapping[typ.Any, object]
+        One entry of a decoded Ruff report, already known to be a mapping.
+
+    Returns
+    -------
+    str
+        The diagnostic's rule code.
+
+    Raises
+    ------
+    TypeError
+        If the code is absent or not a string.
+
+    """
     code = diagnostic.get("code")
     if not isinstance(code, str):
         message = f"diagnostic code is not a string: {diagnostic!r}"
         raise TypeError(message)
+    return code
+
+
+def _row_of(diagnostic: cabc.Mapping[typ.Any, object]) -> int:
+    """Return the diagnostic's one-based line, or refuse it as unreadable.
+
+    ``bool`` is excluded from ``int`` deliberately. ``True`` is an ``int`` to
+    ``isinstance``, but a report that spells a row as a boolean is one Ruff
+    does not emit, and accepting it would put ``True`` where a line number
+    belongs.
+
+    Parameters
+    ----------
+    diagnostic : cabc.Mapping[typ.Any, object]
+        One entry of a decoded Ruff report, already known to be a mapping.
+
+    Returns
+    -------
+    int
+        The diagnostic's one-based line.
+
+    Raises
+    ------
+    TypeError
+        If the location is absent or not a mapping, or the row is absent, is
+        not an integer, or is a boolean.
+
+    """
     location = diagnostic.get("location")
     if not isinstance(location, dict):
         message = f"diagnostic has no location object: {diagnostic!r}"
         raise TypeError(message)
     row = location.get("row")
-    if not isinstance(row, int) or isinstance(row, bool):
+    if isinstance(row, bool) or not isinstance(row, int):
         message = f"diagnostic row is not an integer line: {diagnostic!r}"
         raise TypeError(message)
-    return code, row
+    return row
