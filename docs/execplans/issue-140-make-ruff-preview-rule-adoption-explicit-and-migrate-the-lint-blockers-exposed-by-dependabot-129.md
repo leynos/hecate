@@ -1518,3 +1518,32 @@ were well-formed; the probe agreed with the Makefile because the test imposed
 the agreement; the walk agreed with three examples that were chosen by the same
 person who wrote the walk. None of these failed, which is exactly why the
 pre-existing suite reported 772 passing tests while all four defects were live.
+
+Revision 15: CodeScene on `01075a8`, which caught a regression revision 14
+introduced. The rewrite of `reported` moved four sequential guards into
+`_code_and_row`, and four guards is cyclomatic complexity 10 — enough for the
+Complex Method biomarker, and enough to take the file from a clean 10.00 to
+9.69 and fail both "New code is healthy" and the advisory rules gate. The
+finding was checked against the previous head rather than taken on trust:
+`cs check` scores `f4ec916`'s copy of the file at 10.00 and the committed copy
+at 9.68, so this was a regression in a new commit, not a long-standing smell.
+
+The fix splits the reader into `_code_of` and `_row_of`, one field each, with
+`_code_and_row` reduced to the mapping guard and two calls. That is also the
+shape the two fields want: `location` has to be narrowed before it can be
+subscripted at all, so the combined check only worked by re-narrowing inline.
+The file is back at 10.00.
+
+Two type-checking details were learned here and are worth recording because
+neither is guessable from the code. The repository bans importing
+`collections.abc` members directly, so the annotation is written
+`cabc.Mapping` — and since it is used only in annotations, the import belongs
+inside the `TYPE_CHECKING` block, which is also where `ruff` demanded it move.
+And `dict` is invariant in `ty`, so `Mapping[object, object]` will not accept a
+value narrowed to `dict[Unknown, Unknown]`; the key type has to be `Any`. The
+values stay `object`, since narrowing them is what the per-field checks are for.
+
+The general lesson is that a refactor justified by a lint finding can itself
+introduce a health regression, and the health gate is a separate signal from
+lint, format and types. All three of those passed on the version CodeScene
+rejected.
