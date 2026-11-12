@@ -125,7 +125,9 @@ def publish_pypi(
     for path in sorted(publish.iterdir()):
         if upload is not None and path.name not in upload:
             continue
-        assert path.name not in after.pypi, "PyPI never overwrites"
+        assert path.name not in after.pypi, (  # noqa: S101 - a test model's guard.
+            "PyPI never overwrites"
+        )
         after.pypi[path.name] = path.read_bytes()
     return after, upload is not None and not staged <= set(upload)
 
@@ -142,11 +144,15 @@ def publish_release(
     output = run_root / "out"
     fetch = release_assets.stage_github(state, bundles, output)
     for name, url in fetch:
-        assert url.startswith("https://"), "every PyPI download must use HTTPS"
+        assert url.startswith("https://"), (  # noqa: S101 - a test model's guard.
+            "every PyPI download must use HTTPS"
+        )
         (output / name).write_bytes(destinations.pypi[name])
     release_assets.check_fetched(state, output)
     for path in sorted(output.iterdir()):
-        assert path.name not in destinations.github, "the release never overwrites"
+        assert path.name not in destinations.github, (  # noqa: S101 - a model guard.
+            "the release never overwrites"
+        )
         destinations.github[path.name] = path.read_bytes()
     # Verification reads both destinations as they stand now, exactly as the
     # workflow's digest check does after it re-fetches the index and assets.
@@ -182,8 +188,10 @@ def release_pass(
 def assert_preserved(before: Destinations, after: Destinations) -> None:
     """Require that no name either destination already held has changed."""
     for name, data in before.pypi.items():
-        assert after.pypi[name] == data, f"PyPI's {name} must never be overwritten"
+        assert after.pypi[name] == data, (  # noqa: S101 - a test model's guard.
+            f"PyPI's {name} must never be overwritten"
+        )
     for name, data in before.github.items():
-        assert after.github[name] == data, (
+        assert after.github[name] == data, (  # noqa: S101 - a test model's guard.
             f"the release's {name} must never be overwritten"
         )

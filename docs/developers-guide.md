@@ -1493,7 +1493,7 @@ rebuild under a name PyPI already holds.
 
 ### Release scripts
 
-The reconciliation decisions live in `scripts/release_assets.py`, with three
+The reconciliation decisions live in `scripts/release_assets.py`, with four
 interfaces the workflow and its tests share:
 
 - `Source` names the destination a filename's canonical bytes come from:
