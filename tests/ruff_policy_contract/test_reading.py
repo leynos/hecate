@@ -332,15 +332,11 @@ class TestFileReadsFailAsPolicyErrors:
     checkout missing the file looks like from the reader's side.
     """
 
-    @staticmethod
-    def _missing(tmp_path: Path) -> Path:
-        return tmp_path / "absent"
-
     def test_the_inventory_read_is_a_policy_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The inventory is where a partial checkout fails first."""
-        missing = self._missing(tmp_path)
+        missing = tmp_path / "absent"
         monkeypatch.setattr(inventory, "INVENTORY_PATH", missing)
         with pytest.raises(RuffPolicyError, match="cannot read"):
             inventory.inventory_text()
@@ -350,7 +346,7 @@ class TestFileReadsFailAsPolicyErrors:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The configuration reader is the other file every contract needs."""
-        missing = self._missing(tmp_path)
+        missing = tmp_path / "absent"
         monkeypatch.setattr(reading, "PYPROJECT_PATH", missing)
         with pytest.raises(RuffPolicyError, match="cannot read"):
             reading.pyproject_text()
@@ -365,7 +361,7 @@ class TestFileReadsFailAsPolicyErrors:
         error as ``pyproject_text``; a decode failure is deliberately a
         different one, and is asserted below so the two cannot be conflated.
         """
-        missing = self._missing(tmp_path)
+        missing = tmp_path / "absent"
         monkeypatch.setattr(reading, "PYPROJECT_PATH", missing)
         with pytest.raises(RuffPolicyError, match="cannot read"):
             reading.pyproject_document()
