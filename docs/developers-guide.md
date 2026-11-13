@@ -1487,7 +1487,7 @@ diagnostic line those steps print carries the same correlation, and the
 reconciliation scripts append it to their notices and errors, so a log line can
 be tied to exactly one run attempt. The labels are bounded: no filename, URL,
 or release body appears in a record. The design rationale is in
-[ADR 004](adr-004-attested-reconciled-release-pipeline.md#observability-of-a-release-run).
+[ADR 004](adrs/adr-0004-attested-reconciled-release-pipeline.md#observability-of-a-release-run).
 
 ### Re-running a release
 
@@ -1561,7 +1561,7 @@ under the runner's preinstalled `python3`. That is deliberate: `publish-pypi`
 holds the PyPI OpenID Connect credential and must not resolve any third-party
 package while it is live. Keep network calls in the workflow's `curl` and `gh`
 steps; the scripts only plan for them. The design rationale is in
-[ADR 004](adr-004-attested-reconciled-release-pipeline.md#stdlib-only-release-scripts).
+[ADR 004](adrs/adr-0004-attested-reconciled-release-pipeline.md#stdlib-only-release-scripts).
 
 `scripts/verify_installed_distribution.py` is the pull-request counterpart of
 that reconciliation, and it uses the standard library alone for the same
