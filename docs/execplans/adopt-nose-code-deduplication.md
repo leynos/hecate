@@ -377,10 +377,10 @@ indiscriminate abstraction or suppression.
   hecate exception is a path or path-glob key; `::name` is unusable here and
   the documentation must say so.
 - Observation: hecate has two files numbered `adr-002-`.
-  Evidence: `docs/adr-002-adopt-the-shared-cv005-contract-library.md` and
-  `docs/adr-002-four-tier-python-linting.md` coexist. Impact: the next free
-  identifier is `adr-003`, which sidesteps the existing collision rather than
-  extending it, and the collision is noted in the pull request rather than
+  Evidence: `docs/adrs/adr-0002-adopt-the-shared-cv005-contract-library.md` and
+  `docs/adrs/adr-0002-four-tier-python-linting.md` coexist. Impact: the next
+  free identifier is `adr-003`, which sidesteps the existing collision rather
+  than extending it, and the collision is noted in the pull request rather than
   silently fixed.
 - Observation: `.tools/` is not currently ignored by Git.
   Evidence: `git check-ignore -v .tools/nose/nose` exits 1. Impact: the ignore
@@ -951,8 +951,8 @@ The upstream references are:
   `d9e5ac0d254f375e2986f52d91a3b88c117c833b` in `leynos/episodic`.
 - The adopted decision record: `docs/adr-021-adopt-nose-duplication-gate.md` at
   that revision is represented in this repository by
-  `docs/adr-003-adopt-the-nose-duplication-gate.md`, which cites the upstream
-  revision and the requirements it inherits.
+  `docs/adrs/adr-0003-adopt-the-nose-duplication-gate.md`, which cites the
+  upstream revision and the requirements it inherits.
 - The detector: `nose` 0.20.0 from `https://github.com/corca-ai/nose`, a Rust
   binary named `nose`. It is unrelated to the Python `nose` test framework.
 - This plan: `docs/execplans/adopt-nose-code-deduplication.md`.

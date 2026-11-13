@@ -15,13 +15,13 @@ analysis can and cannot know.
 
 - [AGENTS.md](../AGENTS.md) holds the coding, testing, and commit conventions
   that apply to every change. This guide does not restate them.
-- [ADR 001](adr-001-stdlib-ast-import-engine.md) records why the standard
+- [ADR 001](adrs/adr-0001-stdlib-ast-import-engine.md) records why the standard
   library `ast` module is the v1 engine, and catalogues its limitations.
 - [ADR 002: four-tier Python commit-gate linting](
-  adr-002-four-tier-python-linting.md) records the lint tiers and the Skylos
-  dead-code gate.
+  adrs/adr-0002-four-tier-python-linting.md) records the lint tiers and the
+  Skylos dead-code gate.
 - [ADR 002: adopt the shared CV-005 contract library](
-  adr-002-adopt-the-shared-cv005-contract-library.md) records the
+  adrs/adr-0002-adopt-the-shared-cv005-contract-library.md) records the
   coverage-workflow contract decision.
 - [Local validation of GitHub Actions](
   local-validation-of-github-actions-with-act-and-pytest.md) covers black-box
@@ -55,7 +55,7 @@ parser without changing the TOML policy schema:
   (`policy.py`, `checker.py`).
 
 The engine choice, and the reasoning behind it, belongs to
-[ADR 001](adr-001-stdlib-ast-import-engine.md).
+[ADR 001](adrs/adr-0001-stdlib-ast-import-engine.md).
 
 ### Execution flow
 
@@ -493,7 +493,7 @@ limit rather than as a new bug.
   through a call or a comprehension is a definition, not an import, and cannot
   be followed to its origin.
 
-[ADR 001](adr-001-stdlib-ast-import-engine.md) records the rationale for
+[ADR 001](adrs/adr-0001-stdlib-ast-import-engine.md) records the rationale for
 accepting these limits in v1 and the conditions under which another engine
 would be introduced.
 
@@ -932,9 +932,9 @@ and CI runs it in its own step. It needs `uv`, which fetches the Python 3.13
 the library runs under, and `.github/cv005.toml` holds the repository's
 parameters. A fix to a rule reaches this repository as a pin bump. The
 local-validation guide and
-[ADR 002](adr-002-adopt-the-shared-cv005-contract-library.md) record the rules
-and the decision, and `tests/workflow_contracts/test_cv005_wiring.py` holds the
-local wiring.
+[ADR 002](adrs/adr-0002-adopt-the-shared-cv005-contract-library.md) record the
+rules and the decision, and `tests/workflow_contracts/test_cv005_wiring.py`
+holds the local wiring.
 
 Both coverage lanes set up Python 3.14 with `actions/setup-python`, inside the
 project's `requires-python` (`>=3.14`). generate-coverage chooses its
@@ -1421,9 +1421,9 @@ a build.
 
 The detector is `nose`, the Rust-built `nose-cli` from
 <https://github.com/corca-ai/nose>, pinned at the revision recorded in
-[ADR 003](adr-003-adopt-the-nose-duplication-gate.md). It is not the Python
-`nose` test framework on PyPI, and no PyPI package of that name is installed
-here.
+[ADR 003](adrs/adr-0003-adopt-the-nose-duplication-gate.md). It is not the
+Python `nose` test framework on PyPI, and no PyPI package of that name is
+installed here.
 
 The scan covers the `hecate` package: maintained production Python. The
 repository's helper scripts, tests, and documentation are out of scope. The
