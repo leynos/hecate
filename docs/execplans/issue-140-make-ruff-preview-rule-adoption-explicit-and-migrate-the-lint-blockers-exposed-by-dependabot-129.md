@@ -1586,3 +1586,40 @@ The fourth point was a stale reference: `test_provenance.py`'s comment named
 no longer existed. It now names `makefile_text` as well, and says the failure
 is a `RuffPolicyError` rather than a `FileNotFoundError`, which the new read
 boundary makes true.
+
+Revision 17: the approval exchange on `49d038e`, which turned up one factual
+correction and one unresolved mechanical blocker. CodeRabbit confirmed on the
+published head that it has "no further substantive code, documentation or
+acceptance objection" beyond the two recorded owner-scoped items, and that the
+five Unit Architecture points are addressed. Two approval requests nevertheless
+produced no approval event. This revision records both honestly rather than
+treating the prose confirmation as the approval the skill asks for.
+
+The correction: this plan and the PR body describe the grouped update without
+naming its Ruff version in most places, but the approval exchange repeated
+0.16.9 from issue #140's original 5 October inspection of #129. CodeRabbit
+checked the lockfile and reported that #176's current head `15783f3` pins
+0.17.3. That is correct, and it was verified directly against `uv.lock` at that
+commit: base 0.15.13, #176 0.17.3, this head 0.17.3. The consequence is worth
+recording because it sharpens the diagnosis: #176 has already been re-resolved
+onto the same Ruff this branch adopts, so its failure is not the stale-binary
+case the ticket opened with. It fails because it carries the new binary against
+the OLD configuration — `preview = true` with broad `D`/`RUF` selectors — which
+is exactly the pair this branch decouples. A rebase onto this branch's
+`pyproject.toml` is what makes its own gates meaningful.
+
+The blocker: `reviewDecision` remains `CHANGES_REQUESTED` from review
+`5882804580`, submitted against `c18afda`, two commits behind the published
+head. That review's substance is spent — its five Unit Architecture findings are
+fixed in `cc5bb5b` and confirmed fixed by CodeRabbit twice — but the submission
+itself is a historical event that no later commit clears. The repository's
+ruleset is named `main-required-checks` and lists exactly one required check,
+`lint-test`, with `strict_required_status_checks_policy: false`; there is no
+branch protection on `main` at all, so no approval is mechanically required.
+That is the distinction this plan already relies on: a stale `CHANGES_REQUESTED`
+is a process signal about review convergence, not a mechanical merge gate, and
+`mergeStateStatus` reads `CLEAN` because GitHub evaluates the ruleset rather than
+the review decision. Convergence itself is satisfied on its own terms — zero
+unresolved threads of fourteen, and a reviewer statement that nothing
+substantive remains. The mechanical artefact cannot be cleared by this agent,
+because dismissing another account's review is not within its authority.
