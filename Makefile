@@ -207,9 +207,10 @@ spelling-helper-test: ## Validate the shared spelling-policy integration
 	@PYTHONPATH=scripts $(UV_ENV) $(UV) run --no-project --python 3.13 \
 		--with pytest==9.0.2 --with pytest-cov==7.0.0 \
 		python -m pytest scripts/tests/test_typos_rollout.py \
+		scripts/tests/test_atomic_write.py \
 		-c /dev/null --rootdir=. -p no:cacheprovider \
 		--cov=generate_typos_config --cov=typos_rollout \
-		--cov=typos_rollout_cache --cov-fail-under=90
+		--cov=typos_rollout_cache --cov=atomic_write --cov-fail-under=90
 
 duplication: ## Run the blocking code-duplication gate
 	$(DUPLICATION) install

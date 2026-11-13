@@ -389,14 +389,13 @@ widen the scan before deleting it.
 
 Exit `2` means the gate could not produce a verdict, and the diagnostic is
 prefixed with the class of failure. A missing detector, a version mismatch, a
-failed command, a timeout, or a report that is not valid JSON prints a
-`tool error:` line; the missing or mismatched binary and an unrunnable command
-also tell the operator to run `make duplication`, which installs the detector.
-An allow entry that is readable but wrong, such as one with a missing reason,
-both `unit` and `members` set, or a malformed location key, prints a
-`configuration error:` line naming the offending entry. An allowlist the gate
-cannot read at all, because `pyproject.toml` is missing or is not valid TOML,
-is a `tool error:` rather than a `configuration error:`.
+failed detector run, a timeout, or a report that is not valid JSON prints an
+`error:` line; `make duplication` installs the pinned detector again. An allow
+entry that is readable but wrong, such as one with a missing reason, both
+`unit` and `members` set, or a malformed location key, prints a
+`configuration error:` line naming the offending entry. A `pyproject.toml` that
+is missing or is not valid TOML also prints a `configuration error:` line
+naming the file.
 
 Genuine duplication should be extracted, not allow-listed; an exception asserts
 that a parallel is intentional and reviewable. Record one with:
