@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import subprocess  # noqa: S404 - invoke the fixed repository Makefile.
+import subprocess  # ruff: ignore[S404]  # invoke the fixed repository Makefile.
 import sys
 import typing as typ
 from pathlib import Path
@@ -73,7 +73,7 @@ def test_make_lint_scans_with_skylos_and_propagates_a_scan_failure(
         f"SKYLOS_CLI={skylos_recorder}",
         "lint",
     )
-    completed = subprocess.run(  # noqa: S603 - controlled local tool doubles.
+    completed = subprocess.run(  # ruff: ignore[S603]  # controlled local tool doubles.
         command,
         capture_output=True,
         check=False,

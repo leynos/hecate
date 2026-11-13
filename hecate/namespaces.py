@@ -83,12 +83,12 @@ class ModuleNamespace:
 
     @property
     def has_explicit_all(self) -> bool:
-        """Return whether a literal ``__all__`` assignment was found."""
+        """Whether a literal ``__all__`` assignment was found."""
         return self.all_names is not None
 
     @property
     def bound_names(self) -> frozenset[str]:
-        """Return every name the module binds, in any way."""
+        """Every name the module binds, in any way."""
         return frozenset(name for name, _ in self.bindings)
 
     def bindings_for(self, name: str) -> tuple[Binding, ...]:
