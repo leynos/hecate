@@ -67,8 +67,8 @@ the publisher, the lanes and the environment placement to the rules above. A
 fix to a rule reaches this repository as a pin bump. The target needs `uv`,
 which fetches the Python 3.13 the library runs under; `.github/cv005.toml`
 holds the repository's parameters. The decision is recorded in
-[ADR 002](adr-002-adopt-the-shared-cv005-contract-library.md). What stays in
-`tests/workflow_contracts/` is the Python-version contract and its strict
+[ADR 002](adrs/adr-0002-adopt-the-shared-cv005-contract-library.md). What stays
+in `tests/workflow_contracts/` is the Python-version contract and its strict
 loader, plus `test_cv005_wiring.py`, which fails if the pin is not a full
 commit, the target stops running the pinned checker, the repository parameter
 is wrong, `make all` drops the target or CI stops running it.
