@@ -25,8 +25,8 @@ analysis can and cannot know.
   coverage-workflow contract decision.
 - [ADR 004: attested, reconciled release pipeline](
   adrs/adr-0004-attested-reconciled-release-pipeline.md) records how a tag
-  publishes `hecate-enforce` to PyPI and the GitHub Release without
-  overwriting either.
+  publishes `hecate-enforce` to PyPI and the GitHub Release without overwriting
+  either.
 - [Local validation of GitHub Actions](
   local-validation-of-github-actions-with-act-and-pytest.md) covers black-box
   workflow testing with `act`.
