@@ -1610,16 +1610,17 @@ is exactly the pair this branch decouples. A rebase onto this branch's
 
 The blocker: `reviewDecision` remains `CHANGES_REQUESTED` from review
 `5882804580`, submitted against `c18afda`, two commits behind the published
-head. That review's substance is spent — its five Unit Architecture findings are
-fixed in `cc5bb5b` and confirmed fixed by CodeRabbit twice — but the submission
-itself is a historical event that no later commit clears. The repository's
-ruleset is named `main-required-checks` and lists exactly one required check,
-`lint-test`, with `strict_required_status_checks_policy: false`; there is no
-branch protection on `main` at all, so no approval is mechanically required.
-That is the distinction this plan already relies on: a stale `CHANGES_REQUESTED`
-is a process signal about review convergence, not a mechanical merge gate, and
-`mergeStateStatus` reads `CLEAN` because GitHub evaluates the ruleset rather than
-the review decision. Convergence itself is satisfied on its own terms — zero
-unresolved threads of fourteen, and a reviewer statement that nothing
-substantive remains. The mechanical artefact cannot be cleared by this agent,
-because dismissing another account's review is not within its authority.
+head. That review's substance is spent — its five Unit Architecture findings
+are fixed in `cc5bb5b` and confirmed fixed by CodeRabbit twice — but the
+submission itself is a historical event that no later commit clears. The
+repository's ruleset is named `main-required-checks` and lists exactly one
+required check, `lint-test`, with
+`strict_required_status_checks_policy: false`; there is no branch protection on
+`main` at all, so no approval is mechanically required. That is the distinction
+this plan already relies on: a stale `CHANGES_REQUESTED` is a process signal
+about review convergence, not a mechanical merge gate, and `mergeStateStatus`
+reads `CLEAN` because GitHub evaluates the ruleset rather than the review
+decision. Convergence itself is satisfied on its own terms — zero unresolved
+threads of fourteen, and a reviewer statement that nothing substantive remains.
+The mechanical artefact cannot be cleared by this agent, because dismissing
+another account's review is not within its authority.
