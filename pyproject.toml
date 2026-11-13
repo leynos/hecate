@@ -25,12 +25,6 @@ dev = [
     "pytest-xdist",
     "pyyaml>=6.0.3",
     "packaging>=26.2,<27",
-    # `make typecheck` runs `ty check` over the gate modules as well as the
-    # application, and those modules import tomlkit. The dev group supplies
-    # the import so the type checker can resolve it; the gate itself never
-    # uses this copy. Keep the range compatible with the pin in
-    # scripts/duplication_gate.py's inline script metadata.
-    "tomlkit>=0.15.1,<0.16",
 ]
 
 [tool.ruff]
@@ -332,8 +326,7 @@ pytest_add_cli_args_test_selection = ["tests/"]
 timeout = 30
 # Application test discovery is restricted to `tests/`. The gate's own tests
 # under `scripts/tests/` run on a separately pinned interpreter through
-# `make duplication-test`, and `make spelling-helper-test` stages its own
-# run, so collecting them here would run Python 3.14 tooling tests under the
+# `make spelling-helper-test`, which stages its own run, so collecting them here would run Python 3.14 tooling tests under the
 # application virtualenv and in the coverage job. This setting is the only
 # discovery control that also reaches the shared coverage action, which
 # invokes pytest itself rather than through a Make file target.

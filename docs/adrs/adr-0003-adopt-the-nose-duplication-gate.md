@@ -6,6 +6,13 @@ Accepted, 2026-10-11. hecate runs the `nose` duplication gate as part of
 `make lint`, adopting the tool-selection decision already made in
 `leynos/episodic`, rather than repeating the detector comparison here.
 
+Update, 2026-11-13: the vendored gate scripts, their tests and the install
+recipe described below were replaced by the `df12-duplication` command from
+`df12-python-lints`, run locally through `make duplication` and in CI through
+the shared-actions `df12-duplication` action. The decision to run the gate, the
+scope, and the allow entries stand; the implementation notes below describe the
+earlier vendored form.
+
 ## Date
 
 2026-10-11.

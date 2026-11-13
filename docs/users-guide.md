@@ -348,20 +348,22 @@ duplication fails lint rather than merely being reported. The gate scans the
 scripts, tests, and documentation are out of scope. Its internals are in the
 [developers' guide](developers-guide.md#duplication-gate).
 
-Four targets cover the workflow:
+Two targets cover the workflow:
 
-- `make install-nose` provisions the pinned detector into `.tools/nose`. It is
-  idempotent and is also a dependency of `make duplication`, so a standalone
-  gate run installs it when it is missing.
-- `make duplication` runs the gate on its own, outside `make lint`.
-- `make duplication-test` runs the gate helper's own tests. They live under
-  `scripts/tests/` and are not collected by `make test`.
+- `make duplication` runs the gate on its own, outside `make lint`. It first
+  runs `df12-duplication install`, which downloads the detector into
+  `.tools/nose` and verifies it against a digest table shipped in the pinned
+  `df12-python-lints` package; it is idempotent.
 - `make duplication-allow` records a reasoned exception; see below.
 
-The detector version is pinned in `[tool.nose]` and mirrored by `NOSE_VERSION`
-in the Makefile. The gate refuses to run when the binary reports a different
-version, and it never compiles one from source. To use a detector provisioned
-elsewhere, set `NOSE_BIN`; a relative path resolves against the repository root.
+The gate is the `df12-duplication` command from `df12-python-lints`, pinned by
+commit in the Makefile (`DF12_PYTHON_LINTS_SHA`). The detector version lives
+only in `[tool.nose]`. The gate refuses to run when the binary reports a
+different version, and it never compiles one from source. To use a detector
+provisioned elsewhere, set `NOSE_BIN`; a relative path resolves against the
+repository root. The gate's own behaviour and tests live in
+`df12-python-lints`, and CI runs it through the shared-actions
+`df12-duplication` action.
 
 The gate exits `0` for a clean or fully-allowed scan and `1` when unsuppressed
 families remain. That status is what `make duplication` and `make lint` pass on
@@ -389,12 +391,12 @@ Exit `2` means the gate could not produce a verdict, and the diagnostic is
 prefixed with the class of failure. A missing detector, a version mismatch, a
 failed command, a timeout, or a report that is not valid JSON prints a
 `tool error:` line; the missing or mismatched binary and an unrunnable command
-also tell the operator to run `make install-nose`. An allow entry that is
-readable but wrong, such as one with a missing reason, both `unit` and
-`members` set, or a malformed location key, prints a `configuration error:`
-line naming the offending entry. An allowlist the gate cannot read at all,
-because `pyproject.toml` is missing or is not valid TOML, is a `tool error:`
-rather than a `configuration error:`.
+also tell the operator to run `make duplication`, which installs the detector.
+An allow entry that is readable but wrong, such as one with a missing reason,
+both `unit` and `members` set, or a malformed location key, prints a
+`configuration error:` line naming the offending entry. An allowlist the gate
+cannot read at all, because `pyproject.toml` is missing or is not valid TOML,
+is a `tool error:` rather than a `configuration error:`.
 
 Genuine duplication should be extracted, not allow-listed; an exception asserts
 that a parallel is intentional and reviewable. Record one with:

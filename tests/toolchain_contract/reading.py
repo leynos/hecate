@@ -1,4 +1,4 @@
-"""Read the detector pins and the CI step structure they live in.
+"""Read the CI cache step structure the toolchain contracts check.
 
 Support for the toolchain-contract tests. Everything here takes text or a
 path and returns text, so the rule tests can apply a reader to a spelling
@@ -12,33 +12,13 @@ from __future__ import annotations
 
 import itertools
 import re
-import tomllib
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
-MAKEFILE_PATH = _REPO_ROOT / "Makefile"
 CI_WORKFLOW_PATH = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
-PYPROJECT_PATH = _REPO_ROOT / "pyproject.toml"
-NOSE_TOOL = "nose"
-NOSE_VERSION_VARIABLE = f"{NOSE_TOOL.upper()}_VERSION"
 
-#: PEP 440-flavoured shape check so an accidentally emptied pin fails
-#: loudly rather than comparing two empty strings as equal.
-VERSION_RE = re.compile(r"\d+(?:\.\d+)+(?:[a-zA-Z0-9.+-]*)")
-
-#: The SHA-256 the install step verifies cargo-binstall against.
-SHA256_RE = re.compile(r"[0-9a-f]{64}")
-
-#: CI runs on ubuntu-latest, so the pinned installer artefact must be the
-#: x86-64 Linux musl build. Reusing it (or its checksum) for another platform
-#: would verify the wrong bytes, so the artefact is asserted explicitly.
-BINSTALL_ARTEFACT = "cargo-binstall-x86_64-unknown-linux-musl.tgz"
-
-#: The two CI cache steps and the install step the Makefile pins must agree
-#: with.
+#: The CI cache step the contracts read.
 UV_CACHE_STEP = "Cache uv tool and script environments"
-NOSE_CACHE_STEP = "Cache the pinned nose duplication detector"
-NOSE_INSTALL_STEP = "Install nose duplication detector"
 
 
 class ToolchainContractError(Exception):
@@ -51,7 +31,7 @@ class ToolchainContractError(Exception):
 
 
 def repository_files_present() -> bool:
-    """Report whether the three pinned files exist in this working copy.
+    """Report whether the CI workflow exists in this working copy.
 
     mutmut runs ``tests/`` against ``hecate/`` from a sandbox that need not
     carry the repository root or ``.github/``, where every reader below would
@@ -59,141 +39,12 @@ def repository_files_present() -> bool:
     a false result so a mutation run reports mutation coverage instead of an
     unrelated I/O error.
     """
-    return all(
-        path.exists() for path in (MAKEFILE_PATH, CI_WORKFLOW_PATH, PYPROJECT_PATH)
-    )
-
-
-def makefile_text() -> str:
-    """Return the Makefile source."""
-    return MAKEFILE_PATH.read_text(encoding="utf-8")
+    return CI_WORKFLOW_PATH.exists()
 
 
 def workflow_text() -> str:
     """Return the CI workflow source."""
     return CI_WORKFLOW_PATH.read_text(encoding="utf-8")
-
-
-def makefile_pin() -> str:
-    """Extract the nose pinned version from the Makefile.
-
-    Returns
-    -------
-    str
-        The version string assigned to ``NOSE_VERSION``.
-
-    Raises
-    ------
-    ToolchainContractError
-        If the Makefile does not define the variable.
-
-    """
-    match = re.search(
-        rf"^{re.escape(NOSE_VERSION_VARIABLE)}\s*\??=\s*(\S+)\s*$",
-        makefile_text(),
-        flags=re.MULTILINE,
-    )
-    if match is None:
-        message = f"{NOSE_VERSION_VARIABLE} is not defined in the Makefile"
-        raise ToolchainContractError(message)
-    return match.group(1)
-
-
-def ci_pin() -> str:
-    """Extract the nose pinned version from the CI workflow.
-
-    Returns
-    -------
-    str
-        The version pinned in ci.yml as ``NOSE_VERSION``.
-
-    Raises
-    ------
-    ToolchainContractError
-        If ci.yml pins it zero times or more than once. Pinning it twice is
-        rejected rather than taking the first: whichever value the runner
-        picks is the one that installs, and a reader that silently chose
-        would disagree with GitHub about which.
-
-    """
-    matches = re.findall(
-        rf"^\s*{re.escape(NOSE_VERSION_VARIABLE)}:\s*['\"]([^'\"]*)['\"]\s*$",
-        workflow_text(),
-        flags=re.MULTILINE,
-    )
-    if not matches:
-        message = f"ci.yml does not pin {NOSE_TOOL} via {NOSE_VERSION_VARIABLE}"
-        raise ToolchainContractError(message)
-    if len(matches) != 1:
-        message = f"ci.yml pins {NOSE_TOOL} more than once: {matches}"
-        raise ToolchainContractError(message)
-    return matches[0]
-
-
-def gate_pin() -> str:
-    """Return the detector version the duplication gate verifies at runtime.
-
-    Raises
-    ------
-    ToolchainContractError
-        If ``[tool.nose]`` declares no string version.
-
-    """
-    # Parsed rather than pattern-matched: a regex anchored to the table header
-    # and allowed to span lines would read a later table's ``version`` when
-    # ``[tool.nose]`` omits its own, and the contract would then pin a value
-    # the gate never loads.
-    with PYPROJECT_PATH.open("rb") as handle:
-        version = tomllib.load(handle).get("tool", {}).get("nose", {}).get("version")
-    if not isinstance(version, str):
-        message = "pyproject.toml does not set [tool.nose] version"
-        raise ToolchainContractError(message)
-    return version
-
-
-def makefile_variable(name: str) -> str:
-    """Return the literal value the Makefile assigns to ``name``.
-
-    Raises
-    ------
-    ToolchainContractError
-        If the Makefile does not define the variable.
-
-    """
-    match = re.search(
-        rf"^{re.escape(name)}\s*\??=\s*(.+?)\s*$", makefile_text(), flags=re.MULTILINE
-    )
-    if match is None:
-        message = f"{name} is not defined in the Makefile"
-        raise ToolchainContractError(message)
-    return match.group(1)
-
-
-def goal_body(goal: str) -> str:
-    """Return the recipe lines of a Makefile goal, as one joined string.
-
-    Returns
-    -------
-    str
-        The goal's recipe with line continuations joined and runs of
-        whitespace collapsed, so a test can search it for a flag without
-        depending on how the recipe is wrapped.
-
-    Raises
-    ------
-    ToolchainContractError
-        If the Makefile declares no recipe for the goal.
-
-    """
-    match = re.search(
-        rf"^{re.escape(goal)}:.*?\n((?:[ \t].*\n|[ \t].*)+)",
-        makefile_text(),
-        flags=re.MULTILINE,
-    )
-    if match is None:
-        message = f"{goal} has no recipe in the Makefile"
-        raise ToolchainContractError(message)
-    return " ".join(match.group(1).replace("\\\n", " ").split())
 
 
 def cache_step(name: str) -> str:
