@@ -131,7 +131,7 @@ def test_the_index_lookup_retries_and_is_bounded() -> None:
         "both jobs must run the same bounded lookup"
     )
     for fragment in (
-        'while [ "${attempt}" -lt 6 ]; do',
+        'while [ "${attempt}" -lt 6 ] && [ "${settled}" = false ]; do',
         "--connect-timeout 10",
         "--max-time 60",
         "000|429|5??)",
@@ -309,6 +309,18 @@ def test_every_scripts_checkout_is_sparse_and_credential_free() -> None:
             "persist-credentials": False,
             "sparse-checkout": "scripts\n",
         }, f"{name} must check out only what its steps run"
+
+
+def test_the_release_snapshot_carries_the_draft_flag() -> None:
+    """A published release is immutable, so staging must know it cannot grow."""
+    snapshot = step_script("draft-release", "Snapshot the release assets")
+    assert "--json assets,isDraft" in snapshot, (
+        "the snapshot must record whether the release is still a draft"
+    )
+    stage = step_script("publish-pypi", "Skip artefacts already on PyPI")
+    assert "--assets github-state/assets.json" in stage, (
+        "staging must read the snapshot the draft job took, before it uploads"
+    )
 
 
 def test_the_release_workflow_has_no_telemetry_action() -> None:

@@ -3,8 +3,9 @@
 ``test_release_publish_steps.py`` pins the spellings this project uses. These
 properties cover the wider PEP 440 space around them: any release segment with
 any order-preserving combination of pre-release, post-release, development and
-local segments. The expectation comes from the generated segments rather than
-from the rendered string, so it is an independent oracle.
+local segments, with each label in one of the spellings PEP 440 normalises. The
+expectation comes from the generated segments rather than from the rendered
+string, so it is an independent oracle.
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ _DIGITS = st.integers(min_value=0, max_value=99).map(str)
 _RELEASE = st.lists(_DIGITS, min_size=1, max_size=3).map(".".join)
 #: PEP 440 allows a hyphen, an underscore, or a dot before each segment.
 _SEPARATOR = st.sampled_from(("", "-", "_", "."))
+#: PEP 440 compares labels case-insensitively, so a version may spell them
+#: either way; ``1.2.3RC1`` and ``1.2.3.Dev2`` are both valid.
+_CASE = st.sampled_from((str.lower, str.upper, str.title))
 _PRE_LABELS = ("a", "b", "c", "rc", "alpha", "beta", "pre", "preview")
 _POST_LABELS = ("post", "rev", "r")
 #: A local segment never changes whether a version is a pre-release, so these
@@ -37,10 +41,13 @@ def _numbered(labels: tuple[str, ...]) -> st.SearchStrategy[str | None]:
     return st.one_of(
         st.none(),
         st.builds(
-            lambda separator, label, number: f"{separator}{label}{number or ''}",
+            lambda separator, label, number, cased: (
+                f"{separator}{cased(label)}{number or ''}"
+            ),
             _SEPARATOR,
             st.sampled_from(labels),
             st.one_of(st.none(), _DIGITS),
+            _CASE,
         ),
     )
 

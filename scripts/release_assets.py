@@ -6,6 +6,13 @@ published: PyPI's first, then an existing GitHub Release asset, and this run's
 freshly built and attested file only when neither destination has the name.
 Each destination receives only the names it lacks and nothing is overwritten.
 
+Every decision here is a function of plain values -- names, digests, and
+listings -- so a test exercises it without a filesystem. :class:`State` is the
+adapter: it holds the publish directory and the parsed listings, and its
+queries are the only reads. Each command reads once through that adapter,
+passes the values it read to the decisions, and then performs the copies or
+removals the plan chose.
+
 ``scripts/release_assets_cli.py`` wraps this module in the command-line
 interface ``release.yml`` calls, importing it wholesale, so it inherits that
 wrapper's constraint: it executes inside the job that holds the PyPI
@@ -43,6 +50,20 @@ class Source(enum.StrEnum):
     PYPI = "pypi"
     GITHUB = "github"
     LOCAL = "local"
+
+
+def correlation() -> str:
+    """Return the field that ties one log line to one release run attempt.
+
+    GitHub Actions exports ``GITHUB_RUN_ID`` and ``GITHUB_RUN_ATTEMPT`` to
+    every step, so the messages this module prints carry the same field as the
+    workflow's structured records. Outside a workflow run there is nothing to
+    correlate, and the field is left out rather than invented.
+    """
+    run = os.environ.get("GITHUB_RUN_ID")
+    if not run:
+        return ""
+    return f" [correlation={run}/{os.environ.get('GITHUB_RUN_ATTEMPT', '1')}]"
 
 
 @dc.dataclass(frozen=True, slots=True)
@@ -160,7 +181,13 @@ def _mismatch(
 
 @dc.dataclass(frozen=True, slots=True)
 class State:
-    """The run's artefacts and what each destination already holds."""
+    """The adapter that names where the release's plain values come from.
+
+    This is the only type here that holds a path or an index adapter type, so
+    it is where the reads live. Every decision below takes the values it
+    gathers -- names, digests, and listings -- rather than the state itself, and
+    a test can therefore state any combination without a directory to read.
+    """
 
     publish: Path
     pypi: dict[str, PypiFile]
@@ -268,13 +295,49 @@ class State:
         return {name: sha256_of(self.publish / name) for name in names}
 
 
-def carryover(state: State) -> list[str]:
-    """Return the names whose GitHub bytes PyPI may need.
+def bundle_names(bundles: Path) -> tuple[str, ...]:
+    """Read and validate the attestation directory's filenames.
+
+    The same read boundary the publish directory has, for the other directory a
+    command inspects: callers receive the names and never list the directory
+    themselves.
 
     Parameters
     ----------
-    state : State
-        The staged artefacts and both destinations' holdings.
+    bundles : Path
+        The directory holding this run's Sigstore bundles.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The bundle filenames, sorted.
+
+    Raises
+    ------
+    ReleaseAssetError
+        If a bundle's name is not a safe path component and TSV field.
+    OSError
+        If the attestation directory cannot be read.
+
+    """
+    return tuple(local_names(bundles))
+
+
+def carryover(
+    names: cabc.Iterable[str], github_digests: cabc.Mapping[str, str | None]
+) -> list[str]:
+    """Return the names whose GitHub bytes PyPI may need.
+
+    The decision is a function of the staged names and the release's holdings
+    alone; reading the publish directory stays at the caller's boundary.
+
+    Parameters
+    ----------
+    names : collections.abc.Iterable[str]
+        The staged names, as returned by :meth:`State.names`.
+    github_digests : collections.abc.Mapping[str, str | None]
+        The GitHub Release's digest per asset, ``None`` when GitHub reports
+        none. Only the names matter here.
 
     Returns
     -------
@@ -284,10 +347,42 @@ def carryover(state: State) -> list[str]:
         upload GitHub's canonical bytes without holding a GitHub token.
 
     """
-    return sorted(set(state.names()) & set(state.github))
+    return sorted(set(names) & set(github_digests))
 
 
-def stage_pypi(state: State, github_files: Path) -> bool:
+def unreachable_published_uploads(
+    names: cabc.Iterable[str], github_digests: cabc.Mapping[str, str | None]
+) -> tuple[str, ...]:
+    """Return the staged names a published GitHub Release can never accept.
+
+    A published release is immutable, so a name it lacks cannot be attached to
+    it later. Uploading that name to PyPI would publish bytes that no release
+    for this tag can ever match, and PyPI cannot take them back. The caller
+    checks this before the upload, while both destinations are still unchanged.
+
+    Parameters
+    ----------
+    names : collections.abc.Iterable[str]
+        The staged names, as returned by :meth:`State.names`.
+    github_digests : collections.abc.Mapping[str, str | None]
+        The GitHub Release's digest per asset, ``None`` when GitHub reports
+        none. Only the names matter here.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The staged names the release lacks, sorted.
+
+    Examples
+    --------
+    >>> unreachable_published_uploads(("a.whl", "b.whl"), {"a.whl": None})
+    ('b.whl',)
+
+    """
+    return tuple(sorted(set(names) - set(github_digests)))
+
+
+def stage_pypi(state: State, github_files: Path, *, published: bool = False) -> bool:
     """Leave in ``publish`` exactly the canonical bytes PyPI lacks.
 
     Parameters
@@ -296,26 +391,47 @@ def stage_pypi(state: State, github_files: Path) -> bool:
         The staged artefacts and both destinations' holdings.
     github_files : Path
         The GitHub Release assets ``draft-release`` downloaded.
+    published : bool
+        Whether the tag's release is already published. Such a release cannot
+        accept a name it lacks, so staging stops before PyPI changes.
 
     Returns
     -------
     bool
         Whether any artefact remains to upload.
 
+    Raises
+    ------
+    ReleaseAssetError
+        If the release is published and lacks a staged name.
+
     """
-    decided = state.plan(state.names())
+    names = state.names()
+    unreachable = unreachable_published_uploads(names, state.github)
+    if published and unreachable:
+        msg = (
+            "the tag's GitHub Release is already published, so it cannot accept "
+            f"{', '.join(unreachable)}; PyPI was not changed. Delete that "
+            "release and re-run the tag's workflow, or upload those files by "
+            "hand"
+        )
+        raise ReleaseAssetError(msg)
+    decided = state.plan(names)
     for name, source in sorted(decided.canonical.items()):
         artefact = state.publish / name
         if source is Source.PYPI:
-            print(f"::notice::Skipping {name}: already on PyPI")
+            print(f"::notice::Skipping {name}: already on PyPI{correlation()}")
             artefact.unlink()
         elif source is Source.GITHUB:
             carried = github_files / name
             check_digest(carried, state.github[name])
-            print(f"::notice::Uploading the GitHub Release's bytes for {name}")
+            print(
+                f"::notice::Uploading the GitHub Release's bytes for {name}"
+                f"{correlation()}"
+            )
             shutil.copyfile(carried, artefact)
     if not decided.pypi_uploads:
-        print("Every artefact is already on PyPI; nothing to publish.")
+        print(f"Every artefact is already on PyPI; nothing to publish.{correlation()}")
     return bool(decided.pypi_uploads)
 
 
@@ -487,28 +603,52 @@ def missing_from_index(
     return sorted(set(expected) - set(listed))
 
 
+def unattached_bundles(
+    bundle_filenames: cabc.Iterable[str],
+    github_digests: cabc.Mapping[str, str | None],
+) -> tuple[str, ...]:
+    """Return the bundles this run staged that the release does not hold.
+
+    Parameters
+    ----------
+    bundle_filenames : collections.abc.Iterable[str]
+        The bundle filenames found in the attestation directory.
+    github_digests : collections.abc.Mapping[str, str | None]
+        The GitHub Release's digest per asset, ``None`` when GitHub reports
+        none. Only the names matter here.
+
+    Returns
+    -------
+    tuple[str, ...]
+        The names the release lacks, sorted.
+
+    """
+    return tuple(sorted(set(bundle_filenames) - set(github_digests)))
+
+
 def _copy_unattached_bundles(
     bundles: Path, state: State, output: Path, names: cabc.Iterable[str]
 ) -> None:
     """Copy the run's bundle into ``output`` when it attests what will ship.
 
+    The bundle directory is read once, here, through :func:`bundle_names`; the
+    copy decision itself is the pure :func:`unattached_bundles`.
+
     Standard error is deliberate: standard output is the caller's TSV protocol.
     """
-    unattached = sorted(
-        bundle for bundle in bundles.iterdir() if bundle.name not in state.github
-    )
-    if not unattached:
+    missing = unattached_bundles(bundle_names(bundles), state.github)
+    if not missing:
         return
     if not attests_canonical_bytes(state, names):
         print(
             "::notice::Not attaching this run's Sigstore bundle: the release "
             "ships bytes another run built, so the bundle would attest a "
-            "different build. It remains in the attestation store.",
+            f"different build. It remains in the attestation store.{correlation()}",
             file=sys.stderr,
         )
         return
-    for bundle in unattached:
-        shutil.copyfile(bundle, output / bundle.name)
+    for name in missing:
+        shutil.copyfile(bundles / name, output / name)
 
 
 def stage_github(state: State, bundles: Path, output: Path) -> list[tuple[str, str]]:
@@ -561,12 +701,90 @@ def check_fetched(state: State, output: Path) -> None:
         check_digest(output / name, state.pypi[name].sha256)
 
 
-def verify(state: State, bundles: Path) -> list[str]:
+def absent_bundles(
+    bundle_filenames: cabc.Iterable[str],
+    github_digests: cabc.Mapping[str, str | None],
+) -> list[str]:
+    """Describe each bundle this run attested that the release does not hold.
+
+    Parameters
+    ----------
+    bundle_filenames : collections.abc.Iterable[str]
+        The bundle filenames found in the attestation directory.
+    github_digests : collections.abc.Mapping[str, str | None]
+        The GitHub Release's digest per asset, ``None`` when GitHub reports
+        none. Only the names matter here.
+
+    Returns
+    -------
+    list[str]
+        One message per missing bundle, sorted; empty when the release holds
+        every bundle this run staged.
+
+    """
+    return [
+        f"{name} is missing from the GitHub Release"
+        for name in unattached_bundles(bundle_filenames, github_digests)
+    ]
+
+
+@dc.dataclass(frozen=True, slots=True)
+class Verification:
+    """The plain values one verification decision is made from.
+
+    No path, and no index or release adapter type, appears here. A caller that
+    holds the digests and the bundle filenames can therefore exercise the whole
+    rule -- including which bundles are required -- without a filesystem.
+    """
+
+    names: tuple[str, ...]
+    pypi_digests: cabc.Mapping[str, str]
+    github_digests: cabc.Mapping[str, str | None]
+    local_digests: cabc.Mapping[str, str]
+    bundle_filenames: tuple[str, ...]
+
+
+def verification_problems(facts: Verification) -> list[str]:
     """Describe every artefact or bundle the two destinations disagree on.
 
     A bundle is required only when it attests the bytes the release ships; see
-    :func:`attests_canonical_bytes`. A run that reconciles any name onto other
-    bytes cannot truthfully attach its own, and `verify` must not demand it.
+    :func:`attests_shipped_bytes`. A run that reconciles any name onto other
+    bytes cannot truthfully attach its own, and this decision must not demand
+    it. The rule is a function of ``facts`` alone.
+
+    Parameters
+    ----------
+    facts : Verification
+        The staged names, the three digest listings, and the bundle filenames.
+
+    Returns
+    -------
+    list[str]
+        One message per disagreement, empty when the destinations agree.
+
+    Examples
+    --------
+    >>> facts = Verification(("p.whl",), {"p.whl": "ab"}, {"p.whl": "ab"},
+    ...                      {"p.whl": "ab"}, ("b.sigstore.json",))
+    >>> verification_problems(facts)
+    ['b.sigstore.json is missing from the GitHub Release']
+
+    """
+    problems = mismatches(facts.names, facts.pypi_digests, facts.github_digests)
+    if not attests_shipped_bytes(
+        facts.names, facts.pypi_digests, facts.github_digests, facts.local_digests
+    ):
+        return problems
+    return [*problems, *absent_bundles(facts.bundle_filenames, facts.github_digests)]
+
+
+def verify(state: State, bundles: Path) -> list[str]:
+    """Describe every artefact or bundle the two destinations disagree on.
+
+    This is the boundary: the staged names, their digests and the bundle
+    filenames are read here, once each, and handed to the pure decision
+    (:func:`verification_problems`). It writes nothing, so a failed check
+    leaves both directories exactly as it found them.
 
     Parameters
     ----------
@@ -580,17 +798,26 @@ def verify(state: State, bundles: Path) -> list[str]:
     list[str]
         One message per disagreement, empty when the destinations agree.
 
+    Raises
+    ------
+    ReleaseAssetError
+        If a staged artefact or bundle name is not a safe path component and
+        TSV field.
+    OSError
+        If the publish or attestation directory cannot be read, or a staged
+        artefact cannot be hashed.
+
     """
     names = state.names()
-    pypi = {name: file.sha256 for name, file in state.pypi.items()}
-    problems = mismatches(names, pypi, state.github)
-    if not attests_canonical_bytes(state, names):
-        return problems
-    missing = sorted(
-        bundle.name for bundle in bundles.iterdir() if bundle.name not in state.github
+    return verification_problems(
+        Verification(
+            names=names,
+            pypi_digests={name: file.sha256 for name, file in state.pypi.items()},
+            github_digests=state.github,
+            local_digests=state.local_digests(names),
+            bundle_filenames=bundle_names(bundles),
+        )
     )
-    absent = (f"{name} is missing from the GitHub Release" for name in missing)
-    return [*problems, *absent]
 
 
 def write_output(name: str, *, value: bool) -> None:

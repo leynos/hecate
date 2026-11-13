@@ -184,7 +184,9 @@ def _fetch_and_skip(
     _touch(tmp_path / "dist" / "publish", *_ARTEFACTS)
     _touch(fake.pypi, *published)
     (tmp_path / "github-state" / "files").mkdir(parents=True)
-    (tmp_path / "github-state" / "assets.json").write_text('{"assets": []}', "utf-8")
+    (tmp_path / "github-state" / "assets.json").write_text(
+        '{"assets": [], "isDraft": true}', "utf-8"
+    )
     env = fake.env(FAKE_CURL_STATUSES=statuses)
     index = run_bash(step_script(*_INDEX_STEP), tmp_path, env)
     completed = index
@@ -239,6 +241,39 @@ def test_a_project_absent_from_pypi_reads_as_an_empty_index(
     )
     assert written == {"attempts": "1", "status": "404", "remaining": "true"}, (
         "a 404 must leave every artefact to upload"
+    )
+
+
+def test_a_published_release_stops_the_run_before_pypi_changes(
+    tmp_path: pth.Path,
+) -> None:
+    """A published release is immutable, so a name it lacks is refused first."""
+    fake = fake_release(tmp_path)
+    link_scripts(tmp_path)
+    _touch(tmp_path / "dist" / "publish", *_ARTEFACTS)
+    (tmp_path / "github-state" / "files").mkdir(parents=True)
+    # The release already holds one of the two names and is no longer a draft,
+    # so the other name can never be attached to it.
+    (fake.github / _ARTEFACTS[1]).write_bytes(b"published")
+    (tmp_path / "github-state" / "assets.json").write_text(
+        json.dumps({
+            "assets": [{"name": _ARTEFACTS[1], "digest": f"sha256:{'0' * 64}"}],
+            "isDraft": False,
+        }),
+        "utf-8",
+    )
+    env = fake.env(FAKE_CURL_STATUSES="404", FAKE_RELEASE_DRAFT="false")
+    index = run_bash(step_script(*_INDEX_STEP), tmp_path, env)
+
+    assert index.returncode == 0, index.stderr
+    completed = run_bash(step_script(*_SKIP_STEP), tmp_path, env)
+
+    assert completed.returncode != 0, "a name the release cannot take is fatal"
+    assert f"cannot accept {_ARTEFACTS[0]}" in completed.stderr, (
+        "the failure must name the artefact the release can never hold"
+    )
+    assert _remaining(tmp_path) == list(_ARTEFACTS), (
+        "nothing may be removed or copied before the refusal"
     )
 
 

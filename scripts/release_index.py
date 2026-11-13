@@ -1,10 +1,10 @@
 """Read the two destinations a release reconciles, and hash what it ships.
 
 PyPI answers with a PEP 691 JSON simple index and the GitHub Release with
-``gh release view --json assets``. Both listings are reduced here to the one
-fact reconciliation needs: which filenames each destination holds, and the
-SHA-256 digest of each. The decisions built on those facts live in
-``scripts/release_assets.py``.
+``gh release view --json assets,isDraft``. Both listings are reduced here to the
+facts reconciliation needs: which filenames each destination holds, the SHA-256
+digest of each, and whether the release is still a draft. The decisions built
+on those facts live in ``scripts/release_assets.py``.
 
 This module runs inside the job that holds the PyPI publishing token, so it
 resolves no third-party code and every network call stays in the workflow's
@@ -91,6 +91,34 @@ def read_github_assets(path: Path) -> dict[str, str | None]:
         asset["name"]: _digest_hex(asset.get("digest"))
         for asset in document.get("assets", [])
     }
+
+
+def release_is_published(path: Path) -> bool:
+    """Return whether a saved ``gh release view`` response is published.
+
+    ``release.yml`` snapshots the release with ``--json assets,isDraft``. The
+    assets decide what a run stages; the draft flag decides whether the release
+    can still receive a file, because a published release is immutable.
+
+    Parameters
+    ----------
+    path : Path
+        A saved ``gh release view --json assets,isDraft`` response.
+
+    Returns
+    -------
+    bool
+        ``True`` for a published release, ``False`` for a draft.
+
+    Raises
+    ------
+    KeyError
+        If the response carries no ``isDraft`` field, which means the snapshot
+        was taken without asking for it.
+
+    """
+    document = json.loads(path.read_text(encoding="utf-8"))
+    return not typ.cast("bool", document["isDraft"])
 
 
 def _digest_hex(digest: object) -> str | None:

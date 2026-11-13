@@ -78,9 +78,11 @@ not declare.
 - `check-version` (`contents: read`) compares the tag with `pyproject.toml`.
   The tag carries the `v` the declared version does not, so the step strips it
   with `${TAG#v}` in Bash and `scripts/release_version.py` compares the rest as
-  an exact string: `v0.2.0-beta1` matches `0.2.0-beta1`, and any other spelling
-  fails. The job reports whether the version is a pre-release, and every job
-  that attests, uploads, or releases waits on it.
+  an exact string: `v0.2.0b1` matches `0.2.0b1`, and any other spelling fails.
+  Only the normalized PEP 440 spelling passes the later archive check, because
+  Hatchling writes that form into the archives' metadata and the check compares
+  the text it finds with the manifest. The job reports whether the version is a
+  pre-release, and every job that attests, uploads, or releases waits on it.
 - `build-wheels` (`contents: read`) checks the repository out and runs the
   local `pure-python-wheel` composite action. A plain `uv build` builds the
   sdist first and the wheel from that sdist, so every release also proves the
@@ -116,7 +118,13 @@ not declare.
   carried-over bytes when GitHub already has a name this run rebuilt. It
   uploads the remainder with `pypa/gh-action-pypi-publish` and
   `skip-existing: true`, and skips the upload step entirely when nothing
-  remains.
+  remains. The snapshot `draft-release` hands over also records whether the
+  release is still a draft. A published release is immutable, so if it lacks a
+  name this run built, staging refuses before PyPI changes: uploading that name
+  would publish bytes no release for the tag can ever match, and PyPI cannot
+  take them back. The remedy is a human one — delete the incomplete release and
+  re-run, or upload the missing files by hand — and the run stops with both
+  destinations unchanged.
 - `publish-release` (`contents: write`; needs `check-version`, `draft-release`,
   `publish-pypi`) first records whether the release is still a draft. Only a
   draft receives uploads: a published release is by definition complete, so a
@@ -251,9 +259,47 @@ build that produced none, or two, must fail before tag time. `ci.yml` runs the
 same composite action in its own `wheel-build` job and then fails the job
 unless exactly one sdist and exactly one wheel are present. It also installs
 the built wheel into a clean Python 3.14 environment outside the checkout and
-verifies the distribution metadata, `import hecate`, `hecate --help`, and
-`python -m hecate --help`. The checks are exercised by
+runs `scripts/verify_installed_distribution.py`, which checks both archives'
+core metadata and then the installed metadata, `import hecate`,
+`python -m hecate --help`, `hecate --help`, and `hecate check` against a
+fixture policy. The checks are exercised by
 `tests/workflow_contracts/test_ci_wheel_build.py`.
+
+### Observability of a release run
+
+A release is hard to diagnose from a run log alone: several steps read the same
+PyPI index, a re-run repeats each one, and the interesting fact is often *which
+attempt* answered what. The workflow therefore reports at two levels, and
+neither level carries a filename, a URL, a release body, or any other unbounded
+value.
+
+`scripts/release_report.sh` is sourced by every step that reads PyPI or the
+GitHub Release. It writes one row per PyPI index read to `GITHUB_STEP_SUMMARY`:
+the job (`GITHUB_JOB`), the attempt number, the HTTP status class (`2xx`, `3xx`,
+`4xx`, `5xx`, or `none`), the outcome (`ok`, `retry`, `failed`, or `skipped`),
+and the elapsed seconds. The elapsed time is taken around the `curl` call and
+around each `gh release` call, so a slow or retrying read is visible without
+reading timestamps out of the log. The same helper emits one structured record
+per step outcome on standard error:
+
+```text
+release-event job=publish-release step=fetch-index outcome=ok status_class=2xx elapsed_s=1 correlation=1234567890/1
+```
+
+The correlation field is `${GITHUB_RUN_ID}/${GITHUB_RUN_ATTEMPT}`. Every
+diagnostic the release's steps print goes through the helper's `release_log` or
+`release_warn`, so it carries that field too, and `scripts/release_assets.py`
+appends the same field to the notices and errors it prints. A line in a run's
+log therefore names the one attempt that emitted it, and two attempts of the
+same run can be compared rather than guessed at.
+`tests/workflow_contracts/test_release_workflow_contract.py` pins the summary
+columns, the record fields, the correlation source, and the rule that a step
+diagnostic is not a bare `echo`.
+
+This is not the `release-telemetry` action the next section rejects. It adds no
+action to the release path, sends nothing to a service, and its records are the
+run log and the job summary that GitHub already holds; the summary is cleared
+with each attempt, so it describes the current one.
 
 ### No telemetry action
 
@@ -329,9 +375,9 @@ matches `pyproject.toml` exactly.
   Cyclopts-and-Plumbum scripting baseline, confined to modules that run only
   inside `release.yml`, immediately before or alongside the PyPI credential's
   use.
-- Publication has no telemetry beyond GitHub's run history and the attestation
-  store, and no changelog beyond generated release notes and the migration
-  guide.
+- Publication has no telemetry beyond GitHub's run history, the job summary
+  and structured records the release writes, and the attestation store. It has
+  no changelog beyond generated release notes and the migration guide.
 
 ## Known risks and limitations
 

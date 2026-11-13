@@ -139,6 +139,105 @@ def test_the_attestation_policy_reads_only_the_digests_it_is_given() -> None:
     ), "a published digest GitHub does not report must not be attested"
 
 
+def test_carryover_lists_only_names_both_sides_hold() -> None:
+    """Only a name this run built *and* the release holds is carried over.
+
+    The decision takes the two listings, so a test states them without a
+    publish directory to read.
+    """
+    names = ("a.whl", "c.whl", "b.tar.gz")
+    github = {"b.tar.gz": "bbb", "d.whl": "ddd"}
+
+    assert release_assets.carryover(names, github) == ["b.tar.gz"], (
+        "only the names both sides hold are carried over, sorted"
+    )
+
+
+def test_verification_names_each_disagreement_from_digests_alone() -> None:
+    """The whole rule runs on plain values, with no directory to read."""
+    facts = release_assets.Verification(
+        names=("a.whl", "b.whl"),
+        pypi_digests={"a.whl": "aaa", "b.whl": "bbb"},
+        github_digests={"a.whl": "aaa", "b.whl": "ccc"},
+        local_digests={"a.whl": "aaa", "b.whl": "bbb"},
+        bundle_filenames=("h.sigstore.json",),
+    )
+
+    assert release_assets.verification_problems(facts) == [
+        "b.whl differs: PyPI sha256 bbb, GitHub sha256 ccc",
+        "h.sigstore.json is missing from the GitHub Release",
+    ], "a differing name and a missing bundle are both reported"
+
+
+def test_verification_does_not_demand_a_bundle_the_run_did_not_attest() -> None:
+    """A run that shipped other bytes has no truthful bundle to offer."""
+    facts = release_assets.Verification(
+        names=("a.whl",),
+        pypi_digests={"a.whl": "aaa"},
+        github_digests={"a.whl": "aaa"},
+        local_digests={"a.whl": "zzz"},
+        bundle_filenames=("h.sigstore.json",),
+    )
+
+    assert release_assets.verification_problems(facts) == [], (
+        "a bundle that would attest a different build must not be required"
+    )
+
+
+def test_absent_bundles_names_only_what_the_release_lacks() -> None:
+    """A bundle the release already holds is not reported missing."""
+    bundled = ("h-2.sigstore.json", "h-1.sigstore.json")
+    github = {"h-1.sigstore.json": "bbb", "h-1.whl": None}
+
+    assert release_assets.absent_bundles(bundled, github) == [
+        "h-2.sigstore.json is missing from the GitHub Release"
+    ], "only the bundle the release lacks is reported, sorted"
+
+
+def test_a_published_release_cannot_accept_a_name_it_lacks() -> None:
+    """Only a name the release already holds is reachable once it is published."""
+    names = ("a.whl", "b.whl")
+
+    assert release_assets.unreachable_published_uploads(names, {"a.whl": "aa"}) == (
+        "b.whl",
+    ), "a name a published release lacks can never be added to it"
+    assert not release_assets.unreachable_published_uploads(
+        names, {"a.whl": "aa", "b.whl": None}
+    ), "a held name is reachable even when GitHub reports no digest"
+    assert release_assets.unreachable_published_uploads(names, {}) == names, (
+        "a published release holding nothing can accept nothing"
+    )
+
+
+def test_staging_refuses_a_published_release_before_pypi_changes(
+    tmp_path: pth.Path,
+) -> None:
+    """PyPI must not gain bytes that a published release can never hold."""
+    publish = _built(tmp_path / "publish", "a.whl", "b.whl")
+    state = _state(publish, github={"a.whl": "aa"})
+    before = _snapshot(publish)
+
+    with pytest.raises(release_assets.ReleaseAssetError, match=r"cannot accept b\.whl"):
+        release_assets.stage_pypi(state, tmp_path / "files", published=True)
+
+    assert _snapshot(publish) == before, (
+        "the refusal must come before any copy or removal"
+    )
+
+
+def test_staging_a_draft_release_keeps_the_upload_it_needs(tmp_path: pth.Path) -> None:
+    """A draft can still receive the names it lacks, so staging proceeds."""
+    publish = _built(tmp_path / "publish", "a.whl", "b.whl")
+    state = _state(publish, pypi={"a.whl": "canonical"})
+
+    assert release_assets.stage_pypi(state, tmp_path / "files") is True, (
+        "a draft release must keep the upload it needs"
+    )
+    assert [path.name for path in publish.iterdir()] == ["b.whl"], (
+        "the name PyPI already holds must be dropped from the upload set"
+    )
+
+
 @pytest.mark.parametrize("command", ["verify", "stage-github"])
 def test_one_command_lists_the_publish_directory_once(
     tmp_path: pth.Path, monkeypatch: pytest.MonkeyPatch, command: str
@@ -164,8 +263,11 @@ def test_one_command_lists_the_publish_directory_once(
     else:
         release_assets.stage_github(state, bundles, tmp_path / "out")
 
-    assert len(reads) == 1, (
-        f"{command} must read the directory once, not once per decision"
+    assert reads.count(publish) == 1, (
+        f"{command} must read the publish directory once, not once per decision"
+    )
+    assert reads.count(bundles) == 1, (
+        f"{command} must read the attestation directory once, through its query"
     )
 
 
@@ -202,6 +304,56 @@ def test_the_digest_query_reports_a_missing_artefact(tmp_path: pth.Path) -> None
 
     with pytest.raises(FileNotFoundError):
         State(publish, {}, {}).local_digests(("safe.whl", "absent.whl"))
+
+
+def test_the_bundle_query_reports_a_missing_directory(tmp_path: pth.Path) -> None:
+    """A missing attestation directory is an error, not an empty answer."""
+    with pytest.raises(FileNotFoundError):
+        release_assets.bundle_names(tmp_path / "absent")
+
+
+def test_verify_reports_a_missing_attestation_directory(tmp_path: pth.Path) -> None:
+    """The bundle read is part of verification, and its failure surfaces."""
+    publish = _built(tmp_path / "publish", "h-1.whl")
+
+    with pytest.raises(FileNotFoundError):
+        release_assets.verify(_state(publish), tmp_path / "absent")
+
+
+def test_verify_refuses_an_unsafe_publish_name(tmp_path: pth.Path) -> None:
+    """Verification inherits the name check the publish directory applies."""
+    publish = _built(tmp_path / "publish", "safe.whl")
+    (publish / "unsafe name.whl").write_bytes(b"built")
+    bundles = tmp_path / "bundles"
+    bundles.mkdir()
+
+    with pytest.raises(release_assets.ReleaseAssetError, match="unsafe artefact"):
+        release_assets.verify(_state(publish), bundles)
+
+
+def _snapshot(*directories: pth.Path) -> dict[str, tuple[bytes, int]]:
+    """Return every file's bytes and modification time, keyed by its path."""
+    return {
+        str(path): (path.read_bytes(), path.stat().st_mtime_ns)
+        for directory in directories
+        for path in sorted(directory.iterdir())
+    }
+
+
+def test_verify_writes_nothing_to_either_directory(tmp_path: pth.Path) -> None:
+    """A check that reported a problem must still leave both sides untouched."""
+    publish = _built(tmp_path / "publish", "h-1.whl")
+    bundles = tmp_path / "bundles"
+    bundles.mkdir()
+    (bundles / "h-1.sigstore.json").write_bytes(b"bundle")
+    before = _snapshot(publish, bundles)
+
+    problems = release_assets.verify(_state(publish), bundles)
+
+    assert problems, "this fixture must exercise a failing verification"
+    assert _snapshot(publish, bundles) == before, (
+        "verification must not add, remove, or rewrite a staged file"
+    )
 
 
 @pytest.mark.parametrize(

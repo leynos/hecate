@@ -38,7 +38,21 @@ def copy_of(destinations: Destinations) -> Destinations:
 
 
 def state_of(publish: pth.Path, destinations: Destinations) -> State:
-    """Describe ``destinations`` as the listings the release commands read."""
+    """Describe ``destinations`` as the listings the release commands read.
+
+    Parameters
+    ----------
+    publish : pth.Path
+        The directory holding the staged build.
+    destinations : Destinations
+        The bytes each destination already holds.
+
+    Returns
+    -------
+    State
+        The staged directory with both destinations' digests.
+
+    """
     return State(
         publish,
         {
@@ -112,6 +126,24 @@ def publish_pypi(
     ``upload`` names the artefacts the upload step managed to send before the
     job stopped. When it is given and the step did not send everything, the
     caller must stop: ``publish-release`` never runs after a failed upload.
+
+    Parameters
+    ----------
+    run_root : pth.Path
+        The directory this pass owns.
+    dist : pth.Path
+        This run's build.
+    destinations : Destinations
+        The bytes each destination holds before the upload.
+    upload : collections.abc.Collection[str] | None
+        The names the upload managed to send, or ``None`` when the step ran
+        untouched.
+
+    Returns
+    -------
+    tuple[Destinations, bool]
+        The destinations after the upload, and whether it was interrupted.
+
     """
     publish = shutil.copytree(dist, run_root / "publish-pypi")
     github_files = run_root / "github-files"
@@ -138,7 +170,25 @@ def publish_release(
     bundles: pth.Path,
     destinations: Destinations,
 ) -> Outcome:
-    """Stage, fetch, check, and model the GitHub Release upload, then verify."""
+    """Stage, fetch, check, and model the GitHub Release upload, then verify.
+
+    Parameters
+    ----------
+    run_root : pth.Path
+        The directory this pass owns.
+    dist : pth.Path
+        This run's build.
+    bundles : pth.Path
+        The directory holding this run's Sigstore bundle.
+    destinations : Destinations
+        The bytes each destination holds before the release is updated.
+
+    Returns
+    -------
+    Outcome
+        The destinations after the upload and what verification made of them.
+
+    """
     publish = shutil.copytree(dist, run_root / "publish-release")
     state = state_of(publish, destinations)
     output = run_root / "out"
@@ -171,6 +221,25 @@ def release_pass(
 
     Each job starts from a fresh copy of the build's ``dist``, as the
     ``release-dist`` artefact hands it on.
+
+    Parameters
+    ----------
+    root : pth.Path
+        The directory holding every pass of one property example.
+    options : Pass
+        The label, build, and names this pass uses.
+    destinations : Destinations
+        The bytes each destination holds before the pass.
+    upload : collections.abc.Collection[str] | None
+        The names the PyPI upload manages to send, or ``None`` when it sends
+        everything.
+
+    Returns
+    -------
+    Outcome
+        The destinations after the pass and what verification made of them;
+        ``problems`` is ``None`` when the upload was interrupted.
+
     """
     # Hypothesis reuses one ``tmp_path`` across examples, so each pass starts
     # from a directory of its own name that holds nothing from an earlier one.

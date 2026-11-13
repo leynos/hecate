@@ -1242,24 +1242,25 @@ have their own required order of work in [AGENTS.md](../AGENTS.md).
 
 ## Commit gates and CI
 
-Every gate below runs locally. CI runs the same commands for the same effect,
-with the exceptions noted, so a local pass is strong evidence of a green
-Continuous Integration (CI) run.
+Every gate below except the distribution check has a local command. CI runs the
+same commands for the same effect, with the exceptions noted, so a local pass
+is strong evidence of a green Continuous Integration (CI) run.
 
-| Gate                        | Local command                  | CI                                                 |
-| --------------------------- | ------------------------------ | -------------------------------------------------- |
-| Python formatting           | `make check-fmt`               | yes, `make check-fmt`                              |
-| Ruff, Pylint, Skylos        | `make lint`                    | yes, `make lint`                                   |
-| Type checking               | `make typecheck`               | yes, `make typecheck`                              |
-| Tests                       | `make test`                    | PR: `generate-coverage`; main: `coverage-main.yml` |
-| Markdown formatting         | `make check-fmt`               | yes, after `install-mdtablefix`                    |
-| Markdown lint               | `make markdownlint`            | yes, `markdownlint-cli2-action`                    |
-| Spelling                    | `make spelling`                | yes, `make spelling`                               |
-| Coverage contracts (CV-005) | `make test-workflow-contracts` | yes, its own step                                  |
-| Mermaid validation          | `make nixie`                   | **no**                                             |
-| CrossHair contracts         | `make crosshair`               | **no**                                             |
-| Makefile validation         | _(none)_                       | yes, `mbake validate Makefile`                     |
-| Mutation testing            | _(none)_                       | scheduled/manual, informational                    |
+| Gate                         | Local command                     | CI                                                 |
+| ---------------------------- | --------------------------------- | -------------------------------------------------- |
+| Python formatting            | `make check-fmt`                  | yes, `make check-fmt`                              |
+| Ruff, Pylint, Skylos         | `make lint`                       | yes, `make lint`                                   |
+| Type checking                | `make typecheck`                  | yes, `make typecheck`                              |
+| Tests                        | `make test`                       | PR: `generate-coverage`; main: `coverage-main.yml` |
+| Distribution build & install | `make build-release` (build only) | yes, the `wheel-build` job in `ci.yml`             |
+| Markdown formatting          | `make check-fmt`                  | yes, after `install-mdtablefix`                    |
+| Markdown lint                | `make markdownlint`               | yes, `markdownlint-cli2-action`                    |
+| Spelling                     | `make spelling`                   | yes, `make spelling`                               |
+| Coverage contracts (CV-005)  | `make test-workflow-contracts`    | yes, its own step                                  |
+| Mermaid validation           | `make nixie`                      | **no**                                             |
+| CrossHair contracts          | `make crosshair`                  | **no**                                             |
+| Makefile validation          | _(none)_                          | yes, `mbake validate Makefile`                     |
+| Mutation testing             | _(none)_                          | scheduled/manual, informational                    |
 
 _Table 5: Commit gates, local commands, and whether CI runs them._
 
@@ -1427,7 +1428,9 @@ is the operator's view.
 1. Set `version` in `pyproject.toml` to the release version, and update
    `docs/migration-hecate.md` with the user-facing changes. The tag and the
    manifest must match exactly: `v0.2.0` matches `0.2.0`, and a pre-release
-   such as `v0.2.0-beta1` matches `0.2.0-beta1`.
+   such as `v0.2.0b1` matches `0.2.0b1`. Use the normalized PEP 440 spelling:
+   Hatchling writes that form into the archives' metadata, and the archive
+   check compares that text with the manifest.
 2. Run `uv lock` so `uv.lock` records the same version, and commit both files.
 3. Merge to `main` and wait for the pull request's checks to pass.
 4. Tag the merge commit and push the tag:
@@ -1475,6 +1478,17 @@ the ones this run built; a re-run that rebuilt different bytes withholds it,
 because the attestation would otherwise describe bytes the release does not
 ship. The run's attestation still reaches the repository's attestation store.
 
+Every step that reads PyPI or the GitHub Release says what it did.
+`scripts/release_report.sh`, which those steps source, writes one row per PyPI
+index read to the job summary: job, attempt, HTTP status class, outcome, and
+elapsed seconds. It also emits one structured record per step outcome, with the
+run's correlation, `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`, as a field. Every
+diagnostic line those steps print carries the same correlation, and the
+reconciliation scripts append it to their notices and errors, so a log line can
+be tied to exactly one run attempt. The labels are bounded: no filename, URL,
+or release body appears in a record. The design rationale is in
+[ADR 004](adr-004-attested-reconciled-release-pipeline.md#observability-of-a-release-run).
+
 ### Re-running a release
 
 Pushing the same tag again is safe. Each filename's canonical bytes are taken
@@ -1493,7 +1507,7 @@ rebuild under a name PyPI already holds.
 
 ### Release scripts
 
-The reconciliation decisions live in `scripts/release_assets.py`, with four
+The reconciliation decisions live in `scripts/release_assets.py`, with five
 interfaces the workflow and its tests share:
 
 - `Source` names the destination a filename's canonical bytes come from:
@@ -1520,6 +1534,22 @@ interfaces the workflow and its tests share:
   read to answer them, so a test states any combination of digests directly;
   `attests_canonical_bytes()` is only the boundary that hashes the staged files
   and passes the result on.
+- `Verification` holds the plain values one complete verification is made from:
+  the staged names, the three digest mappings, and the bundle filenames. It
+  carries no path and no index or release adapter type, and
+  `verification_problems(facts)` is the pure rule over it.
+  `verify(state, bundles)` is the boundary: it reads the publish directory
+  once, hashes each staged file, reads the attestation directory once through
+  `bundle_names()`, and returns the pure rule's answer. It writes nothing.
+  `carryover()`, `unattached_bundles()`, and `absent_bundles()` are the same
+  shape — plain values in, a decision out — and `stage_pypi()` and
+  `stage_github()` are the boundaries that carry out the copies and removals
+  their plans chose.
+- `unreachable_published_uploads(names, github)` names the staged files a
+  published release can never accept, and `stage_pypi()` refuses them before it
+  removes or copies anything. `release_is_published(assets)` reads the
+  `isDraft` flag from the snapshot `draft-release` hands on, so the refusal
+  happens in the job that is about to change PyPI rather than after the upload.
 
 `scripts/release_assets_cli.py` wires those interfaces to the workflow's steps:
 `carryover`, `stage-pypi`, `stage-github`, `check-fetched`, `index-expected`,
@@ -1530,6 +1560,22 @@ holds the PyPI OpenID Connect credential and must not resolve any third-party
 package while it is live. Keep network calls in the workflow's `curl` and `gh`
 steps; the scripts only plan for them. The design rationale is in
 [ADR 004](adr-004-attested-reconciled-release-pipeline.md#stdlib-only-release-scripts).
+
+`scripts/verify_installed_distribution.py` is the pull-request counterpart of
+that reconciliation, and it uses the standard library alone for the same
+reason. The `wheel-build` job in `ci.yml` builds `dist` with `uv build`,
+requires exactly one sdist and exactly one wheel, creates a virtual environment
+outside the checkout, and installs the wheel into it. It then runs this script
+with `--dist`, `--pyproject`, `--venv`, and the policy fixture at
+`tests/fixtures/installed_cli/policy.toml`. The script checks both archives
+themselves: the wheel's `METADATA` and the sdist's `PKG-INFO` must name
+`hecate-enforce` and declare the version `pyproject.toml` states. Matching is
+by exact archive path, so a vendored distribution's metadata cannot stand in.
+The script then uses the environment's own interpreter, under `-I`, to check
+`importlib.metadata`, `import hecate`, `python -m hecate --help`, and
+`hecate --help`, and finishes with `hecate check` against the fixture. A
+malformed archive that merely builds therefore fails before a tag could publish
+it.
 
 ### Release tests
 

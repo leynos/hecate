@@ -15,7 +15,9 @@ and Python 3.13 defaults. Each subcommand is one step of ``release.yml``:
 ``carryover`` (``draft-release``), ``stage-pypi`` (``publish-pypi``), then
 ``stage-github``, ``check-fetched``, and ``verify`` (``publish-release``), plus
 ``index-expected``, which the post-upload index re-read polls until the listing
-catches up with that upload. The reconciliation logic itself lives in
+catches up with that upload. ``stage-pypi`` also reads the release snapshot's
+draft flag, so a name a published release can never hold stops the run before
+the upload. The reconciliation logic itself lives in
 ``scripts/release_assets.py``; this module only wires it to ``argparse`` and
 the workflow's ``GITHUB_OUTPUT`` protocol.
 """
@@ -32,12 +34,14 @@ from scripts.release_assets import (
     State,
     carryover,
     check_fetched,
+    correlation,
     missing_from_index,
     stage_github,
     stage_pypi,
     verify,
     write_output,
 )
+from scripts.release_index import release_is_published
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc
@@ -72,13 +76,22 @@ def _path(args: argparse.Namespace, option: str) -> Path:
 def _carryover(state: State, args: argparse.Namespace) -> None:
     """Print the names to download from the GitHub Release, one per line."""
     del args
-    for name in carryover(state):
+    for name in carryover(state.names(), state.github):
         print(name)
 
 
 def _stage_pypi(state: State, args: argparse.Namespace) -> None:
-    """Stage PyPI's upload set and report whether anything remains."""
-    write_output("remaining", value=stage_pypi(state, _path(args, "github_files")))
+    """Stage PyPI's upload set and report whether anything remains.
+
+    The release snapshot also carries its draft flag: a published release is
+    immutable, so a name it lacks must stop the run before PyPI is changed.
+    """
+    remaining = stage_pypi(
+        state,
+        _path(args, "github_files"),
+        published=release_is_published(_path(args, "assets")),
+    )
+    write_output("remaining", value=remaining)
 
 
 def _stage_github(state: State, args: argparse.Namespace) -> None:
@@ -112,7 +125,10 @@ def _verify(state: State, args: argparse.Namespace) -> None:
     problems = verify(state, _path(args, "bundles"))
     if problems:
         raise ReleaseAssetError("; ".join(problems))
-    print("PyPI and the GitHub Release hold the same bytes for every artefact.")
+    print(
+        "PyPI and the GitHub Release hold the same bytes for every artefact."
+        f"{correlation()}"
+    )
 
 
 _COMMANDS: dict[str, cabc.Callable[[State, argparse.Namespace], None]] = {
@@ -133,9 +149,12 @@ def main(argv: cabc.Sequence[str] | None = None) -> int:
         _COMMANDS[args.command](state, args)
     except (ReleaseAssetError, OSError, KeyError, ValueError) as error:
         if args.poll:
-            print(error, file=sys.stderr)
+            print(f"{error}{correlation()}", file=sys.stderr)
         else:
-            print(f"::error title=release-assets::{error}", file=sys.stderr)
+            print(
+                f"::error title=release-assets::{error}{correlation()}",
+                file=sys.stderr,
+            )
         return 1
     return 0
 

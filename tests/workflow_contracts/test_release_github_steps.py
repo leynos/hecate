@@ -64,6 +64,7 @@ def _run_with_fake_gh(
     exit status alone.
     """
     calls = tmp_path / "gh-calls"
+    link_scripts(tmp_path)
     install_tool(
         tmp_path / "tools",
         "gh",

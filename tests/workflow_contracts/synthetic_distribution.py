@@ -61,7 +61,21 @@ DEFAULT_WHEEL = WheelSpec()
 
 
 def write_wheel(directory: Path, spec: WheelSpec = DEFAULT_WHEEL) -> Path:
-    """Write a small wheel that mimics the interface the release must expose."""
+    """Write a small wheel that mimics the interface the release must expose.
+
+    Parameters
+    ----------
+    directory : Path
+        The directory to write the wheel into; it is created if absent.
+    spec : WheelSpec
+        What the wheel should contain.
+
+    Returns
+    -------
+    Path
+        The wheel that was written.
+
+    """
     directory.mkdir(parents=True, exist_ok=True)
     normalized = spec.name.replace("-", "_")
     dist_info = f"{normalized}-0.1.0.dist-info"
@@ -115,6 +129,23 @@ def write_sdist(
     sdist's metadata is judged on its own. ``vendored`` adds a nested
     ``PKG-INFO`` for another distribution, written first so that archive order
     alone would find it before the sdist's own.
+
+    Parameters
+    ----------
+    directory : Path
+        The directory to write the sdist into; it is created if absent.
+    name : str
+        The distribution name recorded in the archive and its metadata.
+    version : str
+        The version the sdist declares, which may differ from the wheel's.
+    vendored : str | None
+        Another distribution whose nested metadata is added first, or ``None``.
+
+    Returns
+    -------
+    Path
+        The source distribution that was written.
+
     """
     directory.mkdir(parents=True, exist_ok=True)
     normalized = name.replace("-", "_")

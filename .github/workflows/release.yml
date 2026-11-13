@@ -21,7 +21,9 @@ permissions: {}
 # first, then an existing asset on the tag's GitHub Release, and this run's
 # attested file only when neither has the name. Each destination receives only
 # the names it lacks, never overwriting, and `publish-release` checks both hold
-# the same digests before the release becomes visible. The decisions live in
+# the same digests before the release becomes visible. A published release can
+# no longer receive a name, so `publish-pypi` refuses one before uploading it.
+# The decisions live in
 # `scripts/release_assets.py`; network calls stay in these steps. YAML anchors
 # (`&name`, `*name`) share the steps several jobs repeat verbatim.
 jobs:
@@ -40,8 +42,8 @@ jobs:
         with:
           persist-credentials: false
       # The tag carries the `v` the declared version does not; what remains is
-      # compared with the manifest as a string, so `v0.2.0-beta1` matches
-      # `0.2.0-beta1` and any other spelling fails.
+      # compared with the manifest as a string, so `v0.2.0b1` matches
+      # `0.2.0b1` and any other spelling fails.
       - name: Check the pyproject.toml version against the tag
         id: pyproject-version
         env:
@@ -197,7 +199,10 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p github-state/files
-          gh release view "${GITHUB_REF_NAME}" --json assets > github-state/assets.json
+          # `isDraft` travels with the assets: a published release is immutable,
+          # so `publish-pypi` must refuse a name it lacks before uploading.
+          gh release view "${GITHUB_REF_NAME}" --json assets,isDraft \
+            > github-state/assets.json
           python3 -m scripts.release_assets_cli carryover --publish dist/publish \
             --assets github-state/assets.json > github-state/carryover.txt
           while IFS= read -r name; do
@@ -243,6 +248,8 @@ jobs:
         id: index
         run: &fetch-index |
           set -euo pipefail
+          # shellcheck source=scripts/release_report.sh
+          . scripts/release_report.sh
           # `--poll` suppresses the error annotation, so only the retried
           # attempts pass it; the final gate below must annotate its failure.
           index_is_current() {
@@ -251,39 +258,52 @@ jobs:
           }
           attempt=0
           status=000
-          while [ "${attempt}" -lt 6 ]; do
+          outcome=failed
+          settled=false
+          while [ "${attempt}" -lt 6 ] && [ "${settled}" = false ]; do
             attempt=$((attempt + 1))
+            started=${SECONDS}
             status=$(curl --silent --show-error --location \
               --connect-timeout 10 --max-time 60 \
               --output pypi-index.json --write-out '%{http_code}' \
               --header 'Accept: application/vnd.pypi.simple.v1+json' \
               https://pypi.org/simple/hecate-enforce/) || status=000
+            elapsed=$((SECONDS - started))
+            outcome=retry
             case "${status}" in
               000|429|5??)
                 if [ "${attempt}" -lt 6 ]; then
-                  echo "PyPI simple index returned HTTP ${status} on attempt ${attempt}; retrying." >&2
+                  release_warn "PyPI simple index returned HTTP ${status} on attempt ${attempt}; retrying."
                   sleep 2
+                else
+                  settled=true
                 fi
                 ;;
               200|404)
                 if [ -z "${EXPECTED_PUBLISH:-}" ] || index_is_current --poll; then
-                  break
-                fi
-                if [ "${attempt}" -lt 6 ]; then
-                  echo "The PyPI index does not list every artefact yet (attempt ${attempt}); retrying." >&2
+                  outcome=ok
+                  settled=true
+                elif [ "${attempt}" -lt 6 ]; then
+                  release_warn "The PyPI index does not list every artefact yet (attempt ${attempt}); retrying."
                   sleep 5
+                else
+                  settled=true
                 fi
                 ;;
-              *) break ;;
+              *) settled=true ;;
             esac
+            if [ "${outcome}" = retry ] && [ "${settled}" = true ]; then
+              outcome=failed
+            fi
+            release_event fetch-index "${attempt}" "${status}" "${outcome}" "${elapsed}"
           done
           printf 'attempts=%s\nstatus=%s\n' "${attempt}" "${status}" >> "${GITHUB_OUTPUT}"
-          echo "PyPI simple index read: HTTP ${status} after ${attempt} attempt(s)."
+          release_log "PyPI simple index read: HTTP ${status} after ${attempt} attempt(s)."
           case "${status}" in
             200) ;;
             404) echo '{"files": []}' > pypi-index.json ;;
             *)
-              echo "PyPI simple index returned HTTP ${status}." >&2
+              release_warn "PyPI simple index returned HTTP ${status}."
               exit 1
               ;;
           esac
@@ -297,9 +317,10 @@ jobs:
         id: pending
         run: |
           set -euo pipefail
-          python3 -m scripts.release_assets_cli stage-pypi --publish dist/publish \
-            --index pypi-index.json --assets github-state/assets.json \
-            --github-files github-state/files
+          . scripts/release_report.sh
+          release_run skip-pypi python3 -m scripts.release_assets_cli stage-pypi \
+            --publish dist/publish --index pypi-index.json \
+            --assets github-state/assets.json --github-files github-state/files
       # pypa's action rather than `uv publish`: with Trusted Publishing it also
       # signs and uploads a PEP 740 attestation for every file, which uv does
       # not. `skip-existing` takes the place of uv's `--check-url`, so a file
@@ -336,9 +357,11 @@ jobs:
         id: draft
         run: |
           set -euo pipefail
-          gh release view "${GITHUB_REF_NAME}" --json isDraft --jq '.isDraft' > is-draft
+          . scripts/release_report.sh
+          release_run draft-state gh release view "${GITHUB_REF_NAME}" \
+            --json isDraft --jq '.isDraft' > is-draft
           if [ "$(cat is-draft)" != true ]; then
-            echo "The release is already published; nothing will be uploaded." >&2
+            release_warn "The release is already published; nothing will be uploaded."
             echo "is-draft=false" >> "${GITHUB_OUTPUT}"
             exit 0
           fi
@@ -357,26 +380,39 @@ jobs:
         id: assets
         run: |
           set -euo pipefail
-          gh release view "${GITHUB_REF_NAME}" --json assets > release-assets.json
+          . scripts/release_report.sh
+          release_run list-assets gh release view "${GITHUB_REF_NAME}" \
+            --json assets > release-assets.json
       - name: Stage the assets the release lacks
         id: stage
         run: |
           set -euo pipefail
-          python3 -m scripts.release_assets_cli stage-github --publish dist/publish \
-            --index pypi-index.json --assets release-assets.json \
-            --bundles dist/attestations --output github-upload > pypi-fetch.tsv
+          . scripts/release_report.sh
+          release_run stage-assets python3 -m scripts.release_assets_cli stage-github \
+            --publish dist/publish --index pypi-index.json \
+            --assets release-assets.json --bundles dist/attestations \
+            --output github-upload > pypi-fetch.tsv
+          started=${SECONDS}
+          outcome=ok
           while IFS=$'\t' read -r name url; do
-            curl --silent --show-error --location --fail \
+            if ! curl --silent --show-error --location --fail \
               --retry 5 --retry-all-errors --retry-delay 2 \
               --connect-timeout 10 --max-time 300 \
-              --output "github-upload/${name}" "${url}"
+              --output "github-upload/${name}" "${url}"; then
+              outcome=failed
+              break
+            fi
           done < pypi-fetch.tsv
+          release_record fetch-pypi "${outcome}" 200 "$((SECONDS - started))"
+          test "${outcome}" = ok
       - name: Check the fetched PyPI bytes
         id: fetched
         run: |
           set -euo pipefail
-          python3 -m scripts.release_assets_cli check-fetched --publish dist/publish \
-            --index pypi-index.json --assets release-assets.json --output github-upload
+          . scripts/release_report.sh
+          release_run check-fetched python3 -m scripts.release_assets_cli check-fetched \
+            --publish dist/publish --index pypi-index.json \
+            --assets release-assets.json --output github-upload
       # No `--clobber`: an asset the release already holds is canonical. A
       # published release is complete, so a re-run -- which always stages the
       # bundle it built, even when the release already carries that name --
@@ -389,17 +425,20 @@ jobs:
           IS_DRAFT: ${{ steps.draft.outputs.is-draft }}
         run: |
           set -euo pipefail
+          . scripts/release_report.sh
           if [ "${IS_DRAFT}" != true ]; then
-            echo "The release is already published; nothing to upload."
+            release_log "The release is already published; nothing to upload."
+            release_record upload-assets skipped none 0
             exit 0
           fi
           shopt -s nullglob
           staged=(github-upload/*)
           if [ "${#staged[@]}" -eq 0 ]; then
-            echo "The release holds every artefact this run built."
+            release_log "The release holds every artefact this run built."
+            release_record upload-assets skipped none 0
             exit 0
           fi
-          gh release upload "${GITHUB_REF_NAME}" "${staged[@]}"
+          release_run upload-assets gh release upload "${GITHUB_REF_NAME}" "${staged[@]}"
       # The digest check compares what PyPI holds *now*, not what it held
       # before this run's upload. One re-read is not enough: PyPI serves the
       # index through a CDN cache, so a 200 can still describe the state
@@ -415,15 +454,18 @@ jobs:
         id: verify
         run: |
           set -euo pipefail
-          gh release view "${GITHUB_REF_NAME}" --json assets > release-assets.json
-          python3 -m scripts.release_assets_cli verify --publish dist/publish \
-            --index pypi-index.json --assets release-assets.json \
-            --bundles dist/attestations
+          . scripts/release_report.sh
+          release_run verify-assets gh release view "${GITHUB_REF_NAME}" \
+            --json assets > release-assets.json
+          release_run verify python3 -m scripts.release_assets_cli verify \
+            --publish dist/publish --index pypi-index.json \
+            --assets release-assets.json --bundles dist/attestations
       - name: Publish the GitHub Release
         id: publish
         env:
           IS_PRERELEASE: ${{ needs.check-version.outputs.prerelease }}
         run: |
           set -euo pipefail
-          gh release edit "${GITHUB_REF_NAME}" --draft=false \
+          . scripts/release_report.sh
+          release_run publish gh release edit "${GITHUB_REF_NAME}" --draft=false \
             --prerelease="${IS_PRERELEASE}"
