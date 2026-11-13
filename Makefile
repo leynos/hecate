@@ -51,24 +51,18 @@ SKYLOS_ALLOW_LOCK ?= .skylos-whitelist.lock
 # that directory it does not scan, so the directory is the honest unit here.
 GATE_PYTHON_TARGETS ?= scripts
 
-# Keep this pin in sync with the CI nose install step and [tool.nose]
-# version; tests/toolchain_contract/ enforces the match.
-NOSE_VERSION ?= 0.20.0
-NOSE_TOOLS_DIR ?= .tools/nose
-NOSE_BIN ?= $(NOSE_TOOLS_DIR)/nose
-CARGO_BINSTALL ?= cargo-binstall
-# Downstream adoption deviation from the episodic reference: the gate is a
-# blocking lint check, so a missing trusted artefact must fail loudly rather
-# than quietly fall back to compiling nose from source. cargo-binstall's
-# `--disable-strategies compile,quick-install` is the supported switch.
-BINSTALL_DISABLE_STRATEGIES ?= compile,quick-install
-DUPLICATION_GATE = $(UV_ENV) NOSE_BIN=$(NOSE_BIN) $(UV) run scripts/duplication_gate.py
+# The duplication gate is the installed df12-duplication command. It downloads
+# the nose release named by [tool.nose] version and verifies it against the
+# digest table shipped in the package, so no nose pin lives here.
+DF12_PYTHON_LINTS_SHA = 56ad71721c3f1f2164ec84b69150582488f1a927
+DUPLICATION = $(UV_ENV) $(UV) tool run --from \
+  'df12-python-lints[duplication] @ git+https://github.com/leynos/df12-python-lints.git@$(DF12_PYTHON_LINTS_SHA)' \
+  df12-duplication
 
 
 .PHONY: help all clean build build-release lint lint-python skylos skylos-allow fmt check-fmt \
         markdownlint nixie spelling spelling-helper-test test typecheck \
-        crosshair makeutil install-nose duplication duplication-test \
-        duplication-allow $(TOOLS) $(VENV_TOOLS) test-workflow-contracts
+        crosshair makeutil duplication duplication-allow $(TOOLS) $(VENV_TOOLS) test-workflow-contracts
 
 .DEFAULT_GOAL := all
 
@@ -213,40 +207,14 @@ spelling-helper-test: ## Validate the shared spelling-policy integration
 	@PYTHONPATH=scripts $(UV_ENV) $(UV) run --no-project --python 3.13 \
 		--with pytest==9.0.2 --with pytest-cov==7.0.0 \
 		python -m pytest scripts/tests/test_typos_rollout.py \
+		scripts/tests/test_atomic_write.py \
 		-c /dev/null --rootdir=. -p no:cacheprovider \
 		--cov=generate_typos_config --cov=typos_rollout \
-		--cov=typos_rollout_cache --cov-fail-under=90
+		--cov=typos_rollout_cache --cov=atomic_write --cov-fail-under=90
 
-install-nose: ## Install the pinned nose duplication detector
-	@if [ "$$($(NOSE_BIN) --version 2>/dev/null)" = "nose $(NOSE_VERSION)" ]; then \
-	  printf "nose %s already installed at %s\n" "$(NOSE_VERSION)" "$(NOSE_BIN)"; \
-	else \
-	  printf "Installing nose %s into %s\n" "$(NOSE_VERSION)" "$(NOSE_TOOLS_DIR)"; \
-	  mkdir -p "$(NOSE_TOOLS_DIR)"; \
-	  $(CARGO_BINSTALL) --no-confirm \
-	    --disable-strategies "$(BINSTALL_DISABLE_STRATEGIES)" \
-	    --install-path "$(NOSE_TOOLS_DIR)" \
-	    --git https://github.com/corca-ai/nose 'nose-cli@$(NOSE_VERSION)'; \
-	fi
-
-duplication: install-nose ## Run the blocking code-duplication gate
-	$(DUPLICATION_GATE) check
-
-duplication-test: ## Run the duplication-gate helper tests
-	@$(UV_ENV) NOSE_BIN=$(NOSE_BIN) $(UV) run --no-project --python 3.14 \
-		--with pytest==9.0.2 --with cyclopts==4.25.2 \
-		--with tomlkit==0.15.1 --with 'hypothesis[asyncio]==6.165.6' \
-		python -m pytest -c /dev/null --rootdir=. -p no:cacheprovider \
-		scripts/tests/test_atomic_write.py \
-		scripts/tests/test_duplication_gate.py \
-		scripts/tests/test_duplication_gate_cli.py \
-		scripts/tests/test_duplication_gate_commands.py \
-		scripts/tests/test_duplication_gate_contention.py \
-		scripts/tests/test_duplication_gate_make.py \
-		scripts/tests/test_duplication_gate_persistence.py \
-		scripts/tests/test_duplication_gate_properties.py \
-		scripts/tests/test_make_install_nose.py \
-		scripts/tests/test_nose_detector.py
+duplication: ## Run the blocking code-duplication gate
+	$(DUPLICATION) install
+	$(DUPLICATION) check
 
 # Accept FIRST/SECOND/REASON only from the make command line, like the Skylos
 # named-exception interface. Episodic's Makefile explains why: `NAME` is
@@ -270,7 +238,7 @@ duplication-allow: ## Record one reasoned duplication exception
 	@case "$${DUPLICATION_REASON}" in *[![:space:]]*) ;; *) printf "Error: REASON is required for a duplication exception\\n" >&2; exit 2;; esac
 	@case "$${DUPLICATION_SECOND}" in *[![:print:][:space:]]*) printf "Error: SECOND members must be printable text\\n" >&2; exit 2;; esac
 	@set -f; set --; for key in $${DUPLICATION_SECOND}; do set -- "$$@" --second "$$key"; done; \
-		$(DUPLICATION_GATE) allow --first "$${DUPLICATION_FIRST}" "$$@" \
+		$(DUPLICATION) allow --first "$${DUPLICATION_FIRST}" "$$@" \
 			--reason "$${DUPLICATION_REASON}"
 
 nixie: ## Validate Mermaid diagrams

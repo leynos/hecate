@@ -121,7 +121,7 @@ When implementing changes, adhere to the following testing procedures:
       entry's keys, and in that case the duplication still blocks and the entry
       needs extending rather than deleting. The gate exits 1 on unsuppressed
       families and 2 on a configuration or tool error; a missing detector is a
-      provisioning failure, resolved with `make install-nose`, not permission
+      provisioning failure, resolved by re-running `make duplication`, not permission
       to compile one from source.
     - **Formatting:** Adheres to formatting standards (run `make check-fmt` to
       verify, use `make fmt` to apply formatting).

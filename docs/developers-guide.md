@@ -1403,21 +1403,23 @@ atomic-commit rules are in [AGENTS.md](../AGENTS.md) and are not restated here.
 pipeline is sequential:
 
 ```shell
-make install-nose   # provision the pinned detector (idempotent)
-make duplication    # run the gate on its own
-make duplication-test           # the gate's own tests
+make duplication    # install the detector and run the gate on its own
 make duplication-allow FIRST='path[::name]' REASON='...'
 make duplication-allow FIRST='path[::name]' SECOND='path[::name]' REASON='...'
 ```
 
-`make duplication` depends on `make install-nose`, so a standalone run
-provisions the detector if it is missing. The installer writes `nose-cli` at
-the version in `NOSE_VERSION` into `.tools/nose` using `cargo-binstall`'s git
-mode, and is a no-op when `.tools/nose/nose --version` already reports the
-pinned version. Set `NOSE_BIN` to run a detector provisioned elsewhere; a
-relative path resolves against the repository root. Source compilation is
-disabled, so a missing release artefact fails provisioning rather than starting
-a build.
+The gate is the `df12-duplication` command from `df12-python-lints`, pinned by
+commit in the Makefile (`DF12_PYTHON_LINTS_SHA`). `make duplication` runs
+`df12-duplication install`, which downloads the `nose` release named by
+`[tool.nose]` `version` into `.tools/nose` and verifies it against the digest
+table shipped in the package; it is a no-op when the binary is already present
+and correct. Set `NOSE_BIN` to run a detector provisioned elsewhere; a relative
+path resolves against the repository root. Source compilation never happens, so
+a missing release artefact fails provisioning rather than starting a build. The
+gate's behaviour, tests, and benchmarks live in `df12-python-lints`; CI runs it
+through the shared-actions `df12-duplication` action. Bumping the package pin
+means editing `DF12_PYTHON_LINTS_SHA` here and the action SHA in
+`.github/workflows/ci.yml`.
 
 The detector is `nose`, the Rust-built `nose-cli` from
 <https://github.com/corca-ai/nose>, pinned at the revision recorded in
@@ -1464,8 +1466,8 @@ it rather than for deleting it. Values pass through the environment verbatim,
 so spaces, quotes, and dollar signs in a reason are preserved rather than
 interpreted as shell or Make program text.
 
-The helper holds an advisory lock beside `pyproject.toml` while it rewrites the
-entries, so concurrent allow commands cannot interleave their
+The command holds an advisory lock beside `pyproject.toml` while it rewrites
+the entries, so concurrent allow commands cannot interleave their
 read-modify-write. It coordinates processes that follow its protocol; it does
 not coordinate an unrelated editor.
 
@@ -1503,12 +1505,11 @@ means only that its family fell outside the reported surface.
 
 ### Atomic writes
 
-`scripts/atomic_write.py` is the shared persistence helper behind the
-duplication allowlist writer and the spelling-cache writes in
-`scripts/typos_rollout.py`. It owns no caller's domain: it writes the complete
-contents to a temporary file in the destination's own directory, then replaces
-the destination with `Path.replace`, so a reader sees either the old file or
-the new one and never a partial write.
+`scripts/atomic_write.py` is the persistence helper behind the spelling-cache
+writes in `scripts/typos_rollout.py`. It owns no caller's domain: it writes the
+complete contents to a temporary file in the destination's own directory, then
+replaces the destination with `Path.replace`, so a reader sees either the old
+file or the new one and never a partial write.
 
 `AtomicWriteOptions` is a frozen dataclass whose three fields default to:
 
@@ -1546,11 +1547,6 @@ leaves a name for the cleanup block to unlink. A completed replacement has
 already moved the file, so the same `missing_ok` unlink is the success path as
 well as a retried cleanup.
 
-`scripts/duplication_allowlist.py` is the strict caller. Its rewrite of
-`pyproject.toml` passes `create_parents=False`, `preserve_mode=True`, and
-`sync_file=True`: the file's existing mode survives, the new contents and the
-rename are durable before the command reports success, and a missing parent
-directory is an error rather than something the writer invents.
 `scripts/typos_rollout.py` writes the generated config, the HTTP freshness
 metadata, and the cached dictionary with the defaults, so those writes create
 missing parents, do not preserve a mode, and do not fsync.
@@ -1561,18 +1557,10 @@ The gate is POSIX-only: it uses `fcntl.flock` and POSIX directory operations.
 The supported developer workflow is POSIX or WSL, and the blocking run happens
 on Linux CI. Native Windows is not supported.
 
-The gate's entry point `scripts/duplication_gate.py` declares the Python 3.14
-floor and its pinned helper libraries in uv inline script metadata; the other
-gate modules are plain imports without metadata of their own.
-`make duplication` and `make duplication-test` therefore select that
-interpreter and those pins explicitly, rather than inheriting the application's
-virtualenv. `tests/toolchain_contract/` keeps the Makefile, the CI workflow, and
-`[tool.nose]` pinned to the same version.
-
-The gate's own tests live under `scripts/tests/` and are not collected by
+`tests/toolchain_contract/` keeps the CI uv cache keyed on the files that pin
+the tool environments. Helper tests under `scripts/tests/` are not collected by
 `make test` or the coverage job; `[tool.pytest.ini_options]` sets
-`testpaths = ["tests"]` so application discovery stays within `tests/`. Run
-them with `make duplication-test`.
+`testpaths = ["tests"]` so application discovery stays within `tests/`.
 
 ______________________________________________________________________
 

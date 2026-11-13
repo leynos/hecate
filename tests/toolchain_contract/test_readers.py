@@ -42,15 +42,15 @@ class TestFieldReader:
 
     def test_an_inline_scalar_is_a_single_entry(self) -> None:
         """The inline spelling must read as one entry, not an empty list."""
-        step = "        path: .tools/nose\n        key: nose-${{ runner.os }}\n"
+        step = "        path: .tools/example\n        key: example-${{ runner.os }}\n"
 
-        assert field_entries(step, "path") == (".tools/nose",), (
+        assert field_entries(step, "path") == (".tools/example",), (
             "An inline scalar field must be read as exactly one entry."
         )
 
     def test_a_step_without_the_field_is_rejected(self) -> None:
         """A missing field is an error, not an empty result."""
-        step = "        key: nose-${{ runner.os }}\n"
+        step = "        key: example-${{ runner.os }}\n"
 
         with pytest.raises(ToolchainContractError, match="declares no path"):
             field_entries(step, "path")

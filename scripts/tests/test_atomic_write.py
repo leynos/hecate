@@ -1,9 +1,10 @@
 """Behavioural tests for the atomic replacement helper.
 
-``scripts/atomic_write.py`` is the persistence primitive the duplication
-allowlist writer depends on, so these tests pin its public contract directly
-rather than through that caller: default parent creation, mode preservation
-only when a destination exists, and the descriptor discipline around fsync.
+``scripts/atomic_write.py`` is the persistence primitive the spelling-cache
+writes in ``scripts/typos_rollout.py`` depend on, so these tests pin its public
+contract directly rather than through that caller: default parent creation,
+mode preservation only when a destination exists, and the descriptor discipline
+around fsync.
 """
 
 from __future__ import annotations
@@ -15,8 +16,8 @@ import os
 import stat
 import typing as typ
 
+import atomic_write
 import pytest
-from duplication_gate_test_support import atomic_write
 
 if typ.TYPE_CHECKING:
     from pathlib import Path
@@ -251,9 +252,9 @@ def test_a_refused_directory_sync_does_not_fail_a_committed_write(
 
     ``temporary.replace`` runs before this sync, so the mutation is already
     committed by the time the directory descriptor is refused. Surfacing the
-    refusal would make ``make duplication-allow`` exit non-zero having in fact
-    rewritten ``pyproject.toml``. The file's own durability guarantee is
-    unaffected: that sync has already succeeded on the temporary file.
+    refusal would make the caller exit non-zero having in fact rewritten the
+    destination. The file's own durability guarantee is unaffected: that sync
+    has already succeeded on the temporary file.
     """
     destination = tmp_path / "config.toml"
     destination.write_bytes(b"original\n")
