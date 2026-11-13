@@ -176,8 +176,10 @@ def curl(args: list[str]) -> int:
         return 7 if status == "000" else 0
     source = _directory("FAKE_PYPI_FILES") / url.removeprefix(FILES_URL)
     if not source.exists():
+        print("404", end="")
         return 22
     shutil.copyfile(source, output)
+    print("200", end="")
     return 0
 
 

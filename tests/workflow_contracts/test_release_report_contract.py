@@ -5,6 +5,10 @@ and the step summary rather than one job's output. These tests pin the
 correlation fields, the summary columns, and the timing every publishing step
 reports, so a step cannot quietly go back to a bare ``echo``. The workflow's
 structural contracts live in ``test_release_workflow_contract.py``.
+
+These content checks are supplements: ``test_release_report_behaviour.py``
+sources the helper and runs it, so a function that is present but wrong still
+fails.
 """
 
 from __future__ import annotations
@@ -81,6 +85,18 @@ def test_every_release_diagnostic_carries_the_correlation() -> None:
             f"{job_name}: {line.strip()!r} must use release_log or "
             "release_warn, so its line carries the run correlation"
         )
+
+
+def test_the_pypi_download_reports_the_class_it_received() -> None:
+    """A failed download must not borrow the class of an earlier success."""
+    script = step_script("publish-release", "Stage the assets the release lacks")
+
+    assert "--write-out '%{http_code}'" in script, (
+        "curl must report the status of the response it received"
+    )
+    assert '"$(release_status_class "${status}")"' in script, (
+        "the record must carry the class derived from that status"
+    )
 
 
 def test_the_publishing_steps_record_how_long_each_call_took() -> None:

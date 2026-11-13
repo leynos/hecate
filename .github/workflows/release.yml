@@ -394,16 +394,23 @@ jobs:
             --output github-upload > pypi-fetch.tsv
           started=${SECONDS}
           outcome=ok
+          # curl prints the response's status even when `--fail` rejects it, and
+          # `000` when no response arrived. Recording that class keeps a failed
+          # download from being reported with the 2xx of an earlier one; the
+          # loop's default covers an empty fetch list.
+          status=000
           while IFS=$'\t' read -r name url; do
-            if ! curl --silent --show-error --location --fail \
+            if ! status=$(curl --silent --show-error --location --fail \
               --retry 5 --retry-all-errors --retry-delay 2 \
               --connect-timeout 10 --max-time 300 \
-              --output "github-upload/${name}" "${url}"; then
+              --write-out '%{http_code}' \
+              --output "github-upload/${name}" "${url}"); then
               outcome=failed
               break
             fi
           done < pypi-fetch.tsv
-          release_record fetch-pypi "${outcome}" 200 "$((SECONDS - started))"
+          release_record fetch-pypi "${outcome}" \
+            "$(release_status_class "${status}")" "$((SECONDS - started))"
           test "${outcome}" = ok
       - name: Check the fetched PyPI bytes
         id: fetched

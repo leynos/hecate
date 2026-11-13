@@ -283,8 +283,10 @@ the job (`GITHUB_JOB`), the attempt number, the HTTP status class (`2xx`, `3xx`,
 `4xx`, `5xx`, or `none`), the outcome (`ok`, `retry`, `failed`, or `skipped`),
 and the elapsed seconds. The elapsed time is taken around the `curl` call and
 around each `gh release` call, so a slow or retrying read is visible without
-reading timestamps out of the log. The same helper emits one structured record
-per step outcome on standard error:
+reading timestamps out of the log. A record carries the class of the response
+that call actually received, or `none` when no response arrived, so a failed
+download cannot inherit the `2xx` of an earlier one. The same helper emits one
+structured record per step outcome on standard error:
 
 ```text
 release-event job=publish-release step=fetch-index outcome=ok status_class=2xx elapsed_s=1 correlation=1234567890/1
@@ -298,7 +300,10 @@ log therefore names the one attempt that emitted it, and two attempts of the
 same run can be compared rather than guessed at.
 `tests/workflow_contracts/test_release_report_contract.py` pins the summary
 columns, the record fields, the correlation source, and the rule that a step
-diagnostic is not a bare `echo`.
+diagnostic is not a bare `echo`. Those are content checks, so
+`tests/workflow_contracts/test_release_report_behaviour.py` also sources the
+helper in a scratch directory and runs it, asserting on the real standard
+output, standard error, and summary a step produces.
 
 This is not the `release-telemetry` action the next section rejects. It adds no
 action to the release path, sends nothing to a service, and its records are the
