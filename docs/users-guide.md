@@ -371,21 +371,27 @@ as a failed recipe, but Make exits with status `2` for any failed recipe, so a
 shell that ran `make` cannot tell a `1` from a `2`. Read the printed
 diagnostic, not the exit status, to distinguish blocking duplication from a
 gate that could not form a verdict. On failure the gate prints the family
-count, one line per family, and the `make duplication-allow` command that would
-record an exception:
+count, one line per family, and the command that would record an exception
+(`make duplication-allow` wraps it):
 
 ```plaintext
 duplicate code: 1 unsuppressed family/families
   hecate/a.py:1-9 run ~ hecate/b.py:1-9 run (exact, value 12.5)
-Extract the shared logic into one helper, or record a considered exception:
-  make duplication-allow FIRST='<path[::name]>' [SECOND='<path[::name]>'] REASON='<why this stays>'
+Extract the shared logic into one helper, or record a considered exception that names every location in the family:
+  df12-duplication allow --member '<path[::name]>' [--member '<path[::name]>' ...] --reason '<why this stays>'
 ```
 
-A successful run prints `duplication gate passed`, with the number of allowed
-families appended when reasoned exceptions silenced anything. A stale entry is
-reported on a successful run too, as
-`stale allow entry (<keys>): unmatched in this scan`, followed by the advice to
-widen the scan before deleting it.
+A successful run prints `duplication gate passed (nose <version>)`, with the
+number of allowed families appended when reasoned exceptions silenced anything.
+A stale entry is reported on a successful run too, as
+`allow entry (<keys>) is unmatched in this scan`, followed by the advice to
+review it; it is never removed automatically.
+
+The gate fails closed on a saturated scan. When nose reports more families than
+`top` lets it show and none of the shown families blocks, the allowed families
+may be consuming the budget, so the gate exits `2` rather than pass. Set
+`top = 0` (every family) or raise it above the total, adjudicating any newly
+visible families. The repository's scan is not saturated today.
 
 Exit `2` means the gate could not produce a verdict, and the diagnostic is
 prefixed with the class of failure. A missing detector, a version mismatch, a
