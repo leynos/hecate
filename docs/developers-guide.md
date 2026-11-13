@@ -1507,8 +1507,10 @@ rebuild under a name PyPI already holds.
 
 ### Release scripts
 
-The reconciliation decisions live in `scripts/release_assets.py`, with five
-interfaces the workflow and its tests share:
+The reconciliation rules live in `scripts/release_policy.py`, and the adapter
+that gathers their inputs and carries out their results in
+`scripts/release_assets.py`. The interfaces the workflow and its tests share
+are:
 
 - `Source` names the destination a filename's canonical bytes come from:
   `PYPI`, `GITHUB`, or `LOCAL` (this run's build), in that precedence order.
@@ -1553,7 +1555,7 @@ interfaces the workflow and its tests share:
 
 `scripts/release_assets_cli.py` wires those interfaces to the workflow's steps:
 `carryover`, `stage-pypi`, `stage-github`, `check-fetched`, `index-expected`,
-and `verify`. Both modules, together with `scripts/release_index.py` and
+and `verify`. These three modules, together with `scripts/release_index.py` and
 `scripts/release_version.py`, use only the Python standard library and run
 under the runner's preinstalled `python3`. That is deliberate: `publish-pypi`
 holds the PyPI OpenID Connect credential and must not resolve any third-party

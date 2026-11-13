@@ -140,10 +140,13 @@ not declare.
 
 ### Reconciliation and precedence
 
-`scripts/release_assets.py` decides, once per filename, which destination's
+`scripts/release_policy.py` decides, once per filename, which destination's
 bytes are canonical: PyPI's, if PyPI already has the name; otherwise the GitHub
 Release's, if it already has the name; otherwise this run's freshly built and
 attested file. Each destination then receives only the names it still lacks.
+The rules take plain values only, so they hold no path and import no adapter.
+`scripts/release_assets.py` is the adapter: it reads the publish directory and
+both listings and performs the copies and removals the rules chose.
 `scripts/release_index.py` reads and filters the Simple index, so the
 workflow's steps keep no filename knowledge of their own. There is no
 `--clobber` anywhere in the workflow: nothing is ever overwritten.
@@ -153,16 +156,17 @@ workflow's steps keep no filename knowledge of their own. There is no
 Reading the publish directory, validating its names, and hashing its files are
 all fallible, so each is an explicit query: `State.names()` returns the staged
 names or raises, and `State.local_digests()` returns the SHA-256 of each named
-file or raises. The decisions themselves are pure functions of the listings
-they are given: `plan()` chooses the canonical source, `canonical_digest()`
-reports that source's digest, and `attests_shipped_bytes()` judges the bundle
-from the three digest mappings alone. `attests_canonical_bytes()` is the thin
-boundary that hashes the staged files and hands the result to that policy, so
-the rule can be exercised without a filesystem. Each command reads the names
-once and passes the same tuple to every decision it makes, so one operation
-cannot act on two different listings. A decision therefore never lists the
-directory on a caller's behalf, and a listing or hashing failure surfaces where
-it happened rather than as an apparently empty plan.
+file or raises. The decisions themselves, in `scripts/release_policy.py`, are
+pure functions of the listings they are given: `plan()` chooses the canonical
+source, `canonical_digest()` reports that source's digest, and
+`attests_shipped_bytes()` judges the bundle from the three digest mappings
+alone. `attests_canonical_bytes()` is the thin boundary that hashes the staged
+files and hands the result to that policy, so the rule can be exercised without
+a filesystem. Each command reads the names once and passes the same tuple to
+every decision it makes, so one operation cannot act on two different listings.
+A decision therefore never lists the directory on a caller's behalf, and a
+listing or hashing failure surfaces where it happened rather than as an
+apparently empty plan.
 
 ### No-overwrite verification and manual recovery
 
@@ -292,7 +296,7 @@ diagnostic the release's steps print goes through the helper's `release_log` or
 appends the same field to the notices and errors it prints. A line in a run's
 log therefore names the one attempt that emitted it, and two attempts of the
 same run can be compared rather than guessed at.
-`tests/workflow_contracts/test_release_workflow_contract.py` pins the summary
+`tests/workflow_contracts/test_release_report_contract.py` pins the summary
 columns, the record fields, the correlation source, and the rule that a step
 diagnostic is not a bare `echo`.
 
@@ -315,8 +319,9 @@ action is reintroduced.
 ### Stdlib-only release scripts
 
 `scripts/release_assets_cli.py` wraps the importable reconciliation library
-`scripts/release_assets.py`, `scripts/release_index.py` reads the Simple index,
-and `scripts/release_version.py` compares the tag with the manifest.
+`scripts/release_assets.py` and its rules in `scripts/release_policy.py`,
+`scripts/release_index.py` reads the Simple index, and
+`scripts/release_version.py` compares the tag with the manifest.
 `scripts/verify_installed_distribution.py` checks the sdist's `PKG-INFO` and
 the wheel's `METADATA` against each other and against `pyproject.toml`, then
 checks the wheel the pull-request build installed into a clean environment.
@@ -382,7 +387,7 @@ matches `pyproject.toml` exactly.
 ## Known risks and limitations
 
 - The reconciliation logic is a single point of failure for correctness: a
-  defect in `scripts/release_assets.py`'s precedence could choose the wrong
+  defect in `scripts/release_policy.py`'s precedence could choose the wrong
   canonical source. This is mitigated by
   `tests/workflow_contracts/test_release_publish_steps.py`,
   `test_release_github_steps.py`, `test_release_reconciliation.py`,
