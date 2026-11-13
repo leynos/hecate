@@ -54,7 +54,7 @@ GATE_PYTHON_TARGETS ?= scripts
 # The duplication gate is the installed df12-duplication command. It downloads
 # the nose release named by [tool.nose] version and verifies it against the
 # digest table shipped in the package, so no nose pin lives here.
-DF12_PYTHON_LINTS_SHA = 1d6c3bba594651823c9ba8e8b40265cae59a1c52
+DF12_PYTHON_LINTS_SHA = 56ad71721c3f1f2164ec84b69150582488f1a927
 DUPLICATION = $(UV_ENV) $(UV) tool run --from \
   'df12-python-lints[duplication] @ git+https://github.com/leynos/df12-python-lints.git@$(DF12_PYTHON_LINTS_SHA)' \
   df12-duplication

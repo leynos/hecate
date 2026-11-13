@@ -91,7 +91,7 @@ jobs:
         run: make lint
 
       - name: Duplication gate
-        uses: leynos/shared-actions/.github/actions/df12-duplication@7f453d1cb78953489bd9da9409bf385c44b224a3
+        uses: leynos/shared-actions/.github/actions/df12-duplication@a0519a1476ab769ca7b8badfa794f3751213f1ea
 
       - name: Run typechecker
         run: make typecheck
