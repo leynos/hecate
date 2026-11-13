@@ -335,6 +335,13 @@ testpaths = ["tests"]
 [tool.uv]
 package = true
 
+[tool.df12_skylos]
+roots = ["hecate"]
+python = "3.14"
+
+[tool.skylos]
+exclude = ["tests"]
+
 [tool.skylos.gate]
 strict = true
 

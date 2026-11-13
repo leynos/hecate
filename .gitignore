@@ -101,7 +101,6 @@ ipython_config.py
 #uv.lock
 .uv-cache/
 .uv-tools/
-.skylos-whitelist.lock
 
 # Duplication gate
 #   The pinned nose detector is provisioned per checkout by `make install-nose`

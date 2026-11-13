@@ -49,16 +49,15 @@ provisioning regressions observable before review.
 
 ## Addendum: 2026-08-27 allow-list boundary hardening
 
-The original decision remains in force. The command-only `SKYLOS_CLI` macro
-pins Skylos to Python 3.14, while the separate scan macro owns global options
-such as `--config-file`. This avoids sending scan-only options to the
-`whitelist` subcommand and keeps the runtime AST compatibility rationale
-visible at the command definition.
+The original decision remains in force.
 
-The helper rejects missing and whitespace-only `SYMBOL` or `REASON` with exit
-code 2 before it invokes Skylos. Its behavioural contract injects a temporary
-recorder through `SKYLOS_CLI` and verifies the exact argument sequence, so
-shell-significant values cannot be split or silently rewritten. The test does
-not modify the documented allow list. The helper also serializes its
-read-modify-write update with `flock` on the ignored repository-local
-`.skylos-whitelist.lock` file.
+## Addendum: 2026-11-13 central df12-skylos command
+
+The Makefile's `SKYLOS` macro now runs the installed `df12-skylos` command from
+df12-python-lints under Python 3.14; its `skylos` extra carries the one Skylos
+pin, and the production roots and exclusions live in `[tool.df12_skylos]` and
+`[tool.skylos]`. The command rejects missing and whitespace-only `SYMBOL` or
+`REASON` with exit code 2 and serializes its read-modify-write update with the
+ignored repository-local `.pyproject.toml.df12.lock` file. Its behaviour is
+tested in df12-python-lints and CI runs the shared-actions `df12-skylos`
+action, so this repository keeps only its configuration and exceptions.
