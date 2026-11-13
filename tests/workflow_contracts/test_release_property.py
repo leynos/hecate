@@ -14,8 +14,9 @@ import typing as typ
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
-from scripts import release_assets
-from scripts.release_assets import PypiFile, Source, State
+from scripts import release_assets, release_policy
+from scripts.release_assets import PypiFile, State
+from scripts.release_policy import Source
 
 from .release_pass_model import (
     NAMES,
@@ -49,7 +50,7 @@ def test_plan_prefers_published_bytes_and_never_refills_a_destination(
     local: set[str], on_pypi: set[str], on_github: set[str]
 ) -> None:
     """PyPI outranks the release, which outranks a rebuild, for every name."""
-    decided = release_assets.plan(local, on_pypi, on_github)
+    decided = release_policy.plan(local, on_pypi, on_github)
 
     assert set(decided.canonical) == local, "only this run's names are planned"
     assert decided.pypi_uploads == frozenset(local - on_pypi), (
@@ -85,7 +86,7 @@ def test_mismatches_names_exactly_the_artefacts_that_disagree(
     pypi = dict.fromkeys(on_pypi, "same")
     github = {name: ("other" if name in differing else "same") for name in on_github}
 
-    problems = release_assets.mismatches(local, pypi, github)
+    problems = release_policy.mismatches(local, pypi, github)
 
     expected = sorted(
         name

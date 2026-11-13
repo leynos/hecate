@@ -3,8 +3,9 @@
 PyPI answers with a PEP 691 JSON simple index and the GitHub Release with
 ``gh release view --json assets,isDraft``. Both listings are reduced here to the
 facts reconciliation needs: which filenames each destination holds, the SHA-256
-digest of each, and whether the release is still a draft. The decisions built
-on those facts live in ``scripts/release_assets.py``.
+digest of each, and whether the release is still a draft. The rules built on
+those facts live in ``scripts/release_policy.py``, and the adapter that gathers
+them in ``scripts/release_assets.py``.
 
 This module runs inside the job that holds the PyPI publishing token, so it
 resolves no third-party code and every network call stays in the workflow's

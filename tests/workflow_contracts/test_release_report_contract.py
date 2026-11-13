@@ -63,17 +63,24 @@ def test_the_release_summary_names_every_required_field() -> None:
     assert "$((SECONDS - started))" in helper, "every record must time its call"
 
 
+def _echo_lines() -> list[tuple[str, str]]:
+    """Return every ``echo`` line the two publishing jobs emit, with its job."""
+    return [
+        (job_name, line)
+        for job_name in ("publish-pypi", "publish-release")
+        for script in _run_scripts(job_name)
+        for line in script.splitlines()
+        if re.match(r"\s*echo\s", line)
+    ]
+
+
 def test_every_release_diagnostic_carries_the_correlation() -> None:
     """A bare ``echo`` would be a log line with no way back to its run."""
-    for job_name in ("publish-pypi", "publish-release"):
-        for script in _run_scripts(job_name):
-            for line in script.splitlines():
-                if not re.match(r"\s*echo\s", line):
-                    continue
-                assert _STEP_PROTOCOL_SINK.search(line), (
-                    f"{job_name}: {line.strip()!r} must use release_log or "
-                    "release_warn, so its line carries the run correlation"
-                )
+    for job_name, line in _echo_lines():
+        assert _STEP_PROTOCOL_SINK.search(line), (
+            f"{job_name}: {line.strip()!r} must use release_log or "
+            "release_warn, so its line carries the run correlation"
+        )
 
 
 def test_the_publishing_steps_record_how_long_each_call_took() -> None:

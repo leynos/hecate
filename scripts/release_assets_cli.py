@@ -18,8 +18,9 @@ and Python 3.13 defaults. Each subcommand is one step of ``release.yml``:
 catches up with that upload. ``stage-pypi`` also reads the release snapshot's
 draft flag, so a name a published release can never hold stops the run before
 the upload. The reconciliation logic itself lives in
-``scripts/release_assets.py``; this module only wires it to ``argparse`` and
-the workflow's ``GITHUB_OUTPUT`` protocol.
+``scripts/release_assets.py`` with its rules in ``scripts/release_policy.py``;
+this module only wires them to ``argparse`` and the workflow's
+``GITHUB_OUTPUT`` protocol.
 """
 
 from __future__ import annotations
@@ -32,16 +33,15 @@ from pathlib import Path
 from scripts.release_assets import (
     ReleaseAssetError,
     State,
-    carryover,
     check_fetched,
     correlation,
-    missing_from_index,
     stage_github,
     stage_pypi,
     verify,
     write_output,
 )
 from scripts.release_index import release_is_published
+from scripts.release_policy import carryover, missing_from_index
 
 if typ.TYPE_CHECKING:
     import collections.abc as cabc

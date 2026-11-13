@@ -11,8 +11,9 @@ import typing as typ
 
 import pytest
 
-from scripts import release_assets
-from scripts.release_assets import PypiFile, Source, State
+from scripts import release_assets, release_policy
+from scripts.release_assets import PypiFile, State
+from scripts.release_policy import Source
 
 if typ.TYPE_CHECKING:
     import pathlib as pth
@@ -106,15 +107,15 @@ def test_the_canonical_digest_comes_from_the_source_the_plan_chose() -> None:
     github = {"b.whl": "bbb"}
     local = {"a.whl": "aaa", "b.whl": "bbb", "c.whl": "ccc"}
 
-    assert release_assets.canonical_digest("a.whl", pypi, github, local) == (
+    assert release_policy.canonical_digest("a.whl", pypi, github, local) == (
         Source.PYPI,
         "aaa",
     ), "a name PyPI holds must report PyPI's digest"
-    assert release_assets.canonical_digest("b.whl", pypi, github, local) == (
+    assert release_policy.canonical_digest("b.whl", pypi, github, local) == (
         Source.GITHUB,
         "bbb",
     ), "a name only GitHub holds must report GitHub's digest"
-    assert release_assets.canonical_digest("c.whl", pypi, github, local) == (
+    assert release_policy.canonical_digest("c.whl", pypi, github, local) == (
         Source.LOCAL,
         "ccc",
     ), "a name neither destination holds must report this run's digest"
@@ -125,16 +126,16 @@ def test_the_attestation_policy_reads_only_the_digests_it_is_given() -> None:
     names = ("a.whl", "b.whl")
     local = {"a.whl": "aaa", "b.whl": "bbb"}
 
-    assert release_assets.attests_shipped_bytes(names, {}, {}, local), (
+    assert release_policy.attests_shipped_bytes(names, {}, {}, local), (
         "a first release attests the bytes it ships"
     )
-    assert release_assets.attests_shipped_bytes(
+    assert release_policy.attests_shipped_bytes(
         names, {"a.whl": "aaa"}, {"b.whl": "bbb"}, local
     ), "a rebuild that matches both destinations is still attested"
-    assert not release_assets.attests_shipped_bytes(
+    assert not release_policy.attests_shipped_bytes(
         names, {"a.whl": "zzz"}, {}, local
     ), "a differing published digest must not be attested"
-    assert not release_assets.attests_shipped_bytes(
+    assert not release_policy.attests_shipped_bytes(
         names, {}, {"b.whl": None}, local
     ), "a published digest GitHub does not report must not be attested"
 
@@ -148,14 +149,14 @@ def test_carryover_lists_only_names_both_sides_hold() -> None:
     names = ("a.whl", "c.whl", "b.tar.gz")
     github = {"b.tar.gz": "bbb", "d.whl": "ddd"}
 
-    assert release_assets.carryover(names, github) == ["b.tar.gz"], (
+    assert release_policy.carryover(names, github) == ["b.tar.gz"], (
         "only the names both sides hold are carried over, sorted"
     )
 
 
 def test_verification_names_each_disagreement_from_digests_alone() -> None:
     """The whole rule runs on plain values, with no directory to read."""
-    facts = release_assets.Verification(
+    facts = release_policy.Verification(
         names=("a.whl", "b.whl"),
         pypi_digests={"a.whl": "aaa", "b.whl": "bbb"},
         github_digests={"a.whl": "aaa", "b.whl": "ccc"},
@@ -163,7 +164,7 @@ def test_verification_names_each_disagreement_from_digests_alone() -> None:
         bundle_filenames=("h.sigstore.json",),
     )
 
-    assert release_assets.verification_problems(facts) == [
+    assert release_policy.verification_problems(facts) == [
         "b.whl differs: PyPI sha256 bbb, GitHub sha256 ccc",
         "h.sigstore.json is missing from the GitHub Release",
     ], "a differing name and a missing bundle are both reported"
@@ -171,7 +172,7 @@ def test_verification_names_each_disagreement_from_digests_alone() -> None:
 
 def test_verification_does_not_demand_a_bundle_the_run_did_not_attest() -> None:
     """A run that shipped other bytes has no truthful bundle to offer."""
-    facts = release_assets.Verification(
+    facts = release_policy.Verification(
         names=("a.whl",),
         pypi_digests={"a.whl": "aaa"},
         github_digests={"a.whl": "aaa"},
@@ -179,7 +180,7 @@ def test_verification_does_not_demand_a_bundle_the_run_did_not_attest() -> None:
         bundle_filenames=("h.sigstore.json",),
     )
 
-    assert release_assets.verification_problems(facts) == [], (
+    assert release_policy.verification_problems(facts) == [], (
         "a bundle that would attest a different build must not be required"
     )
 
@@ -189,7 +190,7 @@ def test_absent_bundles_names_only_what_the_release_lacks() -> None:
     bundled = ("h-2.sigstore.json", "h-1.sigstore.json")
     github = {"h-1.sigstore.json": "bbb", "h-1.whl": None}
 
-    assert release_assets.absent_bundles(bundled, github) == [
+    assert release_policy.absent_bundles(bundled, github) == [
         "h-2.sigstore.json is missing from the GitHub Release"
     ], "only the bundle the release lacks is reported, sorted"
 
@@ -198,13 +199,13 @@ def test_a_published_release_cannot_accept_a_name_it_lacks() -> None:
     """Only a name the release already holds is reachable once it is published."""
     names = ("a.whl", "b.whl")
 
-    assert release_assets.unreachable_published_uploads(names, {"a.whl": "aa"}) == (
+    assert release_policy.unreachable_published_uploads(names, {"a.whl": "aa"}) == (
         "b.whl",
     ), "a name a published release lacks can never be added to it"
-    assert not release_assets.unreachable_published_uploads(
+    assert not release_policy.unreachable_published_uploads(
         names, {"a.whl": "aa", "b.whl": None}
     ), "a held name is reachable even when GitHub reports no digest"
-    assert release_assets.unreachable_published_uploads(names, {}) == names, (
+    assert release_policy.unreachable_published_uploads(names, {}) == names, (
         "a published release holding nothing can accept nothing"
     )
 
@@ -370,6 +371,6 @@ def test_the_missing_list_names_what_the_index_does_not_yet_show(
     expected_names: set[str], listed: set[str], missing: list[str]
 ) -> None:
     """The poll is over exactly the names this run must see appear."""
-    assert release_assets.missing_from_index(expected_names, listed) == missing, (
+    assert release_policy.missing_from_index(expected_names, listed) == missing, (
         "the poll must list exactly the names the index still lacks"
     )
