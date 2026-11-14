@@ -400,17 +400,17 @@ allowed = ["hecate"]
 # repeats inside a test is judged on its production copies alone. `min-size`
 # is nose's intermediate-language token count, not Python lines or AST nodes,
 # so it is not a span a reviewer can count by eye. `surface = "all"` widens
-# the view to families the ranked dashboard hides, and `top = 30` adjudicates
-# the thirty highest-value families of that widened view. Never lower the
-# size floor or raise the ranking bound to obtain a green gate: the report
-# says how many families were shown, not how many exist.
+# the view to families the ranked dashboard hides, and `top = 0` asks for
+# every family of that widened view, so none is truncated. Never lower the
+# size floor or cap the report to obtain a green gate; concordat's
+# python-duplication-gate rule (NS-001) requires `top = 0`.
 [tool.nose]
 version = "0.20.0"
 roots = ["hecate"]
 mode = "syntax,semantic,near"
 min-size = 24
 surface = "all"
-top = 30
+top = 0
 
 # Reasoned exceptions for the duplication gate. Entries key on locations, not
 # line spans: `path` (a POSIX glob) matches any location in a matching file,
@@ -420,9 +420,9 @@ top = 30
 # entry's keys, so a new copy in an unlisted file still blocks the gate, and
 # partial coverage from several entries never adds up. Record entries with
 # `make duplication-allow FIRST='...' [SECOND='...'] REASON='...'`.
-# An entry the gate cannot match is reported as stale, meaning unmatched in
-# that scan rather than proven gone: the scan stops at `top`, so widen it
-# before deleting an entry.
+# An entry the gate cannot match is reported as stale: the scan reports every
+# family (`top = 0`), so an unmatched entry covers nothing. Confirm with source
+# inspection before deleting it anyway.
 [tool.duplication_gate]
 [[tool.duplication_gate.allow]]
 unit = "hecate/diagnostics.py"
