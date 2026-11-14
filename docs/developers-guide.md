@@ -23,6 +23,10 @@ analysis can and cannot know.
 - [ADR 002: adopt the shared CV-005 contract library](
   adrs/adr-0002-adopt-the-shared-cv005-contract-library.md) records the
   coverage-workflow contract decision.
+- [ADR 004: attested, reconciled release pipeline](
+  adrs/adr-0004-attested-reconciled-release-pipeline.md) records how a tag
+  publishes `hecate-enforce` to PyPI and the GitHub Release without overwriting
+  either.
 - [Local validation of GitHub Actions](
   local-validation-of-github-actions-with-act-and-pytest.md) covers black-box
   workflow testing with `act`.
@@ -584,15 +588,29 @@ and analysis tools (`crosshair-tool`, `hypothesis`, `pytest`, `pytest-bdd`,
 
 The build backend is `hatchling`, and `[tool.hatch.build.targets.wheel]`
 declares `packages = ["hecate"]`, so the wheel contains the flat package
-directly with no source layout. To build the sdist and wheel locally, use
-`uv build --sdist --wheel`. Do not use `make build-release` for this: its
-recipe runs `python -m build`, and neither the project nor the `dev` dependency
-group installs the `build` package, so it fails with `No module named build` in
-a clean environment. The release workflow builds only a pure Python wheel, with
-`uv build --wheel`: the project ships no compiled extensions, so cross-platform
-`cibuildwheel` builds would add cost without adding a distinct artefact. The
-wheel is built under Python 3.13 even though the package requires 3.14, because
-packaging source does not import it.
+directly with no source layout. `[tool.hatch.build.targets.sdist]` excludes
+virtual environments (`.venv*`, `venv*`) from the sdist. Hatchling otherwise
+includes every file the VCS does not ignore, and CI creates a `.venv-coverage`
+directory inside the checkout whose `bin/python` is an absolute symlink;
+`uv build` refuses an sdist holding such a link while unpacking it to build the
+wheel, so the archive would break the build. The exclusion is configuration,
+not an ignore-file entry, so it holds even where git is unavailable. The
+distribution name is `hecate-enforce`, because the `hecate` name on PyPI
+belongs to an unrelated third-party library; the import package, the `hecate`
+console script, `python -m hecate`, and the `[tool.hecate]` namespace all remain
+`hecate`.
+
+To build the sdist and wheel locally, run `make build-release`, which runs
+`uv build --out-dir dist`. A plain `uv build` builds the sdist first and then
+the wheel from that sdist, so a local build proves the sdist is complete, and
+it produces exactly one of each. The project ships no compiled extensions, so
+there is no `cibuildwheel` matrix: the sdist is the artefact that covers other
+platforms. The build runs under Python 3.14, the version the package requires.
+
+The release workflow uses the same `uv build` through the local
+`pure-python-wheel` composite action, and `ci.yml` runs that action on every
+pull request. See [Publishing a release](#publishing-a-release) for the
+pipeline that consumes the result.
 
 Hecate checks its own architecture. `[tool.hecate]` in `pyproject.toml` declares
 `root_packages = ["hecate"]` and a single group, `hecate`, whose only allowed
@@ -1224,24 +1242,25 @@ have their own required order of work in [AGENTS.md](../AGENTS.md).
 
 ## Commit gates and CI
 
-Every gate below runs locally. CI runs the same commands for the same effect,
-with the exceptions noted, so a local pass is strong evidence of a green
-Continuous Integration (CI) run.
+Every gate below except the distribution check has a local command. CI runs the
+same commands for the same effect, with the exceptions noted, so a local pass
+is strong evidence of a green Continuous Integration (CI) run.
 
-| Gate                        | Local command                  | CI                                                 |
-| --------------------------- | ------------------------------ | -------------------------------------------------- |
-| Python formatting           | `make check-fmt`               | yes, `make check-fmt`                              |
-| Ruff, Pylint, Skylos        | `make lint`                    | yes, `make lint`                                   |
-| Type checking               | `make typecheck`               | yes, `make typecheck`                              |
-| Tests                       | `make test`                    | PR: `generate-coverage`; main: `coverage-main.yml` |
-| Markdown formatting         | `make check-fmt`               | yes, after `install-mdtablefix`                    |
-| Markdown lint               | `make markdownlint`            | yes, `markdownlint-cli2-action`                    |
-| Spelling                    | `make spelling`                | yes, `make spelling`                               |
-| Coverage contracts (CV-005) | `make test-workflow-contracts` | yes, its own step                                  |
-| Mermaid validation          | `make nixie`                   | **no**                                             |
-| CrossHair contracts         | `make crosshair`               | **no**                                             |
-| Makefile validation         | _(none)_                       | yes, `mbake validate Makefile`                     |
-| Mutation testing            | _(none)_                       | scheduled/manual, informational                    |
+| Gate                         | Local command                     | CI                                                 |
+| ---------------------------- | --------------------------------- | -------------------------------------------------- |
+| Python formatting            | `make check-fmt`                  | yes, `make check-fmt`                              |
+| Ruff, Pylint, Skylos         | `make lint`                       | yes, `make lint`                                   |
+| Type checking                | `make typecheck`                  | yes, `make typecheck`                              |
+| Tests                        | `make test`                       | PR: `generate-coverage`; main: `coverage-main.yml` |
+| Distribution build & install | `make build-release` (build only) | yes, the `wheel-build` job in `ci.yml`             |
+| Markdown formatting          | `make check-fmt`                  | yes, after `install-mdtablefix`                    |
+| Markdown lint                | `make markdownlint`               | yes, `markdownlint-cli2-action`                    |
+| Spelling                     | `make spelling`                   | yes, `make spelling`                               |
+| Coverage contracts (CV-005)  | `make test-workflow-contracts`    | yes, its own step                                  |
+| Mermaid validation           | `make nixie`                      | **no**                                             |
+| CrossHair contracts          | `make crosshair`                  | **no**                                             |
+| Makefile validation          | _(none)_                          | yes, `mbake validate Makefile`                     |
+| Mutation testing             | _(none)_                          | scheduled/manual, informational                    |
 
 _Table 5: Commit gates, local commands, and whether CI runs them._
 
@@ -1398,6 +1417,248 @@ it is not.
 
 Commit-message format, subject-line limits, body wrapping, and the
 atomic-commit rules are in [AGENTS.md](../AGENTS.md) and are not restated here.
+
+## Publishing a release
+
+Hecate publishes to PyPI as `hecate-enforce` and attaches the same bytes to the
+tag's GitHub Release. The design is recorded in
+[ADR 004](adrs/adr-0004-attested-reconciled-release-pipeline.md); this section
+is the operator's view.
+
+### Cutting a release
+
+1. Set `version` in `pyproject.toml` to the release version, and update
+   `docs/migration-hecate.md` with the user-facing changes. The tag and the
+   manifest must match exactly: `v0.2.0` matches `0.2.0`, and a pre-release
+   such as `v0.2.0b1` matches `0.2.0b1`. Use the normalized PEP 440 spelling:
+   Hatchling writes that form into the archives' metadata, and the archive
+   check compares that text with the manifest.
+2. Run `uv lock` so `uv.lock` records the same version, and commit both files.
+3. Merge to `main` and wait for the pull request's checks to pass.
+4. Tag the merge commit and push the tag:
+
+   ```shell
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+The tag push starts `release.yml`. Nothing else is needed for a first release
+once the repository settings below exist.
+
+### What the workflow does
+
+Six jobs run in dependency order, each with only the permissions it needs.
+`check-version` and `build-wheels` start together, so the build lane never
+queues behind the version check; `attest` waits for both.
+
+- `check-version` compares the tag with `pyproject.toml` and reports whether
+  the version is a pre-release.
+- `build-wheels` runs the `pure-python-wheel` composite action, which builds
+  the sdist and then the wheel from it with `uv build` and uploads both as
+  `wheels-pure`.
+- `attest` collects every wheel and exactly one sdist, fails on a missing,
+  empty, or unexpected file, and attests them with
+  `actions/attest-build-provenance`. It stages the Sigstore bundle as
+  `hecate-enforce-<tag>.sigstore.json` and hands the files and bundle on as
+  `release-dist`.
+- `draft-release` creates the tag's GitHub Release as a draft, or reuses an
+  existing one, and snapshots its assets.
+- `publish-pypi` runs in the `pypi` environment, reads PyPI's Simple index,
+  and uploads only the filenames PyPI does not already list, with
+  `skip-existing: true`. It holds no GitHub token.
+- `publish-release` reads the index again, polling until it lists every name
+  this run built, then uploads only the assets the draft lacks, verifies that
+  every name has the same SHA-256 on PyPI and on GitHub, and finally un-drafts
+  the release with the pre-release flag when the version check asked for one.
+  The initial read polls for the same reason the final one does: staging from a
+  listing that predates `publish-pypi`'s upload would copy this run's rebuild
+  into the release, and GitHub never overwrites an asset.
+
+The bundle is named after the tag alone, so a re-run meets the name the release
+already holds. It is attached only when every artefact's canonical bytes are
+the ones this run built; a re-run that rebuilt different bytes withholds it,
+because the attestation would otherwise describe bytes the release does not
+ship. The run's attestation still reaches the repository's attestation store.
+
+Every step that reads PyPI or the GitHub Release says what it did.
+`scripts/release_report.sh`, which those steps source, writes one row per PyPI
+index read to the job summary: job, attempt, HTTP status class, outcome, and
+elapsed seconds. It also emits one structured record per step outcome, with the
+run's correlation, `GITHUB_RUN_ID` and `GITHUB_RUN_ATTEMPT`, as a field. Every
+diagnostic line those steps print carries the same correlation, and the
+reconciliation scripts append it to their notices and errors, so a log line can
+be tied to exactly one run attempt. The labels are bounded: no filename, URL,
+or release body appears in a record. The design rationale is in
+[ADR 004](adrs/adr-0004-attested-reconciled-release-pipeline.md#observability-of-a-release-run).
+
+### Re-running a release
+
+Pushing the same tag again is safe. Each filename's canonical bytes are taken
+from PyPI first, then from the GitHub Release, then from this run, and each
+destination is sent only the names it lacks. A complete second run uploads
+nothing, adds no second bundle, and overwrites nothing. If the two destinations
+already disagree on a name, `publish-release` fails and the release stays a
+draft; recovery is manual, by deleting the offending GitHub Release asset
+(PyPI's published files cannot be deleted).
+
+PyPI serves its Simple index through a CDN cache, so both index reads in
+`publish-release` poll, within a bounded number of attempts, until the listing
+shows every name this run built. A cache that is merely behind delays the
+release rather than failing it, and a stale first read can never stage a
+rebuild under a name PyPI already holds.
+
+### Release scripts
+
+The reconciliation rules live in `scripts/release_policy.py`, and the adapter
+that gathers their inputs and carries out their results in
+`scripts/release_assets.py`. The interfaces the workflow and its tests share
+are:
+
+- `Source` names the destination a filename's canonical bytes come from:
+  `PYPI`, `GITHUB`, or `LOCAL` (this run's build), in that precedence order.
+- `plan(local, on_pypi, on_github)` is pure: given the names this run built and
+  what each destination holds, it returns a `Plan` whose `canonical` mapping
+  names each filename's source and whose `pypi_uploads` and `github_uploads`
+  sets name only what each side lacks. It performs no I/O, so a test can state
+  any combination of holdings directly.
+- `State` holds the publish directory and both destinations' listings.
+  `State.names()` is the one fallible read of the publish directory: it lists
+  and validates the staged names and raises `ReleaseAssetError` for an unsafe
+  name or `OSError` when the directory cannot be read. `State.local_digests()`
+  is the matching hash query: it returns the SHA-256 of each named staged file
+  and raises `OSError` when one cannot be read. `State.plan(names)`,
+  `attests_canonical_bytes(state, names)`, and the verification helpers take
+  those names as input, and each command reads them once and passes the same
+  tuple to every decision it makes. One operation therefore never acts on two
+  different listings, and the rest of the module never re-reads the directory
+  behind a caller's back.
+- `canonical_digest(name, pypi, github, local)` and
+  `attests_shipped_bytes(names, pypi, github, local)` are the decisions
+  themselves, over the three digest mappings and nothing else. No directory is
+  read to answer them, so a test states any combination of digests directly;
+  `attests_canonical_bytes()` is only the boundary that hashes the staged files
+  and passes the result on.
+- `Verification` holds the plain values one complete verification is made from:
+  the staged names, the three digest mappings, and the bundle filenames. It
+  carries no path and no index or release adapter type, and
+  `verification_problems(facts)` is the pure rule over it.
+  `verify(state, bundles)` is the boundary: it reads the publish directory
+  once, hashes each staged file, reads the attestation directory once through
+  `bundle_names()`, and returns the pure rule's answer. It writes nothing.
+  `carryover()`, `unattached_bundles()`, and `absent_bundles()` are the same
+  shape — plain values in, a decision out — and `stage_pypi()` and
+  `stage_github()` are the boundaries that carry out the copies and removals
+  their plans chose.
+- `unreachable_published_uploads(names, github)` names the staged files a
+  published release can never accept, and `stage_pypi()` refuses them before it
+  removes or copies anything. `release_is_published(assets)` reads the
+  `isDraft` flag from the snapshot `draft-release` hands on, so the refusal
+  happens in the job that is about to change PyPI rather than after the upload.
+
+`scripts/release_assets_cli.py` wires those interfaces to the workflow's steps:
+`carryover`, `stage-pypi`, `stage-github`, `check-fetched`, `index-expected`,
+and `verify`. These three modules, together with `scripts/release_index.py` and
+`scripts/release_version.py`, use only the Python standard library and run
+under the runner's preinstalled `python3`. That is deliberate: `publish-pypi`
+holds the PyPI OpenID Connect credential and must not resolve any third-party
+package while it is live. Keep network calls in the workflow's `curl` and `gh`
+steps; the scripts only plan for them. The design rationale is in
+[ADR 004](adrs/adr-0004-attested-reconciled-release-pipeline.md#stdlib-only-release-scripts).
+
+`scripts/verify_installed_distribution.py` is the pull-request counterpart of
+that reconciliation, and it uses the standard library alone for the same
+reason. The `wheel-build` job in `ci.yml` builds `dist` with `uv build`,
+requires exactly one sdist and exactly one wheel, creates a virtual environment
+outside the checkout, and installs the wheel into it. It then runs this script
+with `--dist`, `--pyproject`, `--venv`, and the policy fixture at
+`tests/fixtures/installed_cli/policy.toml`. The script checks both archives
+themselves: the wheel's `METADATA` and the sdist's `PKG-INFO` must name
+`hecate-enforce` and declare the version `pyproject.toml` states. Matching is
+by exact archive path, so a vendored distribution's metadata cannot stand in.
+The script then uses the environment's own interpreter, under `-I`, to check
+`importlib.metadata`, `import hecate`, `python -m hecate --help`, and
+`hecate --help`, and finishes with `hecate check` against the fixture. A
+malformed archive that merely builds therefore fails before a tag could publish
+it.
+
+### Release tests
+
+`tests/workflow_contracts/` holds the release's tests. They run the checked-in
+step scripts against recording `gh` and `curl` stand-ins and scratch
+directories, and pin the workflow's structure:
+
+- `test_release_workflow_contract.py` checks job scopes, the `pypi`
+  environment, concurrency, job ordering, pinned action SHAs, checkout
+  settings, and the absence of `release-telemetry`.
+- `test_workflow_run_scripts.py` scans every `run` script in every workflow and
+  composite action for a pasted `${{ }}` expression.
+- `test_release_publish_steps.py`, `test_release_github_steps.py`,
+  `test_release_reconciliation.py`, and `test_release_rerun.py` execute the
+  actual step scripts and assert the reconciliation, digest checks, index
+  polling, carried-asset digests, the required bundle, and re-run behaviour.
+- `test_release_end_to_end.py` runs the whole job sequence twice, handing each
+  job the `dist` directory the previous one uploaded and comparing the bytes
+  across every hand-off: the first run publishes every name and un-drafts the
+  release, and the second uploads nothing and changes no bytes. One of its
+  tests builds the project with the workflow's own `uv build` and follows the
+  real sdist and wheel to both destinations, so the names, checksums, and
+  metadata the release reconciles are the package's own rather than
+  placeholders. Another builds a copy of the project carrying a
+  `.venv-coverage` directory, as the coverage job's checkout does, and asserts
+  that `uv build` still succeeds and that the sdist holds no virtual
+  environment. It cannot cover the hosted runner's artefact actions, Trusted
+  Publishing's OIDC exchange, or the real `gh` API; those need a tag run.
+- `test_release_assets.py` and `test_release_property.py` pin the planning,
+  digest, and bundle decisions directly, including generated combinations of
+  holdings, an interrupted upload completed by the next run, and a rerun that
+  changes nothing. Every generated pass also runs `verify`, so the properties
+  assert that the names the destinations already disagreed on are exactly the
+  ones verification reports, and that agreeing destinations block nothing.
+- `test_ci_wheel_build.py` checks the pull-request build's sdist and wheel
+  cardinality, the archive metadata (both `PKG-INFO` and `METADATA` name
+  `hecate-enforce` and declare `pyproject.toml`'s version), and the
+  clean-environment install.
+
+Run them with `uv run pytest tests/workflow_contracts`, or as part of
+`make test`. `make test-workflow-contracts` runs only the shared CV-005
+contract checker and does not execute these tests.
+
+### Repository settings
+
+Two settings are not in the repository and must exist before the first tag:
+
+- The GitHub `pypi` environment, restricted to tags matching `v*.*.*`.
+- A PyPI Trusted Publisher for the `hecate-enforce` project, naming owner
+  `leynos`, repository `hecate`, workflow `release.yml`, and environment
+  `pypi`. No API token is stored in the repository.
+
+#### Registering the project
+
+A project that does not exist on PyPI yet needs a _pending_ publisher, added at
+<https://pypi.org/manage/account/publishing/> with those same five values. PyPI
+creates the project on the first successful trusted publish; until then the
+project has no page and its Simple index answers `404`. An existing project
+adds the publisher under its _Publishing_ settings instead.
+
+A `404` from `https://pypi.org/simple/hecate-enforce/` does not prove that the
+name is claimable. The workflow treats it as an empty listing so a first
+release can proceed, but the same response can be a transient CDN miss, or
+describe a project whose publisher names a different repository, workflow, or
+environment. Before the first tag, confirm the name's state in the PyPI web
+interface and re-check the publisher tuple; do not treat the workflow's `404`
+handling as a collision check or as evidence that the publisher is configured
+correctly.
+
+The `hecate-enforce` name was unregistered on PyPI when this pipeline was
+adopted; the `hecate` name belongs to an unrelated third-party library, which
+is why the distribution is named differently from the import package.
+
+### Release notes
+
+There is no `CHANGELOG.md`. The GitHub Release's generated notes list the
+merged pull requests, and `docs/migration-hecate.md` records the changes a
+consumer must act on. The pipeline writes no telemetry beyond GitHub's run
+history and the attestation store.
 
 ## Duplication gate
 

@@ -85,7 +85,7 @@ build: .venv ## Build virtual-env and install deps
 
 build-release: ## Build artefacts (sdist & wheel)
 	$(call ensure_uv)
-	$(UV_ENV) $(UV) run python -m build --sdist --wheel
+	$(UV_ENV) $(UV) build --out-dir dist
 
 clean: ## Remove build artifacts
 	rm -rf build dist *.egg-info \
