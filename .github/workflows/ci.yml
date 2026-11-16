@@ -67,7 +67,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git --include-untracked`;
         # this pins the version the estate formats with.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@a0519a1476ab769ca7b8badfa794f3751213f1ea
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
         with:
           version: "0.6.1"
 
@@ -91,10 +91,10 @@ jobs:
         run: make lint
 
       - name: Dead-code gate
-        uses: leynos/shared-actions/.github/actions/df12-skylos@a0519a1476ab769ca7b8badfa794f3751213f1ea
+        uses: leynos/shared-actions/.github/actions/df12-skylos@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
 
       - name: Duplication gate
-        uses: leynos/shared-actions/.github/actions/df12-duplication@a0519a1476ab769ca7b8badfa794f3751213f1ea
+        uses: leynos/shared-actions/.github/actions/df12-duplication@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
 
       - name: Run typechecker
         run: make typecheck
@@ -108,7 +108,7 @@ jobs:
       # published.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@a0519a1476ab769ca7b8badfa794f3751213f1ea
+        uses: leynos/shared-actions/.github/actions/generate-coverage@1123a35f1cc7810f65bfffa5ea4c8b981d6c0090
         with:
           language: python
           python-source: ./hecate
