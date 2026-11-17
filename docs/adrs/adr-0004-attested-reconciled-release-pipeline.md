@@ -304,6 +304,10 @@ diagnostic is not a bare `echo`. Those are content checks, so
 `tests/workflow_contracts/test_release_report_behaviour.py` also sources the
 helper in a scratch directory and runs it, asserting on the real standard
 output, standard error, and summary a step produces.
+`tests/workflow_contracts/test_release_stage_fetch.py` goes one level further:
+it runs `publish-release`'s download step itself against a stand-in `curl`, and
+asserts that a `404` after a `200` is recorded as `4xx` and fails the step,
+while an empty fetch list is recorded as `none` and succeeds.
 
 This is not the `release-telemetry` action the next section rejects. It adds no
 action to the release path, sends nothing to a service, and its records are the
