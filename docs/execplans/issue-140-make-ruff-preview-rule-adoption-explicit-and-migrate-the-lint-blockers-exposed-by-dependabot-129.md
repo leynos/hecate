@@ -1624,3 +1624,44 @@ decision. Convergence itself is satisfied on its own terms — zero unresolved
 threads of fourteen, and a reviewer statement that nothing substantive remains.
 The mechanical artefact cannot be cleared by this agent, because dismissing
 another account's review is not within its authority.
+
+Revision 18: main advanced from `d0a4e3b` to `bba86f8` while the approval
+exchange was open, so the branch was rebased a second time, all 59 commits
+replayed, and every gate re-run on the result. Two things came out of it that
+the plan did not anticipate, and both matter beyond this branch.
+
+The gates moved out of the repository. The duplication gate is no longer
+`scripts/nose_detector.py` driven by a local schema; it is the installed
+`df12-duplication` command from `df12-python-lints`, configured by
+`[tool.nose]` and `[tool.duplication_gate]`. The dead-code gate likewise became
+the installed `df12-skylos` command, configured by `[tool.df12_skylos]`.
+`make lint` is now `lint: lint-python skylos duplication interrogate`, and
+`interrogate` is a fourth blocking gate this branch had never seen. Two of this
+branch's earlier commits edited files main deleted outright —
+`scripts/nose_schema.py`, `scripts/nose_detector.py`,
+`scripts/tests/test_duplication_gate_*`, `tests/test_skylos_*` — so those
+resolved as `git rm` after confirming the surviving files in each commit kept
+their changes. The ADR needed care for the same reason: main added an addendum
+describing the central `df12-skylos` command that supersedes the local-helper
+prose this branch had been editing, and both the new addendum and this branch's
+addendum on preview-rule selection had to survive. The ADR now carries four
+addenda in chronological order.
+
+The suppression contract caught main. `cfec9d1` added
+`tests/test_makeutil_ci_contract.py` with two bare `noqa` comments (`S404` and
+`S603`). Nothing on main objected, because main has no reader for suppression
+spelling. This branch does: `test_every_suppression_names_codes_and_a_reason`
+reads every Python file the gate lints, so the rebased tree failed with both
+lines reported — `noqa` is read by every tool rather than being this project's
+decision, and neither comment stated a rationale. That is the contract working
+as designed on material it had never seen, which is the strongest evidence in
+this plan that the boundary is real rather than a restatement of what the
+branch happened to contain. Both comments now read
+`ruff: ignore[CODE]  # reason` and the suite passes over the whole tree.
+
+The final gate set on `e638d2a` is green: `check-fmt`, `markdownlint`, `nixie`,
+`typecheck`, `make lint` (ruff, Pylint 10.00/10,
+`skylos gate passed (skylos 4.33.2 under Python 3.14+)`,
+`duplication gate passed (nose 0.20.0); 5 allowed by reasoned exceptions`,
+interrogate `RESULT: PASSED (minimum: 100.0%, actual: 100.0%)`) and `make test`
+at 755 passed.
