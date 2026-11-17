@@ -1491,9 +1491,12 @@ or release body appears in a record. The design rationale is in
 
 ### Re-running a release
 
-Pushing the same tag again is safe. Each filename's canonical bytes are taken
-from PyPI first, then from the GitHub Release, then from this run, and each
-destination is sent only the names it lacks. A complete second run uploads
+Re-running the release workflow is safe: use **Re-run all jobs** on the failed
+run, or `gh run rerun <run-id>`, so the new attempt runs against the same tag.
+Pushing that tag again changes no ref and therefore starts no run; only a tag
+pushed at a different commit triggers one. Each filename's canonical bytes are
+taken from PyPI first, then from the GitHub Release, then from this run, and
+each destination is sent only the names it lacks. A complete second run uploads
 nothing, adds no second bundle, and overwrites nothing. If the two destinations
 already disagree on a name, `publish-release` fails and the release stays a
 draft; recovery is manual, by deleting the offending GitHub Release asset
