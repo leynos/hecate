@@ -210,7 +210,7 @@ upload to the GitHub Release; that stays entirely in `draft-release` and
 names owner `leynos`, repository `hecate`, workflow `release.yml`, and
 environment `pypi`, so an upload from any other workflow or environment is
 refused. Both settings are prerequisites of the first tag and are recorded in
-the [developer guide](developers-guide.md#publishing-a-release).
+the [developer guide](../developers-guide.md#publishing-a-release).
 
 ### The Simple index lookup
 
