@@ -1,10 +1,21 @@
 # Hecate migration notes
 
-These notes record the user-facing changes in the next pre-1.0 minor release,
-relative to 0.1.0. The release introduces coverage reporting, strict mode, and
-warning-level dependency directions in `hecate check`, and corrects re-export
-and `__all__` semantics. Projects already running `hecate check` should read
-this document before refreshing a policy or a gate that consumes Hecate output.
+These notes record the user-facing changes in Hecate 0.2.0, the next pre-1.0
+minor release, relative to 0.1.0. The release introduces coverage reporting,
+strict mode, and warning-level dependency directions in `hecate check`, and
+corrects re-export and `__all__` semantics. Projects already running
+`hecate check` should read this document before refreshing a policy or a gate
+that consumes Hecate output.
+
+Hecate is published to PyPI as **`hecate-enforce`**, because the `hecate`
+distribution name belongs to an unrelated third-party library. Install it with
+`pip install hecate-enforce` or `uv add hecate-enforce`; the installed command
+is still `hecate`, and the import package is still `hecate`.
+
+Projects that pin Hecate through a Git or direct-URL requirement must rename
+that requirement from `hecate` to `hecate-enforce`, then refresh their
+lockfile. Installers reject a requirement whose name differs from the built
+distribution's metadata name.
 
 ## Coverage reporting
 

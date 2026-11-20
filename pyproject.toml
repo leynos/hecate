@@ -1,7 +1,7 @@
 [project]
-name = "hecate"
-version = "0.1.0"
-description = "hecate package"
+name = "hecate-enforce"
+version = "0.2.0"
+description = "Enforce hexagonal architecture boundaries in Python packages"
 readme = "README.md"
 requires-python = ">=3.14"
 license = { text = "ISC" }
@@ -383,6 +383,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["hecate"]
+
+[tool.hatch.build.targets.sdist]
+# A source distribution must never carry a virtual environment. CI creates
+# `.venv-coverage` inside the checkout, and a venv's `bin/python` is an
+# absolute symlink. `uv build` builds the sdist first and then unpacks it to
+# build the wheel from it, and it refuses an archive holding such a link, so a
+# venv inside the sdist breaks the build rather than merely enlarging it.
+exclude = ["/.venv*", "/venv*"]
 
 [tool.hecate]
 root_packages = ["hecate"]

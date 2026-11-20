@@ -6,6 +6,11 @@ diagnostics for dependency-direction drift.
 
 ## Running checks
 
+Hecate is published to PyPI as **`hecate-enforce`**, because the `hecate`
+distribution name belongs to an unrelated third-party library. Install it with
+`pip install hecate-enforce` or `uv add hecate-enforce`; the installed command
+is still `hecate`, and the import package is still `hecate`.
+
 Run Hecate from the project root:
 
 ```bash
