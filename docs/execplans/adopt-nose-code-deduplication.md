@@ -378,7 +378,7 @@ indiscriminate abstraction or suppression.
   the documentation must say so.
 - Observation: hecate has two files numbered `adr-002-`.
   Evidence: `docs/adrs/adr-0002-adopt-the-shared-cv005-contract-library.md` and
-  `docs/adrs/adr-0002-four-tier-python-linting.md` coexist. Impact: the next
+  `docs/adrs/adr-0005-four-tier-python-linting.md` coexist. Impact: the next
   free identifier is `adr-003`, which sidesteps the existing collision rather
   than extending it, and the collision is noted in the pull request rather than
   silently fixed.

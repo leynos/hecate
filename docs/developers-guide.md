@@ -18,7 +18,7 @@ analysis can and cannot know.
 - [ADR 001](adrs/adr-0001-stdlib-ast-import-engine.md) records why the standard
   library `ast` module is the v1 engine, and catalogues its limitations.
 - [ADR 002: four-tier Python commit-gate linting](
-  adrs/adr-0002-four-tier-python-linting.md) records the lint tiers and the
+  adrs/adr-0005-four-tier-python-linting.md) records the lint tiers and the
   Skylos dead-code gate.
 - [ADR 002: adopt the shared CV-005 contract library](
   adrs/adr-0002-adopt-the-shared-cv005-contract-library.md) records the
