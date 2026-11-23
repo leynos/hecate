@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import shlex
 import shutil
-import subprocess  # noqa: S404 - contract tests invoke fixed local tools.
+import subprocess  # ruff: ignore[S404]  # Contract tests run fixed local tools.
 import typing as typ
 from pathlib import Path
 
@@ -47,7 +47,7 @@ def _executable_path(name: str) -> str:
 
 def _makefile_report() -> dict[str, object]:
     """Return Makeutil's complete, successfully parsed Makefile report."""
-    completed = subprocess.run(  # noqa: S603 - fixed parser command.
+    completed = subprocess.run(  # ruff: ignore[S603]  # Fixed parser command.
         (_executable_path("makeutil"), "parse", "Makefile"),
         capture_output=True,
         check=True,

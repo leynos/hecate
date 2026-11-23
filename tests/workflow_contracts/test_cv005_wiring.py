@@ -14,7 +14,7 @@ Run via ``make test``.
 from __future__ import annotations
 
 import re
-import subprocess  # noqa: S404  # The wiring is read from make -n.
+import subprocess  # ruff: ignore[S404]  # The wiring is read from make -n.
 import tomllib
 from pathlib import Path
 
@@ -45,8 +45,8 @@ def _make_n(target: str) -> str:
     runs ``cv005-contracts check --repository .``, followed by the remaining
     pytest contracts.
     """
-    result = subprocess.run(  # noqa: S603  # Fixed argument list, no shell.
-        ["make", "-n", target],  # noqa: S607  # make comes from PATH, as in the gate.
+    result = subprocess.run(  # ruff: ignore[S603]  # Fixed argument list, no shell.
+        ["make", "-n", target],  # ruff: ignore[S607]  # make comes from PATH, as in the gate.
         cwd=ROOT,
         capture_output=True,
         text=True,
