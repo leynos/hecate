@@ -1,4 +1,6 @@
-# Architectural decision record (ADR) 002: four-tier Python commit-gate linting
+# Architectural decision record (ADR) 0005: four-tier Python commit-gate linting
+
+Renumbered from 0002 on 2026-11-23 (duplicate number).
 
 ## Status
 
