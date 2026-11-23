@@ -17,7 +17,7 @@ analysis can and cannot know.
   that apply to every change. This guide does not restate them.
 - [ADR 001](adrs/adr-0001-stdlib-ast-import-engine.md) records why the standard
   library `ast` module is the v1 engine, and catalogues its limitations.
-- [ADR 002: four-tier Python commit-gate linting](
+- [ADR 0005: four-tier Python commit-gate linting](
   adrs/adr-0005-four-tier-python-linting.md) records the lint tiers and the
   Skylos dead-code gate.
 - [ADR 002: adopt the shared CV-005 contract library](
@@ -30,8 +30,8 @@ analysis can and cannot know.
   Markdown, and diagram conventions.
 - [Scripting standards](scripting-standards.md) covers `uv`-scripted tooling.
 
-There are two ADR 002 files, for unrelated decisions. That collision is
-deliberate for now and changes nothing about how either is referenced.
+ADR 0002 and ADR 0005 record unrelated decisions. The latter was renumbered
+from 0002 to remove a duplicate number.
 
 ## Architecture
 
