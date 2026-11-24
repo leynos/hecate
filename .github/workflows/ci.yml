@@ -54,7 +54,7 @@ jobs:
           path: |
             .uv-cache
             .uv-tools
-          key: uv-envs-${{ runner.os }}-${{ hashFiles('uv.lock', 'Makefile', 'scripts/*.py') }}
+          key: uv-envs-${{ runner.os }}-${{ hashFiles('uv.lock', 'Makefile') }}
           restore-keys: |
             uv-envs-${{ runner.os }}-
 

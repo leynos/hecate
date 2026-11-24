@@ -41,7 +41,7 @@ class TestCiCacheContract:
         """The uv cache key must invalidate when a tool pin moves."""
         key = cache_key(cache_step(UV_CACHE_STEP))
         assert "hashFiles(" in key, f"the uv cache key must hash inputs, got {key!r}"
-        for hashed in ("uv.lock", "Makefile", "scripts/*.py"):
+        for hashed in ("uv.lock", "Makefile"):
             assert hashed in key, (
                 f"the uv cache key must hash {hashed!r}, which pins tool "
                 f"versions the cached environments depend on; got {key!r}"

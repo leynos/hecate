@@ -1129,30 +1129,31 @@ Several gates also need external tools that `make build` does **not** install.
 For the local ones the `Makefile` checks `PATH` and fails with a clear message
 when a tool is missing:
 
-| Tool                | Used by                                  | Checked by the Makefile      |
-| ------------------- | ---------------------------------------- | ---------------------------- |
-| `mdtablefix`        | `make fmt`, `make check-fmt`             | yes                          |
-| `markdownlint-cli2` | `make fmt`, `make markdownlint`          | yes                          |
-| `nixie`             | `make nixie`                             | yes                          |
-| `typos`             | `make spelling`                          | no, pinned via `uv tool run` |
-| `mbake`             | CI's `mbake validate Makefile` step only | not used locally             |
+| Tool                   | Used by                                  | Checked by the Makefile      |
+| ---------------------- | ---------------------------------------- | ---------------------------- |
+| `mdtablefix`           | `make fmt`, `make check-fmt`             | yes                          |
+| `markdownlint-cli2`    | `make fmt`, `make markdownlint`          | yes                          |
+| `nixie`                | `make nixie`                             | yes                          |
+| `typos-config-builder` | `make spelling`                          | no, pinned via `uv tool run` |
+| `mbake`                | CI's `mbake validate Makefile` step only | not used locally             |
 
 _Table 4: External tools not installed by `make build`._
 
 `mdtablefix` must be version 0.6.1 or later, because both formatting modes use
-`--git` and `--include-untracked`. `make spelling` does not require a `typos`
-installation at all: the target runs `uv tool run typos@$(TYPOS_VERSION)`, so
-the version in the `Makefile` is the version that runs.
+`--git` and `--include-untracked`. `make spelling` does not require a `typos` or
+`typos-config-builder` installation at all: the target runs
+`uv tool run typos-config-builder` at the release in
+`TYPOS_CONFIG_BUILDER_VERSION` under **Python 3.14**, so the version in the
+`Makefile` is the version that runs.
 
 The Python-version split across the tooling is deliberate. The project and both
 coverage lanes use **Python 3.14**, matching `requires-python`. The shared
 CV-005 contract library runs under **Python 3.13**, pinned in the `Makefile`,
-because it is a separately versioned package with its own floor. The
-spelling-helper tooling under `scripts/` is also **Python 3.13**: its Ruff pass
-uses `--target-version py313` and its pytest run uses `--python 3.13`. Pylint
-runs on managed **PyPy 3.12**, and Skylos runs under **Python 3.14** so that
-its own runtime AST can parse the project's newer syntax. A version change in
-one of these lanes therefore does not imply a change in the others.
+because it is a separately versioned package with its own floor. The spelling
+gate runs under **Python 3.14**. Pylint runs on managed **PyPy 3.12**, and
+Skylos runs under **Python 3.14** so that its own runtime AST can parse the
+project's newer syntax. A version change in one of these lanes therefore does
+not imply a change in the others.
 
 ### Building
 
@@ -1361,18 +1362,14 @@ the ignores and `"gitignore": true`.
 
 ### Spelling and new documents
 
-`make spelling` depends on `make spelling-helper-test`, which validates the
-shared spelling-policy tooling in `scripts/` before the dictionary is used. The
-main target then regenerates `typos.toml` from the shared en-GB-oxendict
-dictionary by running `scripts/generate_typos_config.py`, and runs the pinned
-`typos` version over the Git-tracked Markdown files.
+`make spelling` runs the pinned `typos-config-builder gate`, which regenerates
+`typos.toml` from the shared en-GB-oxendict dictionary and `typos.local.toml`,
+then checks the Git-tracked Markdown files and the shared phrase corrections.
 
-The file selection is the important detail: the target pipes
-`git ls-files -z '*.md'` into `typos`, so **only Git-tracked Markdown is
-checked**. A new document is invisible to `make spelling` until it is staged,
-which means a spelling failure can appear for the first time during a commit
-gate on a file that passed every earlier run. Stage new documents before
-running the gate:
+The gate enumerates the Git index, so **only Git-tracked Markdown is checked**.
+A new document is invisible to `make spelling` until it is staged, which means
+a spelling failure can appear for the first time during a commit gate on a file
+that passed every earlier run. Stage new documents before running the gate:
 
 ```shell
 git add docs/new-document.md
@@ -1504,65 +1501,6 @@ copies of one predicate is a missing abstraction, and the entry then needs an
 edit rather than a wider key. Note also that a stale report does not close any
 of these. The scan is ranked and bounded, so an entry the run cannot match
 means only that its family fell outside the reported surface.
-
-### Atomic writes
-
-`scripts/atomic_write.py` is the persistence helper behind the spelling-cache
-writes in `scripts/typos_rollout.py`. It owns no caller's domain: it writes the
-complete contents to a temporary file in the destination's own directory, then
-replaces the destination with `Path.replace`, so a reader sees either the old
-file or the new one and never a partial write.
-
-`AtomicWriteOptions` is a frozen dataclass whose three fields default to:
-
-- `create_parents: bool = True`, which creates a missing destination directory
-  with `mkdir(parents=True, exist_ok=True)`;
-- `preserve_mode: bool = False`, which copies the existing destination's
-  permission bits onto the replacement; and
-- `sync_file: bool = False`, which fsyncs the temporary file before the rename
-  and the parent directory after it.
-
-The default argument is the module-level `AtomicWriteOptions()` singleton
-rather than a fresh instance constructed in the signature, so every defaulted
-call shares one immutable value.
-
-Mode preservation applies only when the destination already exists. The writer
-reads the destination's `path.stat().st_mode` before the write and `chmod`s the
-temporary file before the rename. A destination that does not exist yet gets no
-`chmod`, so the replacement keeps the mode `NamedTemporaryFile` gave it; a new
-file is created rather than treated as an error.
-
-Syncing is controlled by `sync_file`. When it is set, the writer calls
-`os.fsync` on the temporary file's descriptor after flushing, and, once
-`Path.replace` has committed the rename, opens the parent directory read-only
-and fsyncs that descriptor too. POSIX does not require `fsync` to accept a
-directory descriptor: macOS refuses one with `EINVAL` while Linux accepts it. A
-refusal with `EINVAL` or `ENOTSUP` is therefore absorbed, because the file's
-own sync has already succeeded and the rename is already committed, so
-reporting the refusal would turn a completed mutation into a failure. Any other
-error, such as `EIO`, still propagates: the caller asked for durability and did
-not get it.
-
-The temporary file is created with `delete=False` and its path recorded before
-any content is written, so a failure during the write, the flush, or the sync
-leaves a name for the cleanup block to unlink. A completed replacement has
-already moved the file, so the same `missing_ok` unlink is the success path as
-well as a retried cleanup.
-
-`scripts/typos_rollout.py` writes the generated config, the HTTP freshness
-metadata, and the cached dictionary with the defaults, so those writes create
-missing parents, do not preserve a mode, and do not fsync.
-
-### Portability
-
-The gate is POSIX-only: it uses `fcntl.flock` and POSIX directory operations.
-The supported developer workflow is POSIX or WSL, and the blocking run happens
-on Linux CI. Native Windows is not supported.
-
-`tests/toolchain_contract/` keeps the CI uv cache keyed on the files that pin
-the tool environments. Helper tests under `scripts/tests/` are not collected by
-`make test` or the coverage job; `[tool.pytest.ini_options]` sets
-`testpaths = ["tests"]` so application discovery stays within `tests/`.
 
 ______________________________________________________________________
 

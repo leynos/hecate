@@ -26,22 +26,15 @@ CV005_CONTRACTS = $(UV_ENV) $(UV) tool run --python 3.13 \
 	cv005-contracts
 
 PYTEST_XDIST_WORKERS ?= auto
-RUFF_VERSION ?= 0.15.12
-TYPOS_VERSION ?= 1.48.0
+TYPOS_CONFIG_BUILDER_VERSION ?= v0.1.4
+TYPOS_CONFIG_BUILDER = $(UV_ENV) uv tool run --python 3.14 --from \
+	"git+https://github.com/leynos/typos-config-builder.git@$(TYPOS_CONFIG_BUILDER_VERSION)" \
+	typos-config-builder
 PYTHON_TARGETS ?= hecate tests
 PYLINT_PYTHON ?= pypy@3.12
 PYLINT_VERSION ?= 4.0.9
 PYLINT_TARGETS ?= $(PYTHON_TARGETS)
 PYLINT = $(UV_ENV) $(UV) tool run --managed-python --python $(PYLINT_PYTHON) --from 'pylint==$(PYLINT_VERSION)' pylint
-
-# The gate's Python modules live in scripts/ beside the repository's other
-# tooling rather than in the hecate package, so they are linted and type
-# checked as their own targets. The directory is named whole rather than as a
-# list of modules: a hand-written list silently misses whatever is added
-# beside it, and scripts/tests/ was added without ever being formatted, linted
-# or type checked. Ruff's own extend-exclude already names the one file in
-# that directory it does not scan, so the directory is the honest unit here.
-GATE_PYTHON_TARGETS ?= scripts
 
 # The duplication gate is the installed df12-duplication command. It downloads
 # the nose release named by [tool.nose] version and verifies it against the
@@ -59,7 +52,7 @@ SKYLOS = $(UV_ENV) $(UV) tool run --python 3.14 --from \
 
 
 .PHONY: help all clean build build-release lint lint-python skylos skylos-allow fmt check-fmt \
-        markdownlint nixie spelling spelling-helper-test test typecheck \
+        markdownlint nixie spelling test typecheck \
         crosshair makeutil duplication duplication-allow $(TOOLS) $(VENV_TOOLS) test-workflow-contracts
 
 .DEFAULT_GOAL := all
@@ -123,15 +116,12 @@ endif
 fmt: build $(MDTABLEFIX) $(MDLINT) ## Format sources
 	$(UV_ENV) $(UV) run ruff format $(PYTHON_TARGETS)
 	$(UV_ENV) $(UV) run ruff check --select I --fix $(PYTHON_TARGETS)
-	$(UV_ENV) $(UV) run ruff format $(GATE_PYTHON_TARGETS)
-	$(UV_ENV) $(UV) run ruff check --select I --fix $(GATE_PYTHON_TARGETS)
 
 	$(MDTABLEFIX) --in-place $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 	$(MDLINT) --fix "**/*.md"
 
 check-fmt: build $(MDTABLEFIX) ## Verify formatting
 	$(UV_ENV) $(UV) run ruff format --check $(PYTHON_TARGETS)
-	$(UV_ENV) $(UV) run ruff format --check $(GATE_PYTHON_TARGETS)
 
 	$(MDTABLEFIX) --check $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 
@@ -139,12 +129,11 @@ lint: lint-python skylos duplication interrogate ## Run linters
 
 lint-python: build ## Run Python linters
 	$(UV_ENV) $(UV) run ruff check $(PYTHON_TARGETS)
-	$(UV_ENV) $(UV) run ruff check $(GATE_PYTHON_TARGETS)
 	$(PYLINT) $(PYLINT_TARGETS)
 
 # Interrogate scans each target recursively, subject to its default exclusions.
 INTERROGATE_VERSION ?= 1.7.0
-INTERROGATE_TARGETS ?= $(PYTHON_TARGETS) $(GATE_PYTHON_TARGETS)
+INTERROGATE_TARGETS ?= $(PYTHON_TARGETS)
 # Level 2 prints a MISSED row per undocumented definition, which the
 # `interrogate` recipe below looks for: the rounded percentage alone can pass a
 # lone gap.
@@ -178,33 +167,12 @@ skylos-allow: ## Document one named Skylos exception (SYMBOL=name REASON=text)
 typecheck: build ## Run typechecking
 	$(UV_ENV) $(UV) run ty --version
 	$(UV_ENV) $(UV) run ty check $(PYTHON_TARGETS)
-	$(UV_ENV) $(UV) run ty check $(GATE_PYTHON_TARGETS)
 
 markdownlint: spelling $(MDLINT) ## Lint Markdown files and enforce spelling
 	env -u NO_COLOR $(MDLINT) '**/*.md'
 
-spelling: spelling-helper-test ## Enforce en-GB-oxendict spelling in Markdown prose
-	@$(UV_ENV) $(UV) run scripts/generate_typos_config.py
-	@git ls-files -z '*.md' | \
-		xargs -0 -r env $(UV_ENV) $(UV) tool run typos@$(TYPOS_VERSION) \
-		--config typos.toml --force-exclude
-
-spelling-helper-test: ## Validate the shared spelling-policy integration
-	@$(UV_ENV) $(UV) tool run ruff@$(RUFF_VERSION) format --isolated \
-		--target-version py313 --check scripts/generate_typos_config.py \
-		scripts/typos_rollout.py scripts/typos_rollout_cache.py \
-		scripts/tests/test_typos_rollout.py
-	@$(UV_ENV) $(UV) tool run ruff@$(RUFF_VERSION) check --isolated \
-		--target-version py313 scripts/generate_typos_config.py \
-		scripts/typos_rollout.py scripts/typos_rollout_cache.py \
-		scripts/tests/test_typos_rollout.py
-	@PYTHONPATH=scripts $(UV_ENV) $(UV) run --no-project --python 3.13 \
-		--with pytest==9.0.2 --with pytest-cov==7.0.0 \
-		python -m pytest scripts/tests/test_typos_rollout.py \
-		scripts/tests/test_atomic_write.py \
-		-c /dev/null --rootdir=. -p no:cacheprovider \
-		--cov=generate_typos_config --cov=typos_rollout \
-		--cov=typos_rollout_cache --cov=atomic_write --cov-fail-under=90
+spelling: ## Enforce en-GB-oxendict spelling in prose
+	$(TYPOS_CONFIG_BUILDER) gate --repository .
 
 duplication: ## Run the blocking code-duplication gate
 	$(DUPLICATION) install
