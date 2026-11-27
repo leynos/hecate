@@ -1,33 +1,42 @@
-name: Build Pure Python Wheel
-description: Builds a pure Python wheel using UV and uploads it as an artifact.
+---
+name: Build Pure Python Wheel and Sdist
+description: >-
+  Builds the source distribution and, from it, the pure Python wheel using uv,
+  then uploads both as one artefact.
 inputs:
   python-version:
     description: Python version to set up
     required: true
-  out-dir:
-    description: Directory to place built wheel
-    required: false
-    default: dist
   artifact-name:
-    description: Name of the uploaded artifact
+    description: Name of the uploaded artefact
     required: true
 runs:
   using: composite
   steps:
-    - uses: actions/checkout@v7
-      with:
-        fetch-depth: 0
+    # The caller checks the repository out: a local action has to be on disk
+    # before GitHub can resolve it, so this step cannot be the first one.
     - name: Set up Python
-      uses: actions/setup-python@v7
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
       with:
         python-version: ${{ inputs.python-version }}
     - name: Install uv
-      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
-    - name: Build wheel
+      uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2  # v10.3.3
+      with:
+        enable-cache: false
+    # Without --sdist or --wheel, uv builds the sdist first and then the wheel
+    # from that sdist, so every run also proves the sdist is buildable. The
+    # directory is fixed rather than an input: the upload's `path` must be
+    # decidable from the document alone.
+    - name: Build sdist and wheel
       shell: bash
-      run: uv build --wheel --out-dir ${{ inputs.out-dir }}
-    - name: Upload wheel artifact
-      uses: actions/upload-artifact@v7
+      run: |
+        set -euo pipefail
+        uv build --out-dir dist
+    - name: Upload sdist and wheel artefact
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: ${{ inputs.artifact-name }}
-        path: ${{ inputs.out-dir }}/*.whl
+        path: |
+          dist/*.whl
+          dist/*.tar.gz
+        if-no-files-found: error
