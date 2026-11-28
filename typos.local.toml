@@ -13,7 +13,9 @@ accepted = ["artifact", "Astroid", "Flavored"]
 
 [patterns]
 # `act` exposes this literal command-line flag with US spelling.
-ignore = ["--artifact-server-path"]
+# The vendored uv_gate.py lists uv's short flags (-U, -P, -n) as the string
+# "UPn"; the file is byte-for-byte canonical, so exempt that one line.
+ignore = ["--artifact-server-path", '(?m)^FORBIDDEN_SHORT = "UPn"$']
 
 [files]
 exclude = []

@@ -10,20 +10,31 @@ MDTABLEFIX_RULES = --wrap --renumber --breaks --ellipsis --fences
 NIXIE ?= nixie
 export PATH := $(HOME)/.local/bin:$(HOME)/.bun/bin:$(PATH)
 UV ?= $(shell command -v uv 2>/dev/null || printf '%s/.local/bin/uv' "$$HOME")
+# Every uv call but the spelling builder's goes through the vendored helper,
+# which cleans the environment, uses the global uv cache, runs offline first and
+# goes online at most once. The builder runs directly at its release tag,
+# because the spelling baseline requires that form and the helper accepts only
+# a full commit. See
+# https://github.com/leynos/shared-actions/tree/main/uv_gate for the contract.
+# `scripts/uv_gate.py` is the shared-actions helper, vendored byte for byte, so
+# update it by copying the canonical file, never by editing it here. The helper
+# finds uv on PATH (outside ~/.lody, which it removes), so there is no UV
+# override: put the uv you want first. It needs python3 3.9 or newer. A uv
+# that reports only `Git operation failed` for a Git source missing from the
+# cache is not retried online: warm the cache once with `uv tool run`.
+UV_GATE ?= python3 scripts/uv_gate.py
 USER_CARGO := $(HOME)/.cargo/bin/cargo
 USER_WHITAKER := $(HOME)/.local/bin/whitaker
 USER_BIN_PATH := $(HOME)/.cargo/bin:$(HOME)/.local/bin:$(HOME)/.bun/bin
 TOOLS = $(MDLINT) $(MDTABLEFIX)
 VENV_TOOLS = pytest
-UV_ENV = PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
+UV_ENV = PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 
 # The CV-005 CodeScene contracts live in shared-actions and run from a full
 # commit, so a fix is a pin bump. `.github/cv005.toml` holds this repository's
 # only parameters.
 CV005_CONTRACTS_REF ?= 88977798a5c3bae1549afb99642529488c665276
-CV005_CONTRACTS = $(UV_ENV) $(UV) tool run --python 3.13 \
-	--from 'git+https://github.com/leynos/shared-actions@$(CV005_CONTRACTS_REF)\#subdirectory=packages/cv005-contracts' \
-	cv005-contracts
+CV005_CONTRACTS = $(UV_ENV) $(UV_GATE) tool --python 3.13 --from 'git+https://github.com/leynos/shared-actions@$(CV005_CONTRACTS_REF)\#subdirectory=packages/cv005-contracts' -- cv005-contracts
 
 PYTEST_XDIST_WORKERS ?= auto
 TYPOS_CONFIG_BUILDER_VERSION ?= v0.1.4
@@ -34,21 +45,17 @@ PYTHON_TARGETS ?= hecate tests
 PYLINT_PYTHON ?= pypy@3.12
 PYLINT_VERSION ?= 4.0.9
 PYLINT_TARGETS ?= $(PYTHON_TARGETS)
-PYLINT = $(UV_ENV) $(UV) tool run --managed-python --python $(PYLINT_PYTHON) --from 'pylint==$(PYLINT_VERSION)' pylint
+PYLINT = $(UV_ENV) $(UV_GATE) tool --managed-python --python $(PYLINT_PYTHON) --from 'pylint==$(PYLINT_VERSION)' -- pylint
 
 # The duplication gate is the installed df12-duplication command. It downloads
 # the nose release named by [tool.nose] version and verifies it against the
 # digest table shipped in the package, so no nose pin lives here.
 DF12_PYTHON_LINTS_SHA = 56ad71721c3f1f2164ec84b69150582488f1a927
-DUPLICATION = $(UV_ENV) $(UV) tool run --from \
-  'df12-python-lints[duplication] @ git+https://github.com/leynos/df12-python-lints.git@$(DF12_PYTHON_LINTS_SHA)' \
-  df12-duplication
+DUPLICATION = $(UV_ENV) $(UV_GATE) tool --from 'df12-python-lints[duplication] @ git+https://github.com/leynos/df12-python-lints.git@$(DF12_PYTHON_LINTS_SHA)' -- df12-duplication
 # The dead-code gate is the installed df12-skylos command; its `skylos` extra
 # carries the one Skylos pin. Skylos parses source with its own runtime AST, so
 # the tool environment runs Python 3.14.
-SKYLOS = $(UV_ENV) $(UV) tool run --python 3.14 --from \
-  'df12-python-lints[skylos] @ git+https://github.com/leynos/df12-python-lints.git@$(DF12_PYTHON_LINTS_SHA)' \
-  df12-skylos
+SKYLOS = $(UV_ENV) $(UV_GATE) tool --python 3.14 --from 'df12-python-lints[skylos] @ git+https://github.com/leynos/df12-python-lints.git@$(DF12_PYTHON_LINTS_SHA)' -- df12-skylos
 
 
 .PHONY: help all clean build build-release lint lint-python skylos skylos-allow fmt check-fmt \
@@ -62,23 +69,11 @@ test-workflow-contracts: ## Check the CV-005 CodeScene workflow contracts
 
 all: build check-fmt lint typecheck test spelling test-workflow-contracts
 
-define ensure_uv
-	@command -v $(UV) >/dev/null 2>&1 || { \
-	  printf "Error: uv is required, but '%s' was not found or is not executable\n" "$(UV)" >&2; \
-	  exit 1; \
-	}
-endef
-
-.venv: pyproject.toml
-	$(call ensure_uv)
-	$(UV_ENV) $(UV) venv --clear
-
-build: .venv ## Build virtual-env and install deps
-	$(UV_ENV) $(UV) sync --group dev
+build: ## Build virtual-env and install deps
+	$(UV_ENV) $(UV_GATE) prepare --group dev
 
 build-release: ## Build artefacts (sdist & wheel)
-	$(call ensure_uv)
-	$(UV_ENV) $(UV) run python -m build --sdist --wheel
+	$(UV_ENV) $(UV_GATE) run -- python -m build --sdist --wheel
 
 clean: ## Remove build artifacts
 	rm -rf build dist *.egg-info \
@@ -94,7 +89,7 @@ define ensure_tool
 endef
 
 define ensure_tool_venv
-	@$(UV_ENV) $(UV) run which $(1) >/dev/null 2>&1 || { \
+	@$(UV_ENV) $(UV_GATE) run -- which $(1) >/dev/null 2>&1 || { \
 	  printf "Error: '%s' is required in the virtualenv, but is not installed\n" "$(1)" >&2; \
 	  exit 1; \
 	}
@@ -114,21 +109,21 @@ endif
 
 
 fmt: build $(MDTABLEFIX) $(MDLINT) ## Format sources
-	$(UV_ENV) $(UV) run ruff format $(PYTHON_TARGETS)
-	$(UV_ENV) $(UV) run ruff check --select I --fix $(PYTHON_TARGETS)
+	$(UV_ENV) $(UV_GATE) run -- ruff format $(PYTHON_TARGETS)
+	$(UV_ENV) $(UV_GATE) run -- ruff check --select I --fix $(PYTHON_TARGETS)
 
 	$(MDTABLEFIX) --in-place $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 	$(MDLINT) --fix "**/*.md"
 
 check-fmt: build $(MDTABLEFIX) ## Verify formatting
-	$(UV_ENV) $(UV) run ruff format --check $(PYTHON_TARGETS)
+	$(UV_ENV) $(UV_GATE) run -- ruff format --check $(PYTHON_TARGETS)
 
 	$(MDTABLEFIX) --check $(MDTABLEFIX_SELECT) $(MDTABLEFIX_RULES)
 
 lint: lint-python skylos duplication interrogate yamllint actionlint ## Run linters
 
 lint-python: build ## Run Python linters
-	$(UV_ENV) $(UV) run ruff check $(PYTHON_TARGETS)
+	$(UV_ENV) $(UV_GATE) run -- ruff check $(PYTHON_TARGETS)
 	$(PYLINT) $(PYLINT_TARGETS)
 
 # Interrogate scans each target recursively, subject to its default exclusions.
@@ -138,7 +133,7 @@ INTERROGATE_TARGETS ?= $(PYTHON_TARGETS)
 # `interrogate` recipe below looks for: the rounded percentage alone can pass a
 # lone gap.
 INTERROGATE_FLAGS ?= -vv --fail-under 100
-INTERROGATE ?= $(UV_ENV) $(UV) tool run --python 3.14 --from 'interrogate==$(INTERROGATE_VERSION)' interrogate
+INTERROGATE ?= $(UV_ENV) $(UV_GATE) tool --python 3.14 --from 'interrogate==$(INTERROGATE_VERSION)' -- interrogate
 
 # Interrogate rounds its percentage to one decimal, so `--fail-under 100` alone
 # can pass a lone gap. This recipe also fails when `grep` finds a MISSED row in
@@ -165,8 +160,8 @@ skylos-allow: ## Document one named Skylos exception (SYMBOL=name REASON=text)
 
 
 typecheck: build ## Run typechecking
-	$(UV_ENV) $(UV) run ty --version
-	$(UV_ENV) $(UV) run ty check $(PYTHON_TARGETS)
+	$(UV_ENV) $(UV_GATE) run -- ty --version
+	$(UV_ENV) $(UV_GATE) run -- ty check $(PYTHON_TARGETS)
 
 markdownlint: spelling $(MDLINT) ## Lint Markdown files and enforce spelling
 	env -u NO_COLOR $(MDLINT) '**/*.md'
@@ -211,10 +206,10 @@ makeutil: ## Verify the Makefile parser used by contract tests
 	$(call ensure_tool,$@)
 
 test: build $(VENV_TOOLS) makeutil test-workflow-contracts ## Run tests
-	$(UV_ENV) $(UV) run pytest -v -n $(PYTEST_XDIST_WORKERS)
+	$(UV_ENV) $(UV_GATE) run -- pytest -v -n $(PYTEST_XDIST_WORKERS)
 
 crosshair: build ## Run bounded CrossHair contracts
-	$(UV_ENV) $(UV) run crosshair check hecate/policy.py hecate/diagnostics.py --analysis_kind=asserts
+	$(UV_ENV) $(UV_GATE) run -- crosshair check hecate/policy.py hecate/diagnostics.py --analysis_kind=asserts
 
 
 help: ## Show available targets
