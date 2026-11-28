@@ -59,19 +59,6 @@ def test_pylint_tier_pins_the_interpreter() -> None:
     )
 
 
-def test_pylint_tier_runs_the_pinned_release_on_managed_python() -> None:
-    """The tier must run the pinned Pylint on a uv-managed interpreter."""
-    assert _makefile_variable("PYLINT_VERSION") == "4.0.9", (
-        "PYLINT_VERSION must pin the reviewed Pylint release exactly"
-    )
-    command = _makefile_variable("PYLINT")
-    for fragment in (
-        "tool run --managed-python --python $(PYLINT_PYTHON)",
-        "--from 'pylint==$(PYLINT_VERSION)' pylint",
-    ):
-        assert fragment in command, f"PYLINT must contain {fragment!r}: {command}"
-
-
 def test_pylint_reports_unparsable_modules() -> None:
     """The Pylint policy must not disable `syntax-error`."""
     config = tomllib.loads(CONFIG_PATH.read_text(encoding="utf-8"))

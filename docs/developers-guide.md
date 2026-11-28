@@ -1529,3 +1529,15 @@ change what the lint reports). CI installs the same pinned versions with the
 `install-yaml-lint` action of `leynos/shared-actions` before it runs
 `make lint`. The `YAMLLINT` and `ACTIONLINT` variables name the commands when
 they are not on `PATH`.
+
+## The vendored uv helper
+
+Every other uv call goes through the vendored `scripts/uv_gate.py` helper
+(`UV_GATE`), which `make` runs with `python3` 3.9 or newer. It finds `uv` on
+`PATH` (outside `~/.lody`), uses the global uv cache and runs offline first
+with at most one online attempt; there is no `UV` override. `make build` runs
+`prepare`, so a stale `uv.lock` fails the build instead of being rewritten.
+`scripts/uv_gate.py` is the shared-actions helper copied byte for byte: update
+it by copying the canonical file, never by editing it. A `uv` that reports only
+`Git operation failed` for a Git source missing from the cache is not retried
+online by the helper: warm the cache once with `uv tool run` on that source.
