@@ -1541,3 +1541,5 @@ with at most one online attempt; there is no `UV` override. `make build` runs
 it by copying the canonical file, never by editing it. A `uv` that reports only
 `Git operation failed` for a Git source missing from the cache is not retried
 online by the helper: warm the cache once with `uv tool run` on that source.
+The helper was verified here with uv 0.13.7, which names the offline reason for
+a cold cache; an older uv needs that warm-up before the first `make` run.
